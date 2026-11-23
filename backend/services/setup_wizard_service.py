@@ -453,19 +453,28 @@ def apply_setup_wizard_payload(
     effective_fqdn = ""
     if fqdn_mode == "nornia_cloud" and sub_clean:
         effective_fqdn = f"{sub_clean}.nornia.com.tr"
-        settings_db["autoprovision_network"]["wan_sip_host"] = ""
-        settings_db["autoprovision_network"]["wan_prov_base"] = ""
+        settings_db["autoprovision_network"]["wan_sip_host"] = effective_fqdn
+        settings_db["autoprovision_network"]["wan_prov_base"] = f"http://{effective_fqdn}"
         try:
             from backend.services.ras_client_service import get_ras_config, save_ras_config
             rc = dict(get_ras_config() or {})
             rc["subdomain"] = sub_clean
             rc["hub_url"] = hub_url
+            rc["enabled"] = True
             if hub_secret:
                 rc["secret_token"] = hub_secret
-                rc["enabled"] = True
-            save_ras_config(rc)
+            elif lic_key and not rc.get("secret_token"):
+                rc["secret_token"] = lic_key
+            settings_db["ras_config"] = rc
+            save_ras_config(rc, persist=False, reconnect=True)
         except Exception:
-            pass
+            settings_db["ras_config"] = {
+                "enabled": True,
+                "hub_url": hub_url,
+                "subdomain": sub_clean,
+                "secret_token": hub_secret or lic_key,
+                "auto_reconnect": True,
+            }
     elif fqdn_mode == "custom_fqdn" and custom_dom:
         effective_fqdn = custom_dom
         settings_db["autoprovision_network"]["wan_sip_host"] = custom_dom
@@ -652,9 +661,26 @@ def apply_setup_wizard_payload(
     if "users" not in settings_db or not isinstance(settings_db.get("users"), list):
         settings_db["users"] = []
 
+    # Strip any legacy placeholder seed accounts (200/Anıl Acar, 201/Can Yılmaz) that were not explicitly created
+    def _is_legacy_seed_user(u: dict) -> bool:
+        if not isinstance(u, dict):
+            return False
+        ext = str(u.get("extension") or "").strip()
+        email = str(u.get("email") or "").strip().lower()
+        name = str(u.get("full_name") or "").strip().lower()
+        return (
+            (ext == "200" and (email in ("anil@company.com", "anl.acr@gmail.com") or name == "anıl acar"))
+            or (ext == "201" and (email == "can@company.com" or name == "can yılmaz"))
+        )
+
+    settings_db["users"] = [u for u in settings_db["users"] if not _is_legacy_seed_user(u)]
+
     admin_record = None
     for u in settings_db["users"]:
-        if isinstance(u, dict) and (str(u.get("username") or "").lower() == "admin" or str(u.get("role") or "").lower() == "admin"):
+        if isinstance(u, dict) and (
+            str(u.get("username") or "").lower() == "admin"
+            or str(u.get("extension") or "").lower() == "admin"
+        ):
             admin_record = u
             break
 
@@ -666,18 +692,17 @@ def apply_setup_wizard_payload(
             "email": new_admin_email or "admin@localhost",
             "password": new_admin_pwd or "admin",
             "role": "admin",
-            "extension": "",
+            "extension": "admin",
             "is_active": True,
             "tenant_id": "tenant-default",
         }
         settings_db["users"].insert(0, admin_record)
     else:
-        admin_record["username"] = str(admin_record.get("username") or "admin")
+        admin_record["username"] = "admin"
+        admin_record["extension"] = "admin"
         admin_record["role"] = "admin"
         admin_record["is_active"] = True
-        if new_admin_name and new_admin_name != "Sistem Yöneticisi":
-            admin_record["full_name"] = new_admin_name
-        elif not admin_record.get("full_name"):
+        if new_admin_name:
             admin_record["full_name"] = new_admin_name
         if new_admin_pwd:
             admin_record["password"] = new_admin_pwd
@@ -689,6 +714,14 @@ def apply_setup_wizard_payload(
         from backend.database.config import SyncSessionLocal
         from backend.database.models import SystemUser
         with SyncSessionLocal() as sess:
+            # Remove legacy placeholder rows from PostgreSQL if present
+            for legacy_row in sess.query(SystemUser).filter(SystemUser.extension.in_(["200", "201"])).all():
+                if _is_legacy_seed_user({
+                    "extension": legacy_row.extension,
+                    "email": legacy_row.email,
+                    "full_name": legacy_row.full_name,
+                }):
+                    sess.delete(legacy_row)
             adm = sess.query(SystemUser).filter(
                 or_(SystemUser.extension == "admin", SystemUser.role == "admin")
             ).first()
@@ -697,8 +730,9 @@ def apply_setup_wizard_payload(
                     adm.password = new_admin_pwd
                 if new_admin_email:
                     adm.email = new_admin_email
-                if new_admin_name and (not adm.full_name or new_admin_name != "Sistem Yöneticisi"):
+                if new_admin_name:
                     adm.full_name = new_admin_name
+                adm.extension = "admin"
                 adm.role = "admin"
                 adm.is_active = True
                 sess.commit()
@@ -773,6 +807,7 @@ def apply_setup_wizard_payload(
         "admin_account": safe_admin_obj,
         "password_set": bool(new_admin_pwd),
         "steps": steps_log,
+        "fqdn": settings_db["fqdn"],
         "created_extensions": created_exts,
         "datetime": dt_res,
         "provisioning": {

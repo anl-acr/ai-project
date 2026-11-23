@@ -1545,26 +1545,7 @@ DEFAULT_SETTINGS = {
         ]
     },
     "announcements": [],
-    "users": [
-        {
-            "id": 1,
-            "full_name": "Anıl Acar",
-            "email": "anil@company.com",
-            "extension": "200",
-            "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=Anil",
-            "role": "admin",
-            "is_active": True
-        },
-        {
-            "id": 2,
-            "full_name": "Can Yılmaz",
-            "email": "can@company.com",
-            "extension": "201",
-            "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=Can",
-            "role": "agent",
-            "is_active": True
-        }
-    ],
+    "users": [],
     "roles": [
         {
             "id": 1,
@@ -3417,13 +3398,24 @@ async def get_system_overview(request: Request):
     try:
         from backend.services.ras_client_service import get_ras_config, RAS_RUNTIME_STATE, _compute_public_ras_urls
         ras_cfg = get_ras_config()
+        fqdn_cfg = current.get("fqdn") if isinstance(current.get("fqdn"), dict) else {}
+        fqdn_mode = str(fqdn_cfg.get("mode") or "").strip().lower()
+        fqdn_sub = str(fqdn_cfg.get("subdomain") or "").strip().lower()
+        fqdn_eff = str(fqdn_cfg.get("effective_fqdn") or "").strip()
+
+        eff_sub = str(ras_cfg.get("locked_subdomain") or ras_cfg.get("subdomain") or "").strip().lower()
+        if (not eff_sub or eff_sub == "merkez") and fqdn_mode == "nornia_cloud" and fqdn_sub:
+            eff_sub = fqdn_sub
+
         ras_connected = bool(RAS_RUNTIME_STATE.get("connected"))
-        urls = _compute_public_ras_urls(ras_cfg.get("hub_url", ""), ras_cfg.get("subdomain", ""))
+        urls = _compute_public_ras_urls(ras_cfg.get("hub_url", ""), eff_sub)
         public_ras_url = RAS_RUNTIME_STATE.get("public_ras_url") or urls.get("public_ras_url") or ""
         if public_ras_url:
             nornia_fqdn = public_ras_url.replace("https://", "").replace("http://", "").strip("/")
-        elif ras_cfg.get("subdomain"):
-            nornia_fqdn = f"{ras_cfg.get('subdomain')}.nornia.com.tr"
+        elif fqdn_mode == "custom_fqdn" and fqdn_eff and "." in fqdn_eff:
+            nornia_fqdn = fqdn_eff
+        elif eff_sub:
+            nornia_fqdn = f"{eff_sub}.nornia.com.tr"
     except Exception:
         pass
 

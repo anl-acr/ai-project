@@ -726,31 +726,62 @@ export default function SetupWizardPage() {
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center justify-end gap-2.5 pt-2">
-                <button
-                  type="button"
-                  onClick={() => router.replace("/login")}
-                  className="px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                >
-                  Giriş Ekranına Git (/login)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (completedResult.admin_account) {
-                      persistAuthenticatedSession("admin", true, completedResult.admin_account);
-                      try {
-                        sessionStorage.setItem("aida_just_logged_in", "1");
-                      } catch (e) {}
-                    }
-                    router.replace("/");
-                  }}
-                  className={`inline-flex items-center gap-2 px-6 py-3 rounded-2xl ${bg} ${hover} text-white text-xs font-extrabold shadow-md transition cursor-pointer`}
-                >
-                  <span>admin ile Yönetim Paneline Geç</span>
-                  <ArrowRight size={15} />
-                </button>
-              </div>
+              {(() => {
+                const resFqdn = completedResult.fqdn || {};
+                const resMode = resFqdn.mode || fqdnMode;
+                const effHost =
+                  resMode === "nornia_cloud"
+                    ? (resFqdn.effective_fqdn || (subdomain ? `${subdomain}.nornia.com.tr` : ""))
+                    : resMode === "custom_fqdn"
+                    ? (resFqdn.effective_fqdn || customDomain || "")
+                    : "";
+                const hasFqdnUrl = Boolean(effHost && effHost.includes(".") && resMode !== "lan_only");
+                const fqdnLoginUrl = hasFqdnUrl ? `https://${effHost.replace(/^https?:\/\//i, "").replace(/\/.*$/, "")}/login` : "";
+
+                return (
+                  <div className="flex flex-wrap items-center justify-end gap-2.5 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => router.replace("/login")}
+                      className="px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                    >
+                      {hasFqdnUrl ? "Yerel IP ile Giriş (/login)" : "Giriş Ekranına Git (/login)"}
+                    </button>
+                    {hasFqdnUrl ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (typeof window !== "undefined") {
+                            window.open(fqdnLoginUrl, "_blank", "noopener,noreferrer");
+                          }
+                        }}
+                        className={`inline-flex items-center gap-2 px-6 py-3 rounded-2xl ${bg} ${hover} text-white text-xs font-extrabold shadow-md transition cursor-pointer`}
+                      >
+                        <Globe size={15} />
+                        <span>{effHost} Giriş Ekranını Yeni Sekmede Aç</span>
+                        <ArrowRight size={15} />
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (completedResult.admin_account) {
+                            persistAuthenticatedSession("admin", true, completedResult.admin_account);
+                            try {
+                              sessionStorage.setItem("aida_just_logged_in", "1");
+                            } catch (e) {}
+                          }
+                          router.replace("/");
+                        }}
+                        className={`inline-flex items-center gap-2 px-6 py-3 rounded-2xl ${bg} ${hover} text-white text-xs font-extrabold shadow-md transition cursor-pointer`}
+                      >
+                        <span>admin ile Yönetim Paneline Geç</span>
+                        <ArrowRight size={15} />
+                      </button>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           ) : (
             /* ============================================================

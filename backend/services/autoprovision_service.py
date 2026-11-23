@@ -1226,6 +1226,18 @@ def get_provisioning_network_settings(
                     ras_sip_domain = f"{sub}.nornia.com.tr"
     except Exception:
         pass
+    # Also respect Setup Wizard FQDN settings (nornia_cloud / custom_fqdn) even while tunnel is connecting
+    if not ras_sip_domain:
+        fqdn_cfg = settings_db.get("fqdn") if isinstance(settings_db.get("fqdn"), dict) else {}
+        fqdn_mode = str(fqdn_cfg.get("mode") or "").strip().lower()
+        if fqdn_mode == "nornia_cloud":
+            f_sub = str(fqdn_cfg.get("subdomain") or "").strip().lower()
+            if f_sub:
+                ras_sip_domain = f"{f_sub}.nornia.com.tr"
+        elif fqdn_mode == "custom_fqdn":
+            f_dom = str(fqdn_cfg.get("custom_domain") or fqdn_cfg.get("effective_fqdn") or "").strip().lower()
+            if f_dom and "." in f_dom and not is_private_lan_ip(f_dom):
+                ras_sip_domain = f_dom
     # Fallback: if accessed over a *.nornia.com.tr tunnel host and wg-nornia exists, treat that host as SIP Edge domain
     if not ras_sip_domain and req_host_only and req_host_only.lower().endswith(".nornia.com.tr"):
         ras_sip_domain = req_host_only

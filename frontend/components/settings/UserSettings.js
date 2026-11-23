@@ -3149,7 +3149,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   };
 
   const filteredUsers = users.filter((u) => {
-    if (u.username === "admin") return false; // Hide admin from list
+    if (u.username === "admin" || u.extension === "admin") return false; // Hide admin from list
     const query = searchQuery.toLowerCase();
     return (
       (u.full_name || "").toLowerCase().includes(query) ||

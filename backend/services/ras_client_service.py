@@ -360,10 +360,40 @@ def get_ras_config() -> Dict[str, Any]:
     if not isinstance(saved, dict):
         saved = {}
     merged = {**DEFAULT_RAS_CONFIG, **saved}
+    if not saved.get("subdomain"):
+        fqdn_cfg = settings_db.get("fqdn")
+        if isinstance(fqdn_cfg, dict) and fqdn_cfg.get("subdomain"):
+            merged["subdomain"] = str(fqdn_cfg.get("subdomain")).strip().lower()
     if not merged.get("secret_token"):
         lic = settings_db.get("license") or {}
         if isinstance(lic, dict) and lic.get("license_key"):
             merged["secret_token"] = str(lic.get("license_key")).strip()
+        else:
+            t_list = settings_db.get("tenants")
+            if isinstance(t_list, list) and t_list and isinstance(t_list[0], dict) and t_list[0].get("license_key"):
+                merged["secret_token"] = str(t_list[0].get("license_key")).strip()
+    return merged
+
+
+def save_ras_config(updated: Dict[str, Any], persist: bool = True, reconnect: bool = True) -> Dict[str, Any]:
+    """Saves Nornia Connect (RAS) config into settings_db, syncs TURN/RTP, and triggers tunnel reconnect."""
+    from backend.main import save_settings, settings_db
+    current = get_ras_config()
+    merged = {**DEFAULT_RAS_CONFIG, **current, **(updated if isinstance(updated, dict) else {})}
+    if merged.get("subdomain"):
+        merged["subdomain"] = str(merged["subdomain"]).strip().lower()
+    settings_db["ras_config"] = merged
+    if persist:
+        save_settings(settings_db)
+    try:
+        sync_asterisk_rtp_turn_config(merged)
+    except Exception:
+        pass
+    if reconnect:
+        try:
+            trigger_ras_reconnect()
+        except Exception:
+            pass
     return merged
 
 

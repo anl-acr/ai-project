@@ -4,14 +4,9 @@ import useClickOutside from "../utils/useClickOutside";
 
 const ALL_TENANTS_OPTION = { id: "all", name: "Tüm Sistemler (Tümünü Gör)", code: "all", is_all: true };
 
-const DEFAULT_TENANTS = [
-  { id: "tenant-default", name: "Ana Müşteri (Varsayılan)", code: "default", status: "active" },
-  { id: "tenant-test-teknoloji", name: "Test Teknoloji", code: "test-teknoloji", status: "active", max_agents: 20, max_trunks: 20 }
-];
-
 export default function TenantSwitcher({ backendHost, currentUser }) {
-  const [tenants, setTenants] = useState(DEFAULT_TENANTS);
-  const [activeTenant, setActiveTenant] = useState(DEFAULT_TENANTS[0]);
+  const [tenants, setTenants] = useState([]);
+  const [activeTenant, setActiveTenant] = useState(null);
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useClickOutside(() => setIsOpen(false));
 
@@ -19,18 +14,8 @@ export default function TenantSwitcher({ backendHost, currentUser }) {
   const isSuperAdmin = currentUser?.username === "admin" || currentUser?.id === "admin" || savedUserId === "admin";
   const isAdmin = isSuperAdmin;
 
-  if (!isAdmin) {
-    return null;
-  }
-
   useEffect(() => {
-    const savedTenantId = typeof window !== "undefined" ? (localStorage.getItem("active_tenant_id") || "tenant-default") : "tenant-default";
-    if (savedTenantId === "all") {
-      setActiveTenant(ALL_TENANTS_OPTION);
-    } else {
-      const matched = DEFAULT_TENANTS.find(t => t.id === savedTenantId) || DEFAULT_TENANTS[0];
-      setActiveTenant(matched);
-    }
+    if (!isAdmin) return;
     fetchTenants();
 
     const handleExternalTenantUpdate = () => {
@@ -40,7 +25,7 @@ export default function TenantSwitcher({ backendHost, currentUser }) {
       window.addEventListener("tenantChanged", handleExternalTenantUpdate);
       return () => window.removeEventListener("tenantChanged", handleExternalTenantUpdate);
     }
-  }, []);
+  }, [isAdmin]);
 
   // Lock tenant for non-admin users based on currentUser.tenant_id or tenant_name
   useEffect(() => {
@@ -110,10 +95,8 @@ export default function TenantSwitcher({ backendHost, currentUser }) {
     setIsOpen(false);
   };
 
-  if (!activeTenant) return null;
-
-  // Non-admin user view: Completely hide Tenant Switcher for non-admin users
-  if (!isAdmin) {
+  // Hide topbar Tenant Switcher for non-admins or single-tenant installations
+  if (!isAdmin || !activeTenant || tenants.length <= 1) {
     return null;
   }
 
