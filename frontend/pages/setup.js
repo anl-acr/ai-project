@@ -726,6 +726,20 @@ export default function SetupWizardPage() {
                 </div>
               </div>
 
+              {completedResult.network_ip_change?.changed && (
+                <div className="p-4 rounded-2xl bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800/70 text-xs text-indigo-800 dark:text-indigo-200 flex items-start gap-2.5">
+                  <Network size={16} className="shrink-0 mt-0.5 text-indigo-600 dark:text-indigo-400" />
+                  <div>
+                    <div className="font-extrabold">Sunucu Statik IP Değişikliği Uygulanıyor</div>
+                    <p className="mt-0.5 font-medium">
+                      <strong>{completedResult.network_ip_change.interface || "LAN"}</strong> arayüzü{" "}
+                      <span className="font-mono font-bold">{completedResult.network_ip_change.old_ip}</span> →{" "}
+                      <span className="font-mono font-bold">{completedResult.network_ip_change.new_cidr}</span> olarak birkaç saniye içinde güncellenecektir. Yerel ağdan giriş için yeni IP adresini kullanın.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {(() => {
                 const resFqdn = completedResult.fqdn || {};
                 const resMode = resFqdn.mode || fqdnMode;
@@ -737,15 +751,27 @@ export default function SetupWizardPage() {
                     : "";
                 const hasFqdnUrl = Boolean(effHost && effHost.includes(".") && resMode !== "lan_only");
                 const fqdnLoginUrl = hasFqdnUrl ? `https://${effHost.replace(/^https?:\/\//i, "").replace(/\/.*$/, "")}/login` : "";
+                const newLanIp = completedResult.network_ip_change?.changed ? completedResult.network_ip_change.new_ip : "";
+                const lanLoginUrl = newLanIp ? `http://${newLanIp}/login` : "/login";
 
                 return (
                   <div className="flex flex-wrap items-center justify-end gap-2.5 pt-2">
                     <button
                       type="button"
-                      onClick={() => router.replace("/login")}
+                      onClick={() => {
+                        if (newLanIp && typeof window !== "undefined") {
+                          window.location.href = lanLoginUrl;
+                        } else {
+                          router.replace("/login");
+                        }
+                      }}
                       className="px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                     >
-                      {hasFqdnUrl ? "Yerel IP ile Giriş (/login)" : "Giriş Ekranına Git (/login)"}
+                      {newLanIp
+                        ? `Yeni IP ile Giriş (${newLanIp}/login)`
+                        : hasFqdnUrl
+                        ? "Yerel IP ile Giriş (/login)"
+                        : "Giriş Ekranına Git (/login)"}
                     </button>
                     {hasFqdnUrl ? (
                       <button
@@ -834,9 +860,22 @@ export default function SetupWizardPage() {
                           type="text"
                           value={localIp}
                           onChange={(e) => setLocalIp(e.target.value)}
-                          placeholder="172.20.5.252"
+                          placeholder="Örn: 192.168.1.24 veya 192.168.1.24/24"
                           className="w-full px-3.5 py-2.5 text-xs font-mono font-bold rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
                         />
+                        {(() => {
+                          const typedBase = String(localIp || "").split("/")[0].trim();
+                          const detectedBase = String(prefill?.network?.detected_local_ip || "").split("/")[0].trim();
+                          const pIf = prefill?.network?.primary_interface?.name || "LAN";
+                          if (typedBase && detectedBase && typedBase !== detectedBase) {
+                            return (
+                              <p className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 mt-1.5">
+                                Yeni statik IP ({localIp.includes("/") ? localIp : `${typedBase}/24`}), 6. adımda <strong>Kurulumu Tamamla</strong> dediğinizde {pIf} arayüzüne otomatik uygulanacaktır.
+                              </p>
+                            );
+                          }
+                          return null;
+                        })()}
                       </div>
                       <div>
                         <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1.5">

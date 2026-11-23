@@ -391,8 +391,15 @@ def apply_setup_wizard_payload(
     # ------------------------------------------------------------
     # STEP 1: Network & NAT
     # ------------------------------------------------------------
+    import ipaddress
+    import platform
+    import threading
+
     net_in = payload.get("network") if isinstance(payload.get("network"), dict) else {}
-    local_ip_in = str(net_in.get("local_ip") or "").strip()
+    raw_local_ip_in = str(net_in.get("local_ip") or "").strip()
+    gw_in = str(net_in.get("default_gateway") or "").strip()
+    dns1_in = str(net_in.get("dns_primary") or "8.8.8.8").strip()
+    dns2_in = str(net_in.get("dns_secondary") or "1.1.1.1").strip()
     nat_extern_in = str(net_in.get("nat_extern_ip") or "").strip()
     nat_enabled_in = bool(net_in.get("nat_enabled", True))
     raw_local_nets = net_in.get("nat_local_nets")
@@ -402,6 +409,65 @@ def apply_setup_wizard_payload(
         local_nets_list = [str(x).strip() for x in raw_local_nets if str(x).strip()]
     else:
         local_nets_list = ["192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12"]
+
+    # Detect current primary NIC to determine prefix & whether OS static IP must be applied
+    primary_ifname = ""
+    current_if_ip = ""
+    current_if_prefix = 24
+    try:
+        from backend.scripts.network_recovery import get_live_interfaces
+        live_ifaces = get_live_interfaces() or []
+        p_ifc = next(
+            (i for i in live_ifaces if not str(i.get("name") or "").startswith(("lo", "wg-", "docker", "br-"))),
+            live_ifaces[0] if live_ifaces else None,
+        )
+        if p_ifc:
+            primary_ifname = str(p_ifc.get("name") or "").strip()
+            p_cidr = str(p_ifc.get("primary_cidr") or p_ifc.get("ip") or "").strip()
+            if p_cidr:
+                try:
+                    cur_iface_obj = ipaddress.ip_interface(p_cidr if "/" in p_cidr else f"{p_cidr}/24")
+                    current_if_ip = str(cur_iface_obj.ip)
+                    current_if_prefix = int(cur_iface_obj.network.prefixlen)
+                except Exception:
+                    current_if_ip = p_cidr.split("/")[0].strip()
+    except Exception:
+        pass
+
+    local_ip_in = raw_local_ip_in
+    target_cidr = ""
+    if raw_local_ip_in:
+        try:
+            cand_cidr = raw_local_ip_in if "/" in raw_local_ip_in else f"{raw_local_ip_in}/{current_if_prefix}"
+            parsed_iface = ipaddress.ip_interface(cand_cidr)
+            local_ip_in = str(parsed_iface.ip)
+            target_cidr = str(parsed_iface)
+            if gw_in:
+                gw_obj = ipaddress.ip_address(gw_in)
+                if gw_obj not in parsed_iface.network:
+                    raise ValueError(
+                        f"Varsayılan Ağ Geçidi ({gw_in}) girilen alt ağ ({parsed_iface.network}) içinde değil. "
+                        "Sunucuya erişim kaybını önlemek için lütfen ağ geçidini kontrol edin."
+                    )
+        except ValueError:
+            raise
+        except Exception as ip_err:
+            raise ValueError(f"Geçersiz Yerel LAN IP adresi ({raw_local_ip_in}): {ip_err}")
+
+    os_ip_change_needed = bool(
+        platform.system().lower() == "linux"
+        and primary_ifname
+        and target_cidr
+        and local_ip_in
+        and local_ip_in != current_if_ip
+    )
+    network_ip_change_info = {
+        "changed": os_ip_change_needed,
+        "interface": primary_ifname,
+        "old_ip": current_if_ip,
+        "new_ip": local_ip_in,
+        "new_cidr": target_cidr,
+    }
 
     if "nat" not in settings_db or not isinstance(settings_db.get("nat"), dict):
         settings_db["nat"] = {}
@@ -421,11 +487,16 @@ def apply_setup_wizard_payload(
     if net_in.get("hostname") or net_in.get("dns_primary"):
         settings_db["network_dns"] = {
             "hostname": str(net_in.get("hostname") or "nornia-pbx").strip(),
-            "dns_primary": str(net_in.get("dns_primary") or "8.8.8.8").strip(),
-            "dns_secondary": str(net_in.get("dns_secondary") or "1.1.1.1").strip(),
-            "default_gateway": str(net_in.get("default_gateway") or "").strip(),
+            "dns_primary": dns1_in,
+            "dns_secondary": dns2_in,
+            "default_gateway": gw_in,
         }
-    steps_log.append({"step": 1, "title": "Ağ & NAT Ayarları", "ok": True, "detail": f"LAN IP: {local_ip_in or 'Otomatik'}, NAT: {'Aktif' if nat_enabled_in else 'Kapalı'}"})
+    ip_step_detail = (
+        f"Statik IP: {current_if_ip} → {target_cidr} ({primary_ifname}), NAT: {'Aktif' if nat_enabled_in else 'Kapalı'}"
+        if os_ip_change_needed
+        else f"LAN IP: {local_ip_in or 'Otomatik'}, NAT: {'Aktif' if nat_enabled_in else 'Kapalı'}"
+    )
+    steps_log.append({"step": 1, "title": "Ağ & NAT Ayarları", "ok": True, "detail": ip_step_detail})
 
     # ------------------------------------------------------------
     # STEP 2: License Activation (Mandatory)
@@ -814,6 +885,29 @@ def apply_setup_wizard_payload(
         "tenant_id": "tenant-default",
     }
 
+    # Schedule Linux OS static IP change 2 seconds AFTER HTTP 200 response returns to browser
+    if os_ip_change_needed:
+        dns_apply_list = [d for d in (dns1_in, dns2_in) if d]
+
+        def _deferred_apply_static_ip():
+            try:
+                from backend.scripts.network_recovery import apply_interface_config_os, create_snapshot
+                create_snapshot("pre-setup-ip-change")
+                res_ip = apply_interface_config_os(
+                    ifname=primary_ifname,
+                    mode="static",
+                    primary_cidr=target_cidr,
+                    gateway=gw_in,
+                    dns_servers=dns_apply_list,
+                )
+                print(f"[Setup Wizard OS IP Apply] {primary_ifname} -> {target_cidr}: {res_ip}")
+            except Exception as exc_ip:
+                print(f"[Setup Wizard OS IP Apply Error] {exc_ip}")
+
+        t_ip = threading.Timer(2.0, _deferred_apply_static_ip)
+        t_ip.daemon = True
+        t_ip.start()
+
     return {
         "status": "success",
         "setup_completed": True,
@@ -822,6 +916,7 @@ def apply_setup_wizard_payload(
         "password_set": bool(new_admin_pwd),
         "steps": steps_log,
         "fqdn": settings_db["fqdn"],
+        "network_ip_change": network_ip_change_info,
         "created_extensions": created_exts,
         "datetime": dt_res,
         "provisioning": {

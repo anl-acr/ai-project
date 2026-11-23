@@ -274,6 +274,19 @@ def apply_interface_config_os(
 
             netplan_file = f"/etc/netplan/90-nornia-{ifname}.yaml"
             try:
+                # Neutralize conflicting Ubuntu Autoinstall / cloud-init wildcard DHCP configs when switching to static
+                if mode == "static":
+                    _ensure_backup_dir()
+                    for legacy_np in ("/etc/netplan/00-installer-config.yaml", "/etc/netplan/50-cloud-init.yaml"):
+                        if os.path.isfile(legacy_np):
+                            try:
+                                with open(legacy_np, "r", encoding="utf-8", errors="ignore") as lf:
+                                    ltxt = lf.read()
+                                if "dhcp4: true" in ltxt:
+                                    bak_dst = os.path.join(BACKUP_DIR, f"disabled_{os.path.basename(legacy_np)}.bak")
+                                    shutil.move(legacy_np, bak_dst)
+                            except Exception:
+                                pass
                 with open(netplan_file, "w", encoding="utf-8") as f:
                     f.write("\n".join(lines) + "\n")
                 os.chmod(netplan_file, 0o600)
