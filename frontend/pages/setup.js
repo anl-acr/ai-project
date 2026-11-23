@@ -1084,7 +1084,7 @@ export default function SetupWizardPage() {
                               disabled={checkingSub || subdomain.trim().length < 2}
                               className={`px-4 py-2.5 rounded-xl ${bg} ${hover} text-white text-xs font-extrabold cursor-pointer disabled:opacity-45 shrink-0`}
                             >
-                              {checkingSub ? "Sorgulanıyor..." : "Müsaitlik Kontrol Et"}
+                              {checkingSub ? "Sorgulanıyor..." : "Kontrol Et"}
                             </button>
                           </div>
                           {subCheck && (
@@ -1100,14 +1100,17 @@ export default function SetupWizardPage() {
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <div>
-                            <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1.5">
-                              Nornia Hub Adresi
+                            <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1.5 flex items-center gap-1.5">
+                              <span>Nornia Hub Adresi</span>
+                              <Lock size={11} className="text-slate-400" />
                             </label>
                             <input
                               type="text"
                               value={hubUrl}
-                              onChange={(e) => setHubUrl(e.target.value)}
-                              className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                              readOnly
+                              disabled
+                              title="Nornia Hub adresi sabittir, değiştirilemez"
+                              className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400 cursor-not-allowed select-none"
                             />
                           </div>
                           <div>
