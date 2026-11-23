@@ -75,6 +75,15 @@ if [[ ! -d node_modules ]]; then
   fi
 fi
 
+# Önceki yarım kalan çalışmalardan kalmış olabilecek stash klasörlerini otomatik geri yükle
+for leftover in "${REPO_ROOT}/portals"/.docs_assets_stash_*; do
+  if [[ -d "$leftover" ]]; then
+    [[ -d "${leftover}/pdfs" && ! -d "${REPO_ROOT}/portals/docs-portal/public/pdfs" ]] && mv "${leftover}/pdfs" "${REPO_ROOT}/portals/docs-portal/public/pdfs"
+    [[ -d "${leftover}/screenshots" && ! -d "${REPO_ROOT}/portals/docs-portal/public/screenshots" ]] && mv "${leftover}/screenshots" "${REPO_ROOT}/portals/docs-portal/public/screenshots"
+    rm -rf "${leftover}" 2>/dev/null || true
+  fi
+done
+
 # Büyük statik varlıkları (62 görsel + 51 PDF) Next.js build sırasında kenara al, build sonrası doğrudan kopyala
 STASH_DIR="${REPO_ROOT}/portals/.docs_assets_stash_$$"
 mkdir -p "${STASH_DIR}"
