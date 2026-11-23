@@ -89,36 +89,52 @@ async def push_ssh_control_to_pbx(
             pass
 
 
+_HUB_RESERVED_HOSTS = {"www", "connect", "panel", "api", "hub"}
+
+
+def extract_customer_subdomain_from_host(host_header: Optional[str]) -> str:
+    """Extracts customer subdomain (e.g. 'home' from 'home.nornia.com.tr'), returning '' for IPs or reserved hub hosts."""
+    if not host_header:
+        return ""
+    h_clean = host_header.split(",")[0].split(":")[0].strip().lower()
+    if not h_clean or h_clean == "localhost":
+        return ""
+    parts = h_clean.split(".")
+    if len(parts) >= 3 and not all(p.isdigit() for p in parts):
+        cand = parts[0]
+        if cand and cand not in _HUB_RESERVED_HOSTS:
+            return cand
+    return ""
+
+
 def resolve_target_pbx_session(
     subdomain: Optional[str] = None,
     host_header: Optional[str] = None,
     cookie_target: Optional[str] = None,
 ) -> Optional[ConnectedPBXSession]:
+    """
+    Strictly resolves the target PBX tunnel session with ZERO cross-tenant fallback.
+    - Explicit customer FQDN Host (e.g. home.nornia.com.tr) ALWAYS takes top priority and NEVER falls back to another PBX.
+    - Explicit subdomain param (/connect/<sub>, Web SSH, TCP relay) ONLY matches that exact subdomain/HW-ID.
+    - Cookie target is ONLY consulted on bare hub/IP URLs without a customer subdomain in Host.
+    """
+    host_sub = extract_customer_subdomain_from_host(host_header)
+    if host_sub:
+        return ACTIVE_TUNNELS_BY_SUBDOMAIN.get(host_sub)
+
     if subdomain:
         s_clean = subdomain.strip().lower()
         if s_clean in ACTIVE_TUNNELS_BY_SUBDOMAIN:
             return ACTIVE_TUNNELS_BY_SUBDOMAIN[s_clean]
-        if s_clean in ACTIVE_TUNNELS_BY_HWID:
-            return ACTIVE_TUNNELS_BY_HWID[s_clean]
+        s_upper = subdomain.strip().upper()
+        if s_upper in ACTIVE_TUNNELS_BY_HWID:
+            return ACTIVE_TUNNELS_BY_HWID[s_upper]
+        return None
 
     if cookie_target:
         c_clean = cookie_target.strip().lower()
-        if c_clean in ACTIVE_TUNNELS_BY_SUBDOMAIN:
-            return ACTIVE_TUNNELS_BY_SUBDOMAIN[c_clean]
+        return ACTIVE_TUNNELS_BY_SUBDOMAIN.get(c_clean)
 
-    if host_header:
-        h_clean = host_header.split(":")[0].strip().lower()
-        parts = h_clean.split(".")
-        if len(parts) >= 3 and not all(p.isdigit() for p in parts):
-            sub_cand = parts[0]
-            if sub_cand in ACTIVE_TUNNELS_BY_SUBDOMAIN:
-                return ACTIVE_TUNNELS_BY_SUBDOMAIN[sub_cand]
-
-    if "merkez" in ACTIVE_TUNNELS_BY_SUBDOMAIN:
-        return ACTIVE_TUNNELS_BY_SUBDOMAIN["merkez"]
-
-    for sess in ACTIVE_TUNNELS_BY_SUBDOMAIN.values():
-        return sess
     return None
 
 
@@ -851,10 +867,11 @@ async def relay_client_websocket_to_pbx(websocket: WebSocket):
     """Relays browser/mobile/desktop SIP WebRTC (/ras-sip-ws) or Event (/ws) WebSockets through the Nornia Connect tunnel."""
     path = websocket.scope.get("path") or "/ws"
     is_sip = path.startswith("/ras-sip-ws")
-    req_sub = websocket.query_params.get("connect_target") or websocket.cookies.get("nornia_connect_target")
-    host_hdr = websocket.headers.get("host") or ""
+    req_sub = websocket.query_params.get("connect_target")
+    cookie_sub = websocket.cookies.get("nornia_connect_target")
+    host_hdr = websocket.headers.get("x-forwarded-host") or websocket.headers.get("host") or ""
 
-    session = resolve_target_pbx_session(subdomain=req_sub, host_header=host_hdr)
+    session = resolve_target_pbx_session(subdomain=req_sub, host_header=host_hdr, cookie_target=cookie_sub)
     if not session:
         await websocket.close(code=1013)
         return
@@ -1269,8 +1286,10 @@ async def web_ssh_interactive_terminal(websocket: WebSocket, subdomain: str):
 
 async def forward_http_request_to_pbx(request: Request, full_path: str) -> Response:
     """Forwards an incoming HTTP request through the Nornia Connect tunnel to the target PBX."""
-    req_sub = request.query_params.get("connect_target") or request.cookies.get("nornia_connect_target")
+    req_sub = request.query_params.get("connect_target")
+    cookie_sub = request.cookies.get("nornia_connect_target")
     host_hdr = request.headers.get("x-forwarded-host") or request.headers.get("host") or ""
+    host_sub = extract_customer_subdomain_from_host(host_hdr)
 
     # Support explicit /connect/<subdomain>/... prefix
     clean_path = f"/{full_path.lstrip('/')}"
@@ -1280,33 +1299,36 @@ async def forward_http_request_to_pbx(request: Request, full_path: str) -> Respo
             req_sub = parts[2]
             clean_path = f"/{parts[3]}" if len(parts) >= 4 else "/"
 
-    session = resolve_target_pbx_session(subdomain=req_sub, host_header=host_hdr)
+    # Explicit /connect/<sub> (used by Central Panel Web SSH proxy) takes precedence over panel host;
+    # otherwise customer FQDN Host (home.nornia.com.tr vs app.nornia.com.tr) is strictly authoritative.
+    effective_host_hdr = "" if (req_sub and full_path.lstrip("/").startswith("connect/")) else host_hdr
+    session = resolve_target_pbx_session(subdomain=req_sub, host_header=effective_host_hdr, cookie_target=cookie_sub)
     if not session:
-        html_wait = """<!DOCTYPE html>
+        target_label = f"{host_sub}.nornia.com.tr" if host_sub else (f"{req_sub}.nornia.com.tr" if req_sub else (host_hdr.split(":")[0] or "Nornia Connect"))
+        html_wait = f"""<!DOCTYPE html>
 <html lang="tr">
 <head>
   <meta charset="utf-8" />
-  <title>Nornia Connect — Bulut Köprüsü Bekleniyor</title>
+  <title>{target_label} — Santral Tüneli Bekleniyor</title>
   <meta http-equiv="refresh" content="5" />
   <style>
-    body { background: #090d16; color: #f8fafc; font-family: system-ui, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-    .card { background: #111827; border: 1px solid #1e293b; border-radius: 20px; padding: 36px; max-width: 520px; text-align: center; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
-    .badge { display: inline-block; padding: 6px 14px; border-radius: 99px; background: rgba(245, 158, 11, 0.15); color: #fbbf24; font-size: 12px; font-weight: 700; margin-bottom: 16px; }
-    h2 { margin: 0 0 10px; font-size: 20px; }
-    p { color: #94a3b8; font-size: 13px; line-height: 1.6; }
-    .btn { display: inline-block; margin-top: 18px; padding: 10px 20px; border-radius: 10px; background: #4f46e5; color: #fff; text-decoration: none; font-size: 13px; font-weight: 700; }
+    body {{ background: #090d16; color: #f8fafc; font-family: system-ui, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }}
+    .card {{ background: #111827; border: 1px solid #1e293b; border-radius: 20px; padding: 36px; max-width: 520px; text-align: center; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }}
+    .badge {{ display: inline-block; padding: 6px 14px; border-radius: 99px; background: rgba(245, 158, 11, 0.15); color: #fbbf24; font-size: 12px; font-weight: 700; margin-bottom: 16px; }}
+    h2 {{ margin: 0 0 10px; font-size: 20px; }}
+    p {{ color: #94a3b8; font-size: 13px; line-height: 1.6; }}
+    code {{ background: #1e293b; color: #e2e8f0; padding: 2px 7px; border-radius: 6px; font-size: 12px; }}
   </style>
 </head>
 <body>
   <div class="card">
     <div class="badge">● NORNIA CONNECT BULUT KÖPRÜSÜ</div>
-    <h2>Bağlı Santral Tüneli Bekleniyor...</h2>
-    <p>Nornia Connect Merkez Sunucusu aktif ve çalışıyor; ancak henüz içeriden dışarıya tünel açmış bir Nornia Santrali algılanmadı. Santral bağlandığında bu sayfa otomatik olarak açılacaktır.</p>
-    <a class="btn" href="http://" onclick="this.href=window.location.protocol+'//'+window.location.hostname+':3050'">Merkezi Lisans & Yönetim Paneline Git (:3050)</a>
+    <h2>Santral Tüneli Çevrimdışı</h2>
+    <p><code>{target_label}</code> adresine bağlı Nornia Santrali şu an bulut köprüsüne bağlı değil veya yeniden başlatılıyor. Santral bağlandığında bu sayfa otomatik olarak açılacaktır.</p>
   </div>
 </body>
 </html>"""
-        return Response(content=html_wait, status_code=503, media_type="text/html")
+        return Response(content=html_wait, status_code=503, media_type="text/html", headers={"Cache-Control": "no-store"})
 
     req_id = f"req-{uuid.uuid4().hex[:12]}"
     body_bytes = await request.body()
@@ -1352,6 +1374,6 @@ async def forward_http_request_to_pbx(request: Request, full_path: str) -> Respo
         status_code=int(res_msg.get("status_code") or 200),
         headers=resp_headers,
     )
-    if req_sub:
+    if req_sub and not host_sub:
         response.set_cookie("nornia_connect_target", req_sub, path="/", httponly=False)
     return response
