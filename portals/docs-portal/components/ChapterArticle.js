@@ -44,7 +44,7 @@ function ScreenshotCard({ shot, onZoom }) {
             Santral Ekran Görünümü: {shot.routeHint}
           </div>
           <p className="text-[11px] text-slate-500 dark:text-slate-400 max-w-md">
-            Canlı ekran görüntüsü yakalama betiği (<code className="font-mono">capture_pbx_screenshots.mjs</code>) çalıştırıldığında bu alan otomatik olarak <code className="font-mono">app.saphira.com.tr</code> görseliyle dolar.
+            Canlı ekran görüntüsü yakalama betiği (<code className="font-mono">capture_pbx_screenshots.mjs</code>) çalıştırıldığında bu alan otomatik olarak <code className="font-mono">app.nornia.com.tr</code> görseliyle dolar.
           </p>
         </div>
       )}
