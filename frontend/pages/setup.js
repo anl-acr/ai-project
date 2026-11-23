@@ -929,7 +929,7 @@ export default function SetupWizardPage() {
                           type="text"
                           value={companyName}
                           onChange={(e) => setCompanyName(e.target.value)}
-                          placeholder="Örn: Nolto Teknoloji A.Ş."
+                          placeholder="Örn: Test Teknoloji A.Ş."
                           className="w-full px-3.5 py-2.5 text-xs font-bold rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
                         />
                       </div>
@@ -941,7 +941,7 @@ export default function SetupWizardPage() {
                           type="text"
                           value={tenantCode}
                           onChange={(e) => setTenantCode(e.target.value.toUpperCase())}
-                          placeholder="Örn: NOLTO"
+                          placeholder="Örn: TEST"
                           className="w-full px-3.5 py-2.5 text-xs font-mono font-bold uppercase rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
                         />
                       </div>
