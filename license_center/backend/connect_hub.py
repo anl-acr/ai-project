@@ -23,7 +23,7 @@ from license_center.backend.models import ClientServer
 
 connect_hub_router = APIRouter()
 
-RESERVED_SUBDOMAINS = {"panel", "www", "mail", "ftp", "ns1", "ns2", "api", "admin", "license"}
+RESERVED_SUBDOMAINS = {"panel", "www", "mail", "ftp", "ns1", "ns2", "api", "dokuman", "docs", "admin", "license"}
 
 
 class ConnectedPBXSession:
@@ -89,7 +89,7 @@ async def push_ssh_control_to_pbx(
             pass
 
 
-_HUB_RESERVED_HOSTS = {"www", "connect", "panel", "api", "hub"}
+_HUB_RESERVED_HOSTS = {"www", "connect", "panel", "api", "dokuman", "docs", "hub"}
 
 
 def extract_customer_subdomain_from_host(host_header: Optional[str]) -> str:
@@ -327,6 +327,83 @@ server {{
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+    }}
+}}
+
+server {{
+    listen 80;
+    server_name api.nornia.com.tr dokuman.nornia.com.tr xn--dokman-3ya.nornia.com.tr;
+
+    location /.well-known/acme-challenge/ {{
+        root /var/www/html;
+    }}
+
+    location / {{
+        return 301 https://$host$request_uri;
+    }}
+}}
+
+server {{
+    listen 443 ssl;
+    server_name api.nornia.com.tr;
+
+    ssl_certificate {ssl_cert};
+    ssl_certificate_key {ssl_key};
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    root /var/www/nornia-api;
+    index index.html;
+
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml image/svg+xml;
+
+    location /_next/static/ {{
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+    }}
+
+    location / {{
+        try_files $uri $uri.html $uri/ /index.html;
+    }}
+}}
+
+server {{
+    listen 443 ssl;
+    server_name xn--dokman-3ya.nornia.com.tr;
+
+    ssl_certificate {ssl_cert};
+    ssl_certificate_key {ssl_key};
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    return 301 https://dokuman.nornia.com.tr$request_uri;
+}}
+
+server {{
+    listen 443 ssl;
+    server_name dokuman.nornia.com.tr;
+
+    ssl_certificate {ssl_cert};
+    ssl_certificate_key {ssl_key};
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    root /var/www/nornia-docs;
+    index index.html;
+
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml image/svg+xml;
+
+    location /_next/static/ {{
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+    }}
+
+    location /pdfs/ {{
+        add_header Content-Disposition "attachment";
+        expires 7d;
+    }}
+
+    location / {{
+        try_files $uri $uri.html $uri/ /index.html;
     }}
 }}
 

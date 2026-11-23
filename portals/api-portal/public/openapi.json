@@ -1,0 +1,2163 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Nornia Enterprise AI PBX — Kurumsal Dış API (v1)",
+    "version": "v3.10.11",
+    "description": "Nornia Santral, Çağrı Merkezi, CRM/CTI, Omnichannel ve Yapay Zeka Asistanı entegrasyonları için resmi REST API spesifikasyonu."
+  },
+  "servers": [
+    {
+      "url": "https://{santral}.nornia.com.tr",
+      "description": "Nornia Bulut FQDN Santral Adresi",
+      "variables": {
+        "santral": {
+          "default": "musteri"
+        }
+      }
+    },
+    {
+      "url": "http://{yerel_ip}:8000",
+      "description": "Yerel Ağ (LAN) Santral Adresi",
+      "variables": {
+        "yerel_ip": {
+          "default": "192.168.1.25"
+        }
+      }
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key"
+      },
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  },
+  "paths": {
+    "/api/v1/calls/originate": {
+      "post": {
+        "tags": [
+          "1. Canlı Çağrı & Santral Kontrolü (Click-to-Call / Transfer / Hangup)"
+        ],
+        "summary": "Tıkla-Ara (Click-to-Call) Çağrı Başlatma",
+        "description": "Önce temsilcinin dahili telefonunu (WebPhone / Masa Telefonu / Mobil) çaldırır; temsilci açtığında otomatik olarak hedef müşteri numarasını arar ve iki tarafı bağlar.",
+        "operationId": "post_api_v1_calls_originate",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "calls:write",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "call_id": "aida-1763890123-4918",
+                  "extension": "1000",
+                  "destination": "05321234567",
+                  "message": "Dahili 1000 çaldırılıyor; açıldığında 05321234567 aranacak."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: calls:write)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "extension": "1000",
+                "destination": "05321234567",
+                "caller_id": "908503607390",
+                "timeout": 30
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/calls/active": {
+      "get": {
+        "tags": [
+          "1. Canlı Çağrı & Santral Kontrolü (Click-to-Call / Transfer / Hangup)"
+        ],
+        "summary": "Aktif (Canlı) Çağrıları Listeleme",
+        "description": "Santral üzerinde o an konuşulan veya çalmakta olan tüm canlı çağrıları ve kanal bilgilerini döndürür.",
+        "operationId": "get_api_v1_calls_active",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "calls:read",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "count": 1,
+                  "calls": [
+                    {
+                      "call_id": "aida-1763890123-4918",
+                      "direction": "inbound",
+                      "caller_number": "05321234567",
+                      "callee_extension": "1000",
+                      "queue": "6000",
+                      "state": "Up",
+                      "duration_sec": 42,
+                      "recording_paused": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: calls:read)"
+          }
+        }
+      }
+    },
+    "/api/v1/calls/{call_id}/transfer": {
+      "post": {
+        "tags": [
+          "1. Canlı Çağrı & Santral Kontrolü (Click-to-Call / Transfer / Hangup)"
+        ],
+        "summary": "Canlı Çağrıyı Başka Dahiliye veya Kuyruğa Aktarma (Transfer)",
+        "description": "Devam eden bir görüşmeyi belirtilen dahili numaraya (örn. 1002), kuyruğa (örn. 2000) veya dış numaraya aktarır.",
+        "operationId": "post_api_v1_calls_call_id_transfer",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "calls:write",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "call_id": "aida-1763890123-4918",
+                  "target_extension": "1002",
+                  "message": "Çağrı 1002 dahili numarasına başarıyla aktarıldı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: calls:write)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "call_id",
+            "in": "path",
+            "required": true,
+            "description": "Çağrının benzersiz kimliği (örn. aida-1763890123-4918)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "target_extension": "1002",
+                "context": "webrtc_agents"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/calls/{call_id}/hangup": {
+      "post": {
+        "tags": [
+          "1. Canlı Çağrı & Santral Kontrolü (Click-to-Call / Transfer / Hangup)"
+        ],
+        "summary": "Aktif Çağrıyı Sonlandırma (Hangup)",
+        "description": "Belirtilen çağrı kimliğine (call_id) veya kanala ait aktif görüşmeyi sonlandırır.",
+        "operationId": "post_api_v1_calls_call_id_hangup",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "calls:write",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "call_id": "aida-1763890123-4918",
+                  "message": "Çağrı sonlandırıldı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: calls:write)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "call_id",
+            "in": "path",
+            "required": true,
+            "description": "Çağrının benzersiz kimliği (örn. aida-1763890123-4918)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {}
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/calls/{call_id}/recording-pause": {
+      "post": {
+        "tags": [
+          "1. Canlı Çağrı & Santral Kontrolü (Click-to-Call / Transfer / Hangup)"
+        ],
+        "summary": "Canlı Çağrıda Ses Kaydını Duraklatma / Devam Ettirme (KVKK & Kredi Kartı Maskeleme)",
+        "description": "Görüşme esnasında müşteri kredi kartı veya KVKK hassas bilgisi söylerken ses kaydını (MixMonitor) duraklatır (`paused: true`) ve işlem bitince tekrar başlatır (`paused: false`).",
+        "operationId": "post_api_v1_calls_call_id_recording_pause",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "calls:write",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "call_id": "aida-1763890123-4918",
+                  "recording_paused": true,
+                  "message": "KVKK/PCI koruması: Ses kaydı duraklatıldı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: calls:write)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "call_id",
+            "in": "path",
+            "required": true,
+            "description": "Çağrının benzersiz kimliği (örn. aida-1763890123-4918)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "extension": "1000",
+                "paused": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/calls/{call_id}/hold": {
+      "post": {
+        "tags": [
+          "1. Canlı Çağrı & Santral Kontrolü (Click-to-Call / Transfer / Hangup)"
+        ],
+        "summary": "Canlı Çağrıyı Beklemeye Alma / Beklemeden Çıkarma (Hold / Unhold)",
+        "description": "Aktif görüşmedeki müşteriyi bekleme müziğine (MoH) alır (`hold: true`) veya beklemeden çıkarıp görüşmeye geri döndürür (`hold: false`).",
+        "operationId": "post_api_v1_calls_call_id_hold",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "calls:write",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "call_id": "aida-1763890123-4918",
+                  "on_hold": true,
+                  "message": "Çağrı beklemeye (MoH) alındı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: calls:write)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "call_id",
+            "in": "path",
+            "required": true,
+            "description": "Çağrının benzersiz kimliği (örn. aida-1763890123-4918)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "extension": "1000",
+                "hold": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/calls/monitor": {
+      "post": {
+        "tags": [
+          "1. Canlı Çağrı & Santral Kontrolü (Click-to-Call / Transfer / Hangup)"
+        ],
+        "summary": "Süpervizör Canlı Çağrı Dinleme, Fısıldama (Whisper) ve Araya Girme (Barge-In)",
+        "description": "Yöneticinin (`supervisor_extension`) seçilen temsilcinin (`target_extension`) aktif görüşmesini sessiz dinlemesini (`listen`), sadece temsilciye sufle vermesini (`whisper`) veya konferans olarak araya girmesini (`barge`) başlatır.",
+        "operationId": "post_api_v1_calls_monitor",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "calls:write",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "supervisor_extension": "1000",
+                  "target_extension": "1001",
+                  "mode": "whisper",
+                  "message": "Süpervizör 1000, 1001 görüşmesine 'whisper' modunda bağlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: calls:write)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "supervisor_extension": "1000",
+                "target_extension": "1001",
+                "mode": "whisper"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cdr": {
+      "get": {
+        "tags": [
+          "2. Çağrı Raporları (CDR), Ses Kayıtları & Transkript"
+        ],
+        "summary": "Detaylı Çağrı Geçmişi (CDR) ve Transfer/Pickup Zinciri Sorgulama",
+        "description": "Tarih aralığı, yön (inbound/outbound), arayan numara, dahili abone ve durum filtreleriyle tüm çağrı kayıtlarını, ses kaydı URL'lerini ve transfer bacaklarını (call_legs) döndürür.",
+        "operationId": "get_api_v1_cdr",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "cdr:read",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "total": 128,
+                  "items": [
+                    {
+                      "call_id": "aida-1763890123-4918",
+                      "started_at": "2026-11-23T14:15:10+03:00",
+                      "direction": "inbound",
+                      "caller_number": "05321234567",
+                      "did_number": "908503607390",
+                      "agent_extension": "1000",
+                      "disposition": "ANSWERED",
+                      "duration_sec": 184,
+                      "talk_sec": 171,
+                      "sentiment": "positive",
+                      "recording_url": "/api/v1/cdr/aida-1763890123-4918/recording",
+                      "call_legs": [
+                        {
+                          "leg_index": 0,
+                          "extension": "1000",
+                          "talk_sec": 95
+                        },
+                        {
+                          "leg_index": 1,
+                          "extension": "1002",
+                          "talk_sec": 76
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: cdr:read)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "İsteğe bağlı filtre parametresi (örn. 50)",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "direction",
+            "in": "query",
+            "required": false,
+            "description": "İsteğe bağlı filtre parametresi (örn. inbound)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/cdr/{call_id}": {
+      "get": {
+        "tags": [
+          "2. Çağrı Raporları (CDR), Ses Kayıtları & Transkript"
+        ],
+        "summary": "Tekil Çağrı Detayı, Ses Kaydı Bağlantıları & Konuşma Dökümü (Transcript)",
+        "description": "Belirtilen çağrının tüm bacaklarını, duygu analizini, AI özetini, konuşma metnini (transkript) ve ses kaydı indirme bağlantılarını getirir.",
+        "operationId": "get_api_v1_cdr_call_id",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "cdr:read",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "call_id": "aida-1763890123-4918",
+                  "caller_number": "05321234567",
+                  "agent_extension": "1000",
+                  "duration_sec": 184,
+                  "ai_summary": "Müşteri kargo takip numarasını sordu; temsilci teslimat bilgisini iletti.",
+                  "sentiment": "positive",
+                  "qa_score": 94,
+                  "recording_url": "/api/v1/cdr/aida-1763890123-4918/recording",
+                  "transcript": [
+                    {
+                      "speaker": "customer",
+                      "text": "Merhaba, 45921 numaralı siparişim ne durumda?"
+                    },
+                    {
+                      "speaker": "agent",
+                      "text": "Merhaba, hemen kontrol ediyorum. Kargonuz bugün dağıtıma çıkmış görünüyor."
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: cdr:read)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "call_id",
+            "in": "path",
+            "required": true,
+            "description": "Çağrının benzersiz kimliği (örn. aida-1763890123-4918)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/cdr/{call_id}/recording": {
+      "get": {
+        "tags": [
+          "2. Çağrı Raporları (CDR), Ses Kayıtları & Transkript"
+        ],
+        "summary": "Çağrı Ses Kaydı Dosyasını (WAV / MP3) İndirme veya Dinleme",
+        "description": "Çağrının tam ses kaydını veya `leg_index` parametresiyle sadece belirli bir transfer görüşmesinin ses kaydını stream olarak indirir.",
+        "operationId": "get_api_v1_cdr_call_id_recording",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "cdr:read",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "content_type": "audio/wav",
+                  "headers": {
+                    "Content-Disposition": "attachment; filename=\"call-aida-1763890123-4918.wav\""
+                  },
+                  "note": "İkili (binary) WAV/MP3 ses akışı döner."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: cdr:read)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "call_id",
+            "in": "path",
+            "required": true,
+            "description": "Çağrının benzersiz kimliği (örn. aida-1763890123-4918)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/extensions": {
+      "get": {
+        "tags": [
+          "3. Dahili Aboneler (Kullanıcılar) & Temsilci Mola Yönetimi"
+        ],
+        "summary": "Tüm Dahili Aboneleri ve Anlık Durumlarını Listeleme",
+        "description": "Sistemdeki tüm kullanıcıları, dahili numaralarını, çevrimiçi IP durumlarını, ses kaydı ve çağrı yönlendirme ayarlarını listeler.",
+        "operationId": "get_api_v1_extensions",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "extensions:read",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "count": 2,
+                  "extensions": [
+                    {
+                      "id": 10,
+                      "extension": "1000",
+                      "full_name": "Ahmet Yılmaz",
+                      "email": "ahmet@sirket.com",
+                      "role": "agent",
+                      "registered": true,
+                      "ip_address": "192.168.1.42",
+                      "agent_status": "available",
+                      "recording_active": true
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: extensions:read)"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "3. Dahili Aboneler (Kullanıcılar) & Temsilci Mola Yönetimi"
+        ],
+        "summary": "Yeni Dahili Abone (Kullanıcı) Oluşturma",
+        "description": "Santrale yeni bir dahili numara ve kullanıcı ekler, Asterisk PJSIP yapılandırmasını otomatik senkronize eder.",
+        "operationId": "post_api_v1_extensions",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "extensions:write",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "count": 2,
+                  "extensions": [
+                    {
+                      "id": 10,
+                      "extension": "1000",
+                      "full_name": "Ahmet Yılmaz",
+                      "email": "ahmet@sirket.com",
+                      "role": "agent",
+                      "registered": true,
+                      "ip_address": "192.168.1.42",
+                      "agent_status": "available",
+                      "recording_active": true
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: extensions:write)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "username": "ahmet.yilmaz",
+                "full_name": "Ahmet Yılmaz",
+                "extension": "1025",
+                "email": "ahmet@sirket.com",
+                "role": "agent",
+                "recording_active": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/extensions/{extension}": {
+      "put": {
+        "tags": [
+          "3. Dahili Aboneler (Kullanıcılar) & Temsilci Mola Yönetimi"
+        ],
+        "summary": "Dahili Abone Ayarlarını Güncelleme (Ses Kaydı, Yönlendirme, Dış Arama)",
+        "description": "Mevcut bir abonenin ses kayıt durumunu, çağrı yönlendirmelerini (Her Zaman / Meşgul / Cevapsız), CallerID veya aktiflik durumunu günceller.",
+        "operationId": "put_api_v1_extensions_extension",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "extensions:write",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: extensions:write)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "extension",
+            "in": "path",
+            "required": true,
+            "description": "Hedef dahili numarası (örn. 1000)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "recording_active": false,
+                "outbound_caller_id": "908503607390",
+                "forwarding_no_answer": {
+                  "active": true,
+                  "type": "external",
+                  "target": "05321234567",
+                  "timeout": 25
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "3. Dahili Aboneler (Kullanıcılar) & Temsilci Mola Yönetimi"
+        ],
+        "summary": "Dahili Aboneyi Silme",
+        "description": "Belirtilen dahili aboneyi santralden ve PJSIP yapılandırmasından kaldırır.",
+        "operationId": "delete_api_v1_extensions_extension",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "extensions:delete",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: extensions:delete)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "extension",
+            "in": "path",
+            "required": true,
+            "description": "Hedef dahili numarası (örn. 1000)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/extensions/{extension}/status": {
+      "post": {
+        "tags": [
+          "3. Dahili Aboneler (Kullanıcılar) & Temsilci Mola Yönetimi"
+        ],
+        "summary": "Temsilci Durumunu Değiştirme (Müsait / Molaya Çıkar)",
+        "description": "Temsilciyi dış sistemden (CRM/WFM) Müsait (available) duruma geçirir veya belirtilen mola türüyle molaya (break) çıkarır.",
+        "operationId": "post_api_v1_extensions_extension_status",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "extensions:write",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: extensions:write)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "extension",
+            "in": "path",
+            "required": true,
+            "description": "Hedef dahili numarası (örn. 1000)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "status": "break",
+                "break_reason": "Yemek Molası"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/queues": {
+      "get": {
+        "tags": [
+          "4. ACD Arama Kuyrukları & Abone Grupları"
+        ],
+        "summary": "ACD Çağrı Kuyruklarını ve Üyelerini Listeleme",
+        "description": "Tüm çağrı kuyruklarını, çalma stratejilerini, RONA/anket ayarlarını ve kuyruktaki dahili temsilcileri listeler.",
+        "operationId": "get_api_v1_queues",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "queues:read",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "queues": [
+                    {
+                      "id": 1,
+                      "extension": "6000",
+                      "name": "Müşteri Hizmetleri",
+                      "strategy": "rrmemory",
+                      "timeout": 20,
+                      "wrapup_time": 10,
+                      "members": [
+                        "1000",
+                        "1001",
+                        "1002"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: queues:read)"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "4. ACD Arama Kuyrukları & Abone Grupları"
+        ],
+        "summary": "Yeni ACD Çağrı Kuyruğu Oluşturma",
+        "description": "Yeni bir çağrı kuyruğu oluşturur ve Asterisk queues.conf dosyasını otomatik günceller.",
+        "operationId": "post_api_v1_queues",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "queues:write",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "queues": [
+                    {
+                      "id": 1,
+                      "extension": "6000",
+                      "name": "Müşteri Hizmetleri",
+                      "strategy": "rrmemory",
+                      "timeout": 20,
+                      "wrapup_time": 10,
+                      "members": [
+                        "1000",
+                        "1001",
+                        "1002"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: queues:write)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "name": "VIP Destek Kuyruğu",
+                "extension": "2050",
+                "strategy": "rrmemory",
+                "timeout": 20,
+                "wrapup_time": 10,
+                "members": [
+                  "1000",
+                  "1001"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/queues/{queue_id}": {
+      "put": {
+        "tags": [
+          "4. ACD Arama Kuyrukları & Abone Grupları"
+        ],
+        "summary": "Kuyruk Ayarlarını veya Temsilcilerini Güncelleme",
+        "description": "Kuyruğun çalma stratejisini, bekleme sürelerini, anonslarını günceller veya kuyruğa temsilci ekler/çıkarır.",
+        "operationId": "put_api_v1_queues_queue_id",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "queues:write",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: queues:write)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "queue_id",
+            "in": "path",
+            "required": true,
+            "description": "ACD kuyruk kimliği veya numarası (örn. 6000)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "strategy": "leastrecent",
+                "timeout": 25,
+                "member_action": "add",
+                "member_extensions": [
+                  "1005"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/subscriber-groups": {
+      "get": {
+        "tags": [
+          "4. ACD Arama Kuyrukları & Abone Grupları"
+        ],
+        "summary": "Abone Gruplarını Listeleme",
+        "description": "Santraldeki tüm abone gruplarını, grup üyelerini ve atanmış giden arama kurallarını döndürür.",
+        "operationId": "get_api_v1_subscriber_groups",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "queues:read",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: queues:read)"
+          }
+        }
+      }
+    },
+    "/api/v1/inbound-rules": {
+      "get": {
+        "tags": [
+          "5. Gelen / Giden Arama Kuralları, SIP Trunk & Toplu Konfigürasyon"
+        ],
+        "summary": "Gelen Arama (DID) Yönlendirme Kurallarını Listeleme",
+        "description": "Dış hat numaralarına (DID) gelen çağrıların hangi kuyruk, dahili veya AI asistana yönlendirildiğini listeler.",
+        "operationId": "get_api_v1_inbound_rules",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "routing:read",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: routing:read)"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "5. Gelen / Giden Arama Kuralları, SIP Trunk & Toplu Konfigürasyon"
+        ],
+        "summary": "Yeni Gelen Arama (DID) Yönlendirme Kuralı Ekleme",
+        "description": "Belirtilen DID numarasına gelen çağrıları seçilen kuyruk, dahili veya AI asistana yönlendiren yeni kural oluşturur.",
+        "operationId": "post_api_v1_inbound_rules",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "routing:write",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: routing:write)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "did_number": "908503607390",
+                "destination_type": "queue",
+                "destination_value": "2000",
+                "description": "Ana Hat -> Satış Kuyruğu"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/outbound-rules": {
+      "get": {
+        "tags": [
+          "5. Gelen / Giden Arama Kuralları, SIP Trunk & Toplu Konfigürasyon"
+        ],
+        "summary": "Giden Arama Kurallarını Listeleme",
+        "description": "Giden arama kurallarını, önekleri (prefix), kullanılan SIP Trunk ve PIN politikalarını listeler.",
+        "operationId": "get_api_v1_outbound_rules",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "routing:read",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: routing:read)"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "5. Gelen / Giden Arama Kuralları, SIP Trunk & Toplu Konfigürasyon"
+        ],
+        "summary": "Yeni Giden Arama Kuralı Ekleme",
+        "description": "Belirtilen önek (prefix) ve SIP Trunk üzerinden dış arama kuralı oluşturur.",
+        "operationId": "post_api_v1_outbound_rules",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "routing:write",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: routing:write)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "name": "Yurtiçi GSM Aramaları",
+                "prefix": "05",
+                "trunk_id": 1,
+                "caller_id": "908503607390"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/trunks": {
+      "get": {
+        "tags": [
+          "5. Gelen / Giden Arama Kuralları, SIP Trunk & Toplu Konfigürasyon"
+        ],
+        "summary": "Dış Hatları (SIP Trunks) ve Kayıt Durumlarını Listeleme",
+        "description": "Operatör SIP Trunk tanımlarını, DID numaralarını ve anlık SIP kayıt durumlarını döndürür.",
+        "operationId": "get_api_v1_trunks",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "routing:read",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "trunks": [
+                    {
+                      "id": 1,
+                      "name": "Operator_Trunk",
+                      "host": "sip.operatortelekom.com.tr",
+                      "did_number": "908503607390",
+                      "registered": true,
+                      "active_channels": 3,
+                      "max_channels": 25
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: routing:read)"
+          }
+        }
+      }
+    },
+    "/api/v1/bulk-config/apply": {
+      "post": {
+        "tags": [
+          "5. Gelen / Giden Arama Kuralları, SIP Trunk & Toplu Konfigürasyon"
+        ],
+        "summary": "Toplu Konfigürasyon (Bulk Config) Uygulama",
+        "description": "Kullanıcılar, abone grupları, kuyruklar veya arama kuralları üzerinde tek istekle toplu özellik değişikliği uygular.",
+        "operationId": "post_api_v1_bulk_config_apply",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "routing:write",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: routing:write)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "module": "users",
+                "target_mode": "all",
+                "changes": {
+                  "recording_active": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/contacts": {
+      "get": {
+        "tags": [
+          "6. CRM Rehber (Kişiler), Kara Liste & Randevu Takvimi"
+        ],
+        "summary": "Santral Rehberindeki Kişileri Listeleme / Arama",
+        "description": "Rehberde kayıtlı müşterileri telefon numarası veya isme göre filtreleyerek döndürür.",
+        "operationId": "get_api_v1_contacts",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "crm:read",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "count": 1,
+                  "contacts": [
+                    {
+                      "id": 512,
+                      "name": "Mehmet Demir",
+                      "phone": "05329876543",
+                      "company": "Demir Lojistik A.Ş.",
+                      "email": "mehmet@demirlojistik.com",
+                      "notes": "Kurumsal VIP Müşteri"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: crm:read)"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "6. CRM Rehber (Kişiler), Kara Liste & Randevu Takvimi"
+        ],
+        "summary": "Rehbere Yeni Müşteri / Kişi Ekleme",
+        "description": "Dış CRM veya ERP sisteminden santral rehberine yeni müşteri kartı ekler (Arayan kimliği eşleşmesi için).",
+        "operationId": "post_api_v1_contacts",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "crm:write",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "count": 1,
+                  "contacts": [
+                    {
+                      "id": 512,
+                      "name": "Mehmet Demir",
+                      "phone": "05329876543",
+                      "company": "Demir Lojistik A.Ş.",
+                      "email": "mehmet@demirlojistik.com",
+                      "notes": "Kurumsal VIP Müşteri"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: crm:write)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "name": "Mehmet Demir",
+                "phone": "05329876543",
+                "company": "Demir Lojistik A.Ş.",
+                "email": "mehmet@demirlojistik.com",
+                "notes": "Kurumsal VIP Müşteri"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/blacklist": {
+      "get": {
+        "tags": [
+          "6. CRM Rehber (Kişiler), Kara Liste & Randevu Takvimi"
+        ],
+        "summary": "Engellenen Numaraları (Kara Liste) Listeleme",
+        "description": "Kara listedeki tüm telefon numaralarını ve engellenme nedenlerini döndürür.",
+        "operationId": "get_api_v1_blacklist",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "crm:read",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: crm:read)"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "6. CRM Rehber (Kişiler), Kara Liste & Randevu Takvimi"
+        ],
+        "summary": "Numarayı Kara Listeye Ekleme (Engelleme)",
+        "description": "Belirtilen telefon numarasını santral kara listesine ekler.",
+        "operationId": "post_api_v1_blacklist",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "crm:write",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: crm:write)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "phone_number": "05320001122",
+                "reason": "Spam / İstenmeyen Arama"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/appointments": {
+      "get": {
+        "tags": [
+          "6. CRM Rehber (Kişiler), Kara Liste & Randevu Takvimi"
+        ],
+        "summary": "Randevu Kayıtlarını Listeleme",
+        "description": "AI Asistan veya temsilciler tarafından oluşturulan tüm randevuları listeler.",
+        "operationId": "get_api_v1_appointments",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "crm:read",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: crm:read)"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "6. CRM Rehber (Kişiler), Kara Liste & Randevu Takvimi"
+        ],
+        "summary": "Yeni Randevu Oluşturma",
+        "description": "Takvime yeni bir müşteri randevusu ekler.",
+        "operationId": "post_api_v1_appointments",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "crm:write",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: crm:write)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "customer_name": "Ayşe Kaya",
+                "customer_phone": "05421112233",
+                "appointment_date": "2026-11-15 14:30",
+                "notes": "Ürün Demo Görüşmesi"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/omnichannel/whatsapp/send": {
+      "post": {
+        "tags": [
+          "7. Yapay Zeka Asistanları & Omnichannel (WhatsApp / E-Posta Gönderimi)"
+        ],
+        "summary": "Dış Sistemden Müşteriye WhatsApp Mesajı Gönderme",
+        "description": "Santrale bağlı resmi WhatsApp Business hattı üzerinden müşteriye anlık bildirim veya mesaj gönderir.",
+        "operationId": "post_api_v1_omnichannel_whatsapp_send",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "ai_omnichannel:write",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "channel": "whatsapp",
+                  "phone": "905321234567",
+                  "message_id": "wamid.HBgMOTA1MzIxMjM0NTY3FQIAERgSMzQ2...",
+                  "delivered": true
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: ai_omnichannel:write)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "phone": "905321234567",
+                "message": "Sayın müşterimiz, siparişiniz kargoya verilmiştir."
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ai-calls/originate": {
+      "post": {
+        "tags": [
+          "7. Yapay Zeka Asistanları & Omnichannel (WhatsApp / E-Posta Gönderimi)"
+        ],
+        "summary": "Yapay Zeka Asistanı ile Otomatik Dış Arama Başlatma",
+        "description": "Belirtilen müşteri numarasını doğrudan seçilen AI Sesli Asistan ile arar ve senaryoyu konuşturur.",
+        "operationId": "post_api_v1_ai_calls_originate",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "ai_omnichannel:write",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "call_id": "aida-ai-1763890988",
+                  "agent_name": "Sales_AI",
+                  "phone_number": "05321234567",
+                  "message": "AI sesli asistan çağrısı başlatıldı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: ai_omnichannel:write)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "phone_number": "05321234567",
+                "agent_name": "Sales_AI",
+                "custom_context": "Müşteri adı: Ali Veli, Randevu teyidi için aranıyor."
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ai-agents": {
+      "get": {
+        "tags": [
+          "7. Yapay Zeka Asistanları & Omnichannel (WhatsApp / E-Posta Gönderimi)"
+        ],
+        "summary": "Yapay Zeka Sesli Asistanlarını Listeleme",
+        "description": "Sistemdeki tüm AI sesli temsilcilerini, kullandıkları dil modellerini ve senaryo talimatlarını döndürür.",
+        "operationId": "get_api_v1_ai_agents",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "ai_omnichannel:read",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: ai_omnichannel:read)"
+          }
+        }
+      }
+    },
+    "/api/v1/system/capacity": {
+      "get": {
+        "tags": [
+          "8. Konferans Odaları, Hızlı Arama, Sesli Posta (Voicemail), Webhook & Sistem Kapasitesi"
+        ],
+        "summary": "Santral Kapasite, Lisans ve Anlık Kanal Sağlığı Sorgulama",
+        "description": "Toplam dahili abone sayısını, çevrimiçi SIP cihazlarını, aktif çağrı kanallarını, kuyrukları, SIP Trunk durumunu ve lisans kapasitesini döndürür.",
+        "operationId": "get_api_v1_system_capacity",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "pbx_features:read",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "version": "v3.10.11",
+                  "plan_tier": "enterprise",
+                  "license_valid": true,
+                  "license_expires_at": "2027-12-31",
+                  "extensions_used": 18,
+                  "extensions_limit": 100,
+                  "active_calls": 4,
+                  "concurrent_calls_limit": 25,
+                  "sip_trunks_online": 2
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: pbx_features:read)"
+          }
+        }
+      }
+    },
+    "/api/v1/conferences": {
+      "get": {
+        "tags": [
+          "8. Konferans Odaları, Hızlı Arama, Sesli Posta (Voicemail), Webhook & Sistem Kapasitesi"
+        ],
+        "summary": "Konferans Odalarını Listeleme",
+        "description": "Santraldeki tüm konferans odalarını, oda numaralarını ve PIN ayarlarını döndürür.",
+        "operationId": "get_api_v1_conferences",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "pbx_features:read",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: pbx_features:read)"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "8. Konferans Odaları, Hızlı Arama, Sesli Posta (Voicemail), Webhook & Sistem Kapasitesi"
+        ],
+        "summary": "Yeni Konferans Odası Oluşturma",
+        "description": "Yeni bir sesli konferans odası oluşturur.",
+        "operationId": "post_api_v1_conferences",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "pbx_features:write",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: pbx_features:write)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "name": "Yönetim Kurulu Konferansı",
+                "room_number": "3010",
+                "pin": "1453"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/speed-dials": {
+      "get": {
+        "tags": [
+          "8. Konferans Odaları, Hızlı Arama, Sesli Posta (Voicemail), Webhook & Sistem Kapasitesi"
+        ],
+        "summary": "Hızlı Arama (Speed Dial) Kodlarını Listeleme",
+        "description": "Tanımlı hızlı arama kodlarını ve hedef numaralarını listeler.",
+        "operationId": "get_api_v1_speed_dials",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "pbx_features:read",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: pbx_features:read)"
+          }
+        }
+      }
+    },
+    "/api/v1/voicemails": {
+      "get": {
+        "tags": [
+          "8. Konferans Odaları, Hızlı Arama, Sesli Posta (Voicemail), Webhook & Sistem Kapasitesi"
+        ],
+        "summary": "Sesli Posta (Voicemail) Kayıtlarını Listeleme",
+        "description": "Bırakılan sesli posta mesajlarını, arayan numarayı, süreyi ve ses dosyası bağlantılarını listeler.",
+        "operationId": "get_api_v1_voicemails",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "pbx_features:read",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: pbx_features:read)"
+          }
+        }
+      }
+    },
+    "/api/v1/announcements": {
+      "get": {
+        "tags": [
+          "8. Konferans Odaları, Hızlı Arama, Sesli Posta (Voicemail), Webhook & Sistem Kapasitesi"
+        ],
+        "summary": "Santral Sesli Anonslarını (Prompts) Listeleme",
+        "description": "Karşılama, mesai dışı ve IVR anons dosyalarını listeler.",
+        "operationId": "get_api_v1_announcements",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "pbx_features:read",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "message": "İşlem başarıyla tamamlandı."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: pbx_features:read)"
+          }
+        }
+      }
+    },
+    "/api/v1/webhooks/subscribe": {
+      "post": {
+        "tags": [
+          "8. Konferans Odaları, Hızlı Arama, Sesli Posta (Voicemail), Webhook & Sistem Kapasitesi"
+        ],
+        "summary": "Gerçek Zamanlı Çağrı Olay Bildirimi (Webhook / Event Push) Tanımlama",
+        "description": "Santralde çağrı başladığında (`call.ringing`), cevaplandığında (`call.answered`), aktarıldığında (`call.transferred`) veya kapandığında (`call.ended`) dış CRM/ERP adresinize (`webhook_url`) anlık HTTP POST bildirimi gönderilmesini sağlar.",
+        "operationId": "post_api_v1_webhooks_subscribe",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-nornia-scope": "pbx_features:write",
+        "responses": {
+          "200": {
+            "description": "Başarılı yanıt",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "ok",
+                  "webhook_id": "wh_89a1c4f2",
+                  "webhook_url": "https://crm.sirketiniz.com/api/pbx-events",
+                  "events": [
+                    "call.ringing",
+                    "call.answered",
+                    "call.transferred",
+                    "call.ended"
+                  ],
+                  "signature_header": "X-AIDA-Signature"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz veya eksik API anahtarı"
+          },
+          "403": {
+            "description": "Yetersiz yetki (Gerekli scope: pbx_features:write)"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "webhook_url": "https://crm.sirketiniz.com/api/pbx-events",
+                "secret": "gizli_imza_anahtari_123",
+                "events": [
+                  "call.ringing",
+                  "call.answered",
+                  "call.transferred",
+                  "call.ended"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
