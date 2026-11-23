@@ -1189,6 +1189,12 @@ async def _query_hub_subdomain_check(hub_url: str, subdomain: str, hw_id: str) -
     if has_port:
         http_scheme = "https" if parsed.scheme == "https" else "http"
         candidates = [f"{http_scheme}://{parsed.netloc}/api/v1/connect/check-subdomain?{query}"]
+    elif parsed.scheme == "https":
+        candidates = [
+            f"https://{host_only}/api/v1/connect/check-subdomain?{query}",
+            f"http://{host_only}:8050/api/v1/connect/check-subdomain?{query}",
+            f"http://{host_only}/api/v1/connect/check-subdomain?{query}",
+        ]
     else:
         candidates = [
             f"http://{host_only}:8050/api/v1/connect/check-subdomain?{query}",

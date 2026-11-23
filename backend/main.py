@@ -16322,14 +16322,21 @@ async def check_setup_wizard_subdomain_endpoint(request: Request, subdomain: str
     if len(sub_clean) < 2:
         return {"available": False, "subdomain": sub_clean, "message": "Alt alan adı en az 2 karakter olmalıdır."}
     try:
-        from backend.services.ras_client_service import check_ras_subdomain_availability
-        return await check_ras_subdomain_availability(request, subdomain=sub_clean, hub_url=hub_url)
-    except Exception:
+        from backend.services.ras_client_service import check_ras_subdomain_from_pbx
+        target_hub = str(hub_url or "https://connect.nornia.com.tr").strip() or "https://connect.nornia.com.tr"
+        res = await check_ras_subdomain_from_pbx(subdomain=sub_clean, hub_url=target_hub)
+        if isinstance(res, dict):
+            res.setdefault("subdomain", sub_clean)
+            res.setdefault("fqdn", f"{sub_clean}.nornia.com.tr")
+            return res
+        return {"available": False, "subdomain": sub_clean, "message": "Hub doğrulama yanıtı alınamadı."}
+    except Exception as exc:
         return {
-            "available": True,
+            "available": False,
+            "reachable": False,
             "subdomain": sub_clean,
             "fqdn": f"{sub_clean}.nornia.com.tr",
-            "message": f"{sub_clean}.nornia.com.tr biçimi geçerli (Hub doğrulaması bağlantı kurulunca teyit edilir).",
+            "message": f"Merkez Hub doğrulaması yapılamadı: {exc}",
         }
 
 

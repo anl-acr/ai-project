@@ -335,6 +335,23 @@ export default function SetupWizardPage() {
         }
       }
     }
+    if (step === 3 && fqdnMode === "nornia_cloud") {
+      const cleanSub = subdomain.trim().toLowerCase().replace(/[^a-z0-9-]/g, "");
+      if (cleanSub.length < 2) {
+        setErrorMsg("Nornia Bulut FQDN için en az 2 karakterli bir alt alan adı girmelisiniz.");
+        return;
+      }
+      if (!subCheck || subCheck.checked_sub !== cleanSub) {
+        const res = await handleCheckSubdomain();
+        if (!res?.available) {
+          setErrorMsg(res?.message || `'${cleanSub}.nornia.com.tr' kullanılamıyor. Lütfen farklı bir alt alan adı seçin.`);
+          return;
+        }
+      } else if (!subCheck.available) {
+        setErrorMsg(subCheck.message || `'${cleanSub}.nornia.com.tr' kullanılamıyor. Lütfen farklı bir alt alan adı seçin.`);
+        return;
+      }
+    }
     setStep((s) => Math.min(6, s + 1));
   };
 
@@ -342,8 +359,9 @@ export default function SetupWizardPage() {
     const clean = subdomain.trim().toLowerCase().replace(/[^a-z0-9-]/g, "");
     setSubdomain(clean);
     if (clean.length < 2) {
-      setSubCheck({ available: false, message: "En az 2 karakter giriniz." });
-      return;
+      const fail = { available: false, checked_sub: clean, message: "En az 2 karakter giriniz." };
+      setSubCheck(fail);
+      return fail;
     }
     setCheckingSub(true);
     setSubCheck(null);
@@ -353,9 +371,13 @@ export default function SetupWizardPage() {
         { headers: buildAuthHeaders() }
       );
       const data = await res.json();
-      setSubCheck(data);
+      const enriched = { ...data, checked_sub: clean };
+      setSubCheck(enriched);
+      return enriched;
     } catch (err) {
-      setSubCheck({ available: false, message: "Alt alan adı kontrol edilemedi." });
+      const fail = { available: false, checked_sub: clean, message: "Alt alan adı kontrol edilemedi." };
+      setSubCheck(fail);
+      return fail;
     } finally {
       setCheckingSub(false);
     }
