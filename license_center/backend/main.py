@@ -520,6 +520,7 @@ class ClientCreateSchema(BaseModel):
 
 class LicenseGenerateSchema(BaseModel):
     client_id: Optional[int] = None
+    company_name: Optional[str] = None
     tenant_code: str
     tenant_serial_number: Optional[str] = None
     expiry_date: str
@@ -3661,28 +3662,36 @@ async def generate_license(payload: LicenseGenerateSchema, request: Request, db:
     if exp_date in ["unlimited", "Süresiz", ""] or payload.plan_tier == "unlimited":
         quotas["is_unlimited"] = True
 
-    # Find matching client if available
-    res = await db.execute(select(ClientServer).where(ClientServer.tenant_code == t_code))
-    client = res.scalars().first()
+    # Find matching client (prefer explicit client_id so multiple 'default' servers never collide)
+    client = None
+    if payload.client_id:
+        res_id = await db.execute(select(ClientServer).where(ClientServer.id == int(payload.client_id)))
+        client = res_id.scalars().first()
+    if not client:
+        res = await db.execute(select(ClientServer).where(ClientServer.tenant_code == t_code))
+        client = res.scalars().first()
     resolved_t_sn = (
         (payload.tenant_serial_number or "").strip()
         or (client.tenant_serial_number if client else None)
         or generate_tenant_serial_number(t_code, 100 + (client.id if client and client.id else 0))
     )
     quotas["tenant_serial_number"] = resolved_t_sn
+    clean_company = (payload.company_name or "").strip()
+    if clean_company:
+        quotas["company_name"] = clean_company
     resolved_sys_sn = compute_system_serial_number(hw_id) if hw_id not in ("UNBOUND", "Bilinmiyor") else (client.system_serial_number if client else None)
 
     key = generate_signed_license_key(t_code, exp_date, hw_id, custom_quotas=quotas)
 
     if not client:
         client = ClientServer(
-            company_name=f"Müşteri ({t_code})",
+            company_name=clean_company or f"Müşteri ({t_code})",
             tenant_code=t_code,
             tenant_serial_number=resolved_t_sn,
             system_serial_number=resolved_sys_sn,
             hardware_id=hw_id,
-            plan_tier=payload.plan_tier or "professional",
-            status="active",
+            plan_tier=payload.plan_tier or "enterprise",
+            status=str(quotas.get("status") or "active"),
             current_license_key=key,
             license_expires_at=exp_date,
             custom_quotas=json.dumps(quotas)
@@ -3691,6 +3700,20 @@ async def generate_license(payload: LicenseGenerateSchema, request: Request, db:
         await db.commit()
         await db.refresh(client)
     else:
+        if clean_company:
+            client.company_name = clean_company
+        if t_code and t_code != client.tenant_code:
+            dup_res = await db.execute(
+                select(ClientServer).where(
+                    (ClientServer.tenant_code == t_code) & (ClientServer.id != client.id)
+                )
+            )
+            if dup_res.scalars().first():
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"'{t_code}' müşteri kodu başka bir kayıtta kullanılıyor. Lütfen benzersiz bir kod girin."
+                )
+            client.tenant_code = t_code
         client.custom_quotas = json.dumps(quotas)
         client.tenant_serial_number = resolved_t_sn
         if resolved_sys_sn:
@@ -3784,6 +3807,7 @@ async def receive_heartbeat(payload: HeartbeatSchema, request: Request, db: Asyn
 
     tenants_response = []
     active_t_codes_for_hw = set()
+    active_client_ids_for_hw = set()
 
     # Check if this hardware_id already has a bound connect_subdomain
     bound_sub_for_hw = None
@@ -3810,13 +3834,23 @@ async def receive_heartbeat(payload: HeartbeatSchema, request: Request, db: Asyn
         active_t_codes_for_hw.add(t_code)
 
         incoming_t_sn = (t_item.serial_number or "").strip() or generate_tenant_serial_number(t_code, t_item.tenant_num_id or (100 + idx))
-        res = await db.execute(
-            select(ClientServer).where(
-                (ClientServer.tenant_code == t_code)
-                | ((ClientServer.tenant_serial_number == incoming_t_sn) & (ClientServer.hardware_id == hw_id))
+        client = None
+        if incoming_t_sn and hw_id and hw_id not in ("HW-UNKNOWN", "UNBOUND", "Bilinmiyor"):
+            res_sn = await db.execute(
+                select(ClientServer).where(
+                    (ClientServer.tenant_serial_number == incoming_t_sn)
+                    & (func.upper(ClientServer.hardware_id) == hw_id.upper())
+                )
             )
-        )
-        client = res.scalars().first()
+            client = res_sn.scalars().first()
+        if not client:
+            res = await db.execute(
+                select(ClientServer).where(
+                    (ClientServer.tenant_code == t_code)
+                    | ((ClientServer.tenant_serial_number == incoming_t_sn) & (ClientServer.hardware_id == hw_id))
+                )
+            )
+            client = res.scalars().first()
 
         extracted_hb_exp = _extract_expiry_from_license_key(t_item.license_key)
         if not client:
@@ -3866,9 +3900,18 @@ async def receive_heartbeat(payload: HeartbeatSchema, request: Request, db: Asyn
             if fallback_exp:
                 client.license_expires_at = fallback_exp
 
-        if t_item.company_name and t_item.company_name.strip():
-            client.company_name = t_item.company_name.strip()
-        client.tenant_code = t_code
+        incoming_cname = (t_item.company_name or "").strip()
+        if incoming_cname:
+            inc_low = incoming_cname.lower()
+            cur_low = (client.company_name or "").strip().lower()
+            is_incoming_generic = inc_low in ("ana müşteri", "ana müşteri (varsayılan)", "default") or inc_low.startswith(("otomatik kayıt", "demo kayıt"))
+            is_current_generic = (not cur_low) or cur_low.startswith(("otomatik kayıt", "demo kayıt", "müşteri ("))
+            if not is_incoming_generic and (is_current_generic or cur_low == inc_low):
+                client.company_name = incoming_cname
+        # Preserve admin-customized tenant_code when PBX is still reporting generic 'default'
+        if t_code != "default" or not (client.tenant_code or "").strip():
+            client.tenant_code = t_code
+        active_client_ids_for_hw.add(client.id)
         if bound_sub_for_hw and not client.connect_subdomain:
             client.connect_subdomain = bound_sub_for_hw
             client.domain_name = f"{bound_sub_for_hw}.nornia.com.tr"
@@ -3943,7 +3986,7 @@ async def receive_heartbeat(payload: HeartbeatSchema, request: Request, db: Asyn
             )
             stale_rows = stale_res.scalars().all()
             for s_row in stale_rows:
-                if (s_row.tenant_code or "").strip().lower() not in active_t_codes_for_hw:
+                if s_row.id not in active_client_ids_for_hw and (s_row.tenant_code or "").strip().lower() not in active_t_codes_for_hw:
                     await db.delete(s_row)
             await db.commit()
         except Exception as e:

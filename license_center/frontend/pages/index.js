@@ -353,6 +353,8 @@ export default function MasterDashboard() {
 
   // Key Generator Studio Modal State
   const [keyGenModalClient, setKeyGenModalClient] = useState(null);
+  const [genCompanyName, setGenCompanyName] = useState("");
+  const [genTenantCode, setGenTenantCode] = useState("");
   const [genExpiryDate, setGenExpiryDate] = useState("2027-12-31");
   const [genHwId, setGenHwId] = useState("");
   const [generatedResultKey, setGeneratedResultKey] = useState("");
@@ -1076,6 +1078,8 @@ export default function MasterDashboard() {
     setGenExpiryDate(isUnl ? "" : exp);
     setGenIsUnlimited(isUnl);
     setGenGraceUntil(isUnl ? "" : (client.license_grace_until || client.custom_quotas?.license_grace_until || ""));
+    setGenCompanyName(client.company_name || "");
+    setGenTenantCode(client.tenant_code || "");
     setGenHwId(client.hardware_id || "UNBOUND");
     setGenPlanTier(client.plan_tier || "professional");
     setGenStatus(client.status || "active");
@@ -1215,6 +1219,11 @@ export default function MasterDashboard() {
     };
 
     try {
+      const cleanCompanyName = (genCompanyName || "").trim();
+      const cleanTenantCode = (genTenantCode || keyGenModalClient.tenant_code || "default")
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]/g, "");
       const res = await fetch(`${API_BASE}/api/v1/licenses/generate`, {
         method: "POST",
         headers: { 
@@ -1223,7 +1232,8 @@ export default function MasterDashboard() {
         },
         body: JSON.stringify({
           client_id: keyGenModalClient.id,
-          tenant_code: keyGenModalClient.tenant_code,
+          company_name: cleanCompanyName || keyGenModalClient.company_name,
+          tenant_code: cleanTenantCode || keyGenModalClient.tenant_code,
           expiry_date: finalExpiry,
           hardware_id: genHwId || keyGenModalClient.hardware_id || "UNBOUND",
           plan_tier: genPlanTier,
@@ -1233,6 +1243,19 @@ export default function MasterDashboard() {
       if (res.ok) {
         const data = await res.json();
         setGeneratedResultKey(data.license_key);
+        setKeyGenModalClient((prev) =>
+          prev
+            ? {
+                ...prev,
+                company_name: cleanCompanyName || prev.company_name,
+                tenant_code: cleanTenantCode || prev.tenant_code,
+                current_license_key: data.license_key || prev.current_license_key,
+                plan_tier: genPlanTier,
+                status: genStatus,
+                license_expires_at: finalExpiry
+              }
+            : prev
+        );
         fetchData();
       } else {
         const errData = await res.json().catch(() => ({}));
@@ -3167,10 +3190,10 @@ export default function MasterDashboard() {
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <h3 className="text-base font-extrabold text-slate-900 dark:text-white truncate">
-                        Lisans Yenileme Stüdyosu — {keyGenModalClient.company_name}
+                        Lisans Yenileme Stüdyosu — {genCompanyName || keyGenModalClient.company_name}
                       </h3>
                       <span className="px-2 py-0.5 rounded-md font-mono text-[10px] font-extrabold bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border border-indigo-500/20">
-                        {keyGenModalClient.tenant_code}
+                        {genTenantCode || keyGenModalClient.tenant_code}
                       </span>
                     </div>
                     <div className="flex items-center gap-2.5 flex-wrap text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 font-mono">
@@ -3322,6 +3345,34 @@ export default function MasterDashboard() {
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800">
+                        {/* Müşteri / Firma Adı */}
+                        <div>
+                          <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1.5">
+                            Müşteri / Firma Adı
+                          </label>
+                          <input
+                            type="text"
+                            value={genCompanyName}
+                            onChange={(e) => setGenCompanyName(e.target.value)}
+                            placeholder="Örn: Test Teknoloji A.Ş."
+                            className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-indigo-500 font-bold text-slate-900 dark:text-white text-xs"
+                          />
+                        </div>
+
+                        {/* Müşteri Kodu */}
+                        <div>
+                          <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1.5">
+                            Müşteri Kodu (Tenant Code)
+                          </label>
+                          <input
+                            type="text"
+                            value={genTenantCode}
+                            onChange={(e) => setGenTenantCode(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ""))}
+                            placeholder="Örn: test"
+                            className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-indigo-500 font-mono font-bold text-slate-900 dark:text-white text-xs"
+                          />
+                        </div>
+
                         {/* Lisans Paketi */}
                         <div>
                           <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1.5">
