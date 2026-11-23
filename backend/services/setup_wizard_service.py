@@ -239,19 +239,30 @@ def get_setup_prefill_context(
     }
 
 
+def normalize_setup_license_key(raw_key: str) -> str:
+    """Uppercases only the AIDA-... key prefix while preserving case-sensitive Base64 quota payload after '.'."""
+    s = str(raw_key or "").strip()
+    if not s:
+        return ""
+    if "." in s:
+        prefix, payload = s.split(".", 1)
+        return f"{prefix.strip().upper()}.{payload.strip()}"
+    return s.upper()
+
+
 def validate_setup_license_key(license_key: str, tenant_code: str = "") -> Dict[str, Any]:
     from backend.services.license_service import verify_license_key
     from backend.services.hardware_info import get_system_hardware_fingerprint
 
-    key_clean = str(license_key or "").strip().upper()
+    key_clean = normalize_setup_license_key(license_key)
     if not key_clean:
         return {"valid": False, "message": "Lisans anahtarı boş olamaz."}
 
-    # Extract tenant code from AIDA-{CODE}-{YYYYMMDD}-{HW8}-{SIG8} if not explicitly supplied
-    t_code = str(tenant_code or "").strip().upper()
-    parts = key_clean.split("-")
-    if not t_code and len(parts) >= 4 and parts[0] == "AIDA":
-        t_code = parts[1]
+    # Extract authoritative tenant code from AIDA-{CODE}-{YYYYMMDD}-{HW8}-{SIG8}
+    prefix_only = key_clean.split(".", 1)[0]
+    parts = prefix_only.split("-")
+    key_t_code = parts[1].strip().upper() if len(parts) >= 4 and parts[0] == "AIDA" else ""
+    t_code = key_t_code or str(tenant_code or "").strip().upper()
 
     if not t_code:
         return {"valid": False, "message": "Geçersiz anahtar formatı. Örnek: AIDA-FIRMA-20271231-XXXXXXXX-XXXXXXXX"}
@@ -264,11 +275,48 @@ def validate_setup_license_key(license_key: str, tenant_code: str = "") -> Dict[
     except Exception:
         pass
 
+    embedded_t_code = str(res.get("embedded_tenant_code") or t_code or "").strip().upper()
+    raw_exp = str(res.get("expires_at") or res.get("expiry_date") or "").strip()
+    custom_quotas = res.get("custom_quotas") if isinstance(res.get("custom_quotas"), dict) else {}
+    is_unlimited = raw_exp.lower() in ("unlimited", "süresiz", "suresiz") or bool(custom_quotas.get("is_unlimited"))
+    is_demo = bool(custom_quotas.get("is_demo")) or str(custom_quotas.get("status") or "").lower() == "demo"
+    plan_tier = str(custom_quotas.get("plan_tier") or "").strip().lower()
+    embedded_company = str(custom_quotas.get("company_name") or "").strip()
+
+    days_left = None
+    expiry_display = "-"
+    if is_unlimited:
+        expiry_display = "Süresiz (Limitsiz)"
+    elif len(raw_exp) >= 10:
+        exp_iso = raw_exp[:10]
+        try:
+            exp_dt = datetime.datetime.strptime(exp_iso, "%Y-%m-%d").date()
+            today_tr = (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).date()
+            days_left = max(0, (exp_dt - today_tr).days)
+            exp_tr_str = exp_dt.strftime("%d.%m.%Y")
+            expiry_display = f"{days_left} gün ({exp_tr_str})"
+        except Exception:
+            expiry_display = exp_iso
+
+    msg_text = str(
+        res.get("reason")
+        or res.get("message")
+        or res.get("error")
+        or ("Lisans anahtarı doğrulandı." if res.get("valid") else "Lisans doğrulanamadı.")
+    )
+
     return {
         "valid": bool(res.get("valid")),
-        "message": str(res.get("message") or res.get("error") or ("Lisans anahtarı doğrulandı." if res.get("valid") else "Lisans doğrulanamadı.")),
-        "tenant_code": t_code,
-        "expiry_date": str(res.get("expiry_date") or ""),
+        "message": msg_text,
+        "tenant_code": embedded_t_code,
+        "company_name": embedded_company,
+        "expiry_date": "unlimited" if is_unlimited else raw_exp,
+        "expiry_display": expiry_display,
+        "days_left": days_left,
+        "is_unlimited": is_unlimited,
+        "is_demo": is_demo,
+        "plan_tier": plan_tier,
+        "custom_quotas": custom_quotas,
         "hardware_id": hw_id,
         "bound_hardware": str(res.get("hardware_id") or ""),
         "details": res,
@@ -312,13 +360,15 @@ def apply_setup_wizard_payload(
     # Validate mandatory license key & admin password upfront so we never write partial config
     lic_in = payload.get("license") if isinstance(payload.get("license"), dict) else {}
     company_name = str(lic_in.get("company_name") or payload.get("company_name") or "").strip()
-    lic_key = str(lic_in.get("license_key") or "").strip().upper()
+    lic_key = normalize_setup_license_key(lic_in.get("license_key") or "")
     lic_tcode = str(lic_in.get("tenant_code") or "").strip().upper()
     if not lic_key:
         raise ValueError("Kurulumu tamamlamak için geçerli bir lisans anahtarı (AIDA-...) girilmesi zorunludur.")
     v_res = validate_setup_license_key(lic_key, lic_tcode)
     if not v_res.get("valid"):
         raise ValueError(f"Lisans anahtarı doğrulanamadı: {v_res.get('message')}")
+    if not company_name and v_res.get("company_name"):
+        company_name = str(v_res["company_name"]).strip()
 
     admin_in = payload.get("admin") if isinstance(payload.get("admin"), dict) else {}
     new_admin_pwd = str(admin_in.get("password") or "").strip()
@@ -379,12 +429,14 @@ def apply_setup_wizard_payload(
     t0 = next((t for t in tenants_list if isinstance(t, dict) and str(t.get("id") or "") in ("tenant-default", "default")), tenants_list[0])
     if company_name:
         t0["name"] = company_name
-    t0["code"] = v_res["tenant_code"]
+    t0["code"] = v_res["tenant_code"].lower()
     t0["license_key"] = lic_key
     if v_res.get("expiry_date"):
         t0["license_expires_at"] = v_res["expiry_date"]
+    if isinstance(v_res.get("custom_quotas"), dict) and v_res["custom_quotas"]:
+        t0["custom_quotas"] = v_res["custom_quotas"]
     t0["status"] = "active"
-    steps_log.append({"step": 2, "title": "Lisans Aktivasyonu", "ok": True, "detail": f"Aktif ({v_res['tenant_code']} • Bitiş: {v_res.get('expiry_date') or '-'})"})
+    steps_log.append({"step": 2, "title": "Lisans Aktivasyonu", "ok": True, "detail": f"Aktif ({v_res['tenant_code']} • Geçerlilik: {v_res.get('expiry_display') or v_res.get('expiry_date') or '-'})"})
 
     # ------------------------------------------------------------
     # STEP 3: FQDN & Remote Access (Nornia Cloud / Custom FQDN / LAN)

@@ -270,14 +270,24 @@ export default function SetupWizardPage() {
     );
   }, [timezones, tzSearch]);
 
+  const normalizeLicenseKeyInput = (raw) => {
+    const s = String(raw || "").trim();
+    if (!s) return "";
+    const dotIdx = s.indexOf(".");
+    if (dotIdx !== -1) {
+      return `${s.slice(0, dotIdx).toUpperCase()}.${s.slice(dotIdx + 1)}`;
+    }
+    return s.toUpperCase();
+  };
+
   const isLicenseValidated = Boolean(
     licenseKey.trim() &&
       licenseCheck?.valid === true &&
-      licenseCheck?.checked_key === licenseKey.trim().toUpperCase()
+      licenseCheck?.checked_key === normalizeLicenseKeyInput(licenseKey)
   );
 
   const handleValidateLicense = async () => {
-    const cleanKey = licenseKey.trim().toUpperCase();
+    const cleanKey = normalizeLicenseKeyInput(licenseKey);
     if (!cleanKey) {
       const fail = { valid: false, message: "Devam etmek için geçerli bir lisans anahtarı girmeniz zorunludur." };
       setLicenseCheck(fail);
@@ -294,8 +304,11 @@ export default function SetupWizardPage() {
       const data = await res.json();
       const enriched = { ...data, checked_key: cleanKey };
       setLicenseCheck(enriched);
-      if (data.tenant_code && !tenantCode.trim()) {
+      if (data.valid && data.tenant_code) {
         setTenantCode(data.tenant_code);
+      }
+      if (data.valid && data.company_name && !companyName.trim()) {
+        setCompanyName(data.company_name);
       }
       return enriched;
     } catch (err) {
@@ -962,11 +975,17 @@ export default function SetupWizardPage() {
                           type="text"
                           value={licenseKey}
                           onChange={(e) => {
-                            setLicenseKey(e.target.value.toUpperCase());
+                            const val = e.target.value;
+                            const dotIdx = val.indexOf(".");
+                            const formatted =
+                              dotIdx !== -1
+                                ? `${val.slice(0, dotIdx).toUpperCase()}.${val.slice(dotIdx + 1)}`
+                                : val.toUpperCase();
+                            setLicenseKey(formatted);
                             setLicenseCheck(null);
                           }}
                           placeholder="AIDA-FIRMA-20271231-XXXXXXXX-XXXXXXXX"
-                          className="flex-1 px-3.5 py-2.5 text-xs font-mono font-bold uppercase rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
+                          className="flex-1 px-3.5 py-2.5 text-xs font-mono font-bold rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
                         />
                         <button
                           type="button"
@@ -992,8 +1011,9 @@ export default function SetupWizardPage() {
                         <div>
                           <div>{licenseCheck.message}</div>
                           {licenseCheck.valid && (
-                            <div className="text-[11px] font-mono opacity-80 mt-0.5">
-                              Kod: {licenseCheck.tenant_code} • Geçerlilik: {licenseCheck.expiry_date || "-"}
+                            <div className="text-[11px] font-mono opacity-85 mt-0.5">
+                              Kod: {licenseCheck.tenant_code} • Geçerlilik: {licenseCheck.expiry_display || licenseCheck.expiry_date || "-"}
+                              {licenseCheck.is_demo ? " • Demo" : ""}
                             </div>
                           )}
                         </div>
