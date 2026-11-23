@@ -3692,11 +3692,26 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                   )}
                   {visibleColumns.profile && (
                     <div className="w-12 flex items-center justify-center shrink-0 min-w-0">
-                      <img
-                        src={u?.call_panel_prefs?.profileAvatar || u.avatar}
-                        alt={u.full_name}
-                        className="w-12 h-12 rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-1 shrink-0"
-                      />
+                      {(() => {
+                        const rawAv = u?.call_panel_prefs?.profileAvatar || u.avatar;
+                        const seedKey = encodeURIComponent(String(u.extension || u.full_name || u.id || "User"));
+                        const fallbackSvg = `data:image/svg+xml;utf8,${encodeURIComponent(
+                          `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#6366f1"/><text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" fill="#ffffff" font-family="system-ui,sans-serif" font-size="22" font-weight="800">${String((u.full_name || u.extension || "U").trim().slice(0, 2)).toUpperCase()}</text></svg>`
+                        )}`;
+                        const avSrc = rawAv || `https://api.dicebear.com/7.x/avataaars/svg?seed=${seedKey}`;
+                        return (
+                          <img
+                            src={avSrc}
+                            alt={u.full_name}
+                            onError={(e) => {
+                              if (e.currentTarget.src !== fallbackSvg) {
+                                e.currentTarget.src = fallbackSvg;
+                              }
+                            }}
+                            className="w-12 h-12 rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-1 shrink-0 object-cover"
+                          />
+                        );
+                      })()}
                     </div>
                   )}
                   {visibleColumns.username && (

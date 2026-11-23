@@ -74,51 +74,56 @@ export default function AIProvidersSettings({ backendHost = "localhost:8000" }) 
         <div>
           <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">Google (Gemini) API Key</label>
           <input 
-            type="password" 
-            value={providers.google_api_key} 
+            type="password"
+            autoComplete="new-password"
+            value={providers.google_api_key || ""} 
             onChange={e => setProviders({...providers, google_api_key: e.target.value})}
             className="w-full text-sm px-4 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-purple-500"
-            placeholder="AIzaSy..."
+            placeholder="Tanımlı değil — Google Gemini API anahtarı girin"
           />
         </div>
         <div>
           <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">OpenAI API Key</label>
           <input 
-            type="password" 
-            value={providers.openai_api_key} 
+            type="password"
+            autoComplete="new-password"
+            value={providers.openai_api_key || ""} 
             onChange={e => setProviders({...providers, openai_api_key: e.target.value})}
             className="w-full text-sm px-4 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-purple-500"
-            placeholder="sk-proj-..."
+            placeholder="Tanımlı değil — OpenAI API anahtarı girin"
           />
         </div>
         <div>
           <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">Anthropic API Key</label>
           <input 
-            type="password" 
-            value={providers.anthropic_api_key} 
+            type="password"
+            autoComplete="new-password"
+            value={providers.anthropic_api_key || ""} 
             onChange={e => setProviders({...providers, anthropic_api_key: e.target.value})}
             className="w-full text-sm px-4 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-purple-500"
-            placeholder="sk-ant-..."
+            placeholder="Tanımlı değil — Anthropic API anahtarı girin"
           />
         </div>
         <div>
           <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">Groq API Key</label>
           <input 
-            type="password" 
-            value={providers.groq_api_key} 
+            type="password"
+            autoComplete="new-password"
+            value={providers.groq_api_key || ""} 
             onChange={e => setProviders({...providers, groq_api_key: e.target.value})}
             className="w-full text-sm px-4 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-purple-500"
-            placeholder="gsk_..."
+            placeholder="Tanımlı değil — Groq API anahtarı girin"
           />
         </div>
         <div>
           <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">ElevenLabs API Key</label>
           <input 
-            type="password" 
-            value={providers.elevenlabs_api_key} 
+            type="password"
+            autoComplete="new-password"
+            value={providers.elevenlabs_api_key || ""} 
             onChange={e => setProviders({...providers, elevenlabs_api_key: e.target.value})}
             className="w-full text-sm px-4 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-purple-500"
-            placeholder="sk_..."
+            placeholder="Tanımlı değil — ElevenLabs API anahtarı girin"
           />
         </div>
       </div>

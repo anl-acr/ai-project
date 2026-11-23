@@ -248,7 +248,15 @@ async def ensure_subdomain_ssl_and_nginx(new_subdomain: str = ""):
     async with _ssl_provision_lock:
         try:
             os.makedirs("/var/www/html/.well-known/acme-challenge", exist_ok=True)
-            cert_dir = "/etc/letsencrypt/live/nornia.com.tr"
+            # Auto-discover active Let's Encrypt certificate directory (nornia.com.tr wildcard/SAN, panel.nornia.com.tr, etc.)
+            cert_name = "nornia.com.tr"
+            cert_dir = f"/etc/letsencrypt/live/{cert_name}"
+            for cand_name in ("nornia.com.tr", "panel.nornia.com.tr", "connect.nornia.com.tr"):
+                cand_dir = f"/etc/letsencrypt/live/{cand_name}"
+                if os.path.exists(f"{cand_dir}/fullchain.pem") and os.path.exists(f"{cand_dir}/privkey.pem"):
+                    cert_name = cand_name
+                    cert_dir = cand_dir
+                    break
             has_le_cert = os.path.exists(f"{cert_dir}/fullchain.pem") and os.path.exists(f"{cert_dir}/privkey.pem")
             ssl_cert = f"{cert_dir}/fullchain.pem" if has_le_cert else "/etc/nginx/ssl/nornia_connect.crt"
             ssl_key = f"{cert_dir}/privkey.pem" if has_le_cert else "/etc/nginx/ssl/nornia_connect.key"
@@ -394,25 +402,18 @@ server {{
                     timeout=4.0,
                     check=False,
                 )
-                if f"DNS:{fqdn}" not in (chk_proc.stdout or ""):
-                    # Collect all active subdomains from DB + base domains
-                    domains = [
-                        "nornia.com.tr",
-                        "www.nornia.com.tr",
-                        "panel.nornia.com.tr",
-                        "connect.nornia.com.tr",
-                        "merkez.nornia.com.tr",
-                        fqdn,
-                    ]
-                    try:
-                        async with AsyncSessionLocal() as db:
-                            res_all = await db.execute(select(ClientServer.connect_subdomain))
-                            for (s_val,) in res_all.all():
-                                s_c = re.sub(r"[^a-z0-9-_]", "", str(s_val or "").strip().lower())
-                                if s_c and f"{s_c}.nornia.com.tr" not in domains:
-                                    domains.append(f"{s_c}.nornia.com.tr")
-                    except Exception:
-                        pass
+                cert_text = chk_proc.stdout or ""
+                if "DNS:*.nornia.com.tr" not in cert_text and f"DNS:{fqdn}" not in cert_text:
+                    # Preserve ONLY SAN domains already validated in this cert + the new subdomain
+                    existing_sans = re.findall(r"DNS:([a-zA-Z0-9._-]+)", cert_text)
+                    domains = []
+                    for d_ex in existing_sans:
+                        d_low = d_ex.strip().lower()
+                        if d_low and not d_low.startswith("*.") and d_low not in domains:
+                            domains.append(d_low)
+                    for base_d in ("panel.nornia.com.tr", "connect.nornia.com.tr", fqdn):
+                        if base_d not in domains:
+                            domains.append(base_d)
 
                     cmd = [
                         "certbot",
@@ -424,20 +425,24 @@ server {{
                         "--agree-tos",
                         "--expand",
                         "--cert-name",
-                        "nornia.com.tr",
+                        cert_name,
                     ]
                     for d in domains:
                         cmd.extend(["-d", d])
 
-                    print(f"[Nornia Connect Hub] Yeni alt alan adı için SSL sertifikası genişletiliyor: {fqdn}")
-                    await asyncio.to_thread(
+                    print(f"[Nornia Connect Hub] Yeni alt alan adı için SSL sertifikası genişletiliyor: {fqdn} (cert={cert_name}, domains={len(domains)})")
+                    cb_res = await asyncio.to_thread(
                         subprocess.run,
                         cmd,
                         capture_output=True,
                         text=True,
-                        timeout=45.0,
+                        timeout=60.0,
                         check=False,
                     )
+                    if cb_res.returncode != 0:
+                        print(f"[Nornia Connect Hub] Certbot genişletme hatası (rc={cb_res.returncode}): {(cb_res.stderr or cb_res.stdout or '')[-500:]}")
+                    else:
+                        print(f"[Nornia Connect Hub] SSL sertifikası başarıyla genişletildi: {fqdn}")
                     await asyncio.to_thread(
                         subprocess.run,
                         ["systemctl", "reload", "nginx"],

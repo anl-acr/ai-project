@@ -192,9 +192,20 @@ def get_setup_prefill_context(
 
     primary_iface = next((i for i in interfaces if not str(i.get("name") or "").startswith(("lo", "wg-", "docker", "br-"))), interfaces[0] if interfaces else {})
 
+    setup_done = is_setup_completed(settings_db)
+    prefill_lic_key = str((default_tenant or {}).get("license_key") or "").strip() if setup_done else ""
+    prefill_tcode_raw = str((default_tenant or {}).get("code") or "").strip()
+    prefill_tcode = prefill_tcode_raw if (setup_done or (prefill_tcode_raw and prefill_tcode_raw.lower() != "default")) else ""
+
+    raw_fqdn_sub = str(fqdn_cfg.get("subdomain") or ras_cfg.get("locked_subdomain") or "").strip().lower()
+    if not raw_fqdn_sub and ras_cfg.get("enabled"):
+        cand_sub = str(ras_cfg.get("subdomain") or "").strip().lower()
+        if cand_sub and cand_sub != "merkez":
+            raw_fqdn_sub = cand_sub
+
     return {
         "status": "success",
-        "setup_completed": is_setup_completed(settings_db),
+        "setup_completed": setup_done,
         "hardware_id": hw_id,
         "network": {
             "interfaces": interfaces,
@@ -211,16 +222,16 @@ def get_setup_prefill_context(
         },
         "license": {
             "hardware_id": hw_id,
-            "company_name": str((default_tenant or {}).get("name") or settings_db.get("company_name") or ""),
-            "tenant_code": str((default_tenant or {}).get("code") or ""),
-            "license_key": str((default_tenant or {}).get("license_key") or ""),
-            "license_expires_at": str((default_tenant or {}).get("license_expires_at") or ""),
-            "plan_tier": str((default_tenant or {}).get("plan_tier") or "professional"),
-            "has_key": bool(str((default_tenant or {}).get("license_key") or "").strip().startswith("AIDA-")),
+            "company_name": str((default_tenant or {}).get("name") or settings_db.get("company_name") or "") if setup_done else "",
+            "tenant_code": prefill_tcode,
+            "license_key": prefill_lic_key,
+            "license_expires_at": str((default_tenant or {}).get("license_expires_at") or "") if setup_done else "",
+            "plan_tier": str((default_tenant or {}).get("plan_tier") or "enterprise"),
+            "has_key": bool(prefill_lic_key.startswith("AIDA-")),
         },
         "fqdn": {
-            "mode": str(fqdn_cfg.get("mode") or ("nornia_cloud" if ras_cfg.get("enabled") else "nornia_cloud")),
-            "subdomain": str(fqdn_cfg.get("subdomain") or ras_cfg.get("locked_subdomain") or ras_cfg.get("subdomain") or ""),
+            "mode": str(fqdn_cfg.get("mode") or "nornia_cloud"),
+            "subdomain": raw_fqdn_sub,
             "custom_domain": str(fqdn_cfg.get("custom_domain") or ""),
             "hub_url": str(ras_cfg.get("hub_url") or "https://connect.nornia.com.tr"),
             "ras_enabled": bool(ras_cfg.get("enabled")),
@@ -597,6 +608,7 @@ def apply_setup_wizard_payload(
                 "config_version": 1,
             },
         ]
+        default_avatar_url = f"https://api.dicebear.com/7.x/avataaars/svg?seed=Dahili{ext_val}"
         new_u = {
             "id": max_uid,
             "username": ext_val,
@@ -605,6 +617,7 @@ def apply_setup_wizard_payload(
             "password": user_pwd,
             "role": "agent",
             "extension": ext_val,
+            "avatar": default_avatar_url,
             "sip_username": desk_su,
             "sip_password": sip_pwd,
             "sip_devices": new_sip_devs,
@@ -629,6 +642,7 @@ def apply_setup_wizard_payload(
                         "password": user_pwd,
                         "role": "agent",
                         "extension": ext_val,
+                        "avatar": default_avatar_url,
                         "sip_username": desk_su,
                         "sip_password": sip_pwd,
                         "is_active": True,

@@ -21272,17 +21272,8 @@ def check_and_update_tenant_expiration(tenants):
         t_code = t.get("code") or t.get("id", "default").replace("tenant-", "")
         t_key = t.get("license_key") or ""
         exp_str = t.get("license_expires_at")
-        
-        # If key is missing but expiration date is set, auto-generate initial cryptographic key
-        if not t_key and exp_str and str(exp_str).strip() and str(exp_str).lower() not in ["unlimited", "limitsiz", "suresiz", "null", "none", ""]:
-            try:
-                date_clean = str(exp_str).strip()[:10]
-                t_key = generate_license_key(t_code, date_clean)
-                t["license_key"] = t_key
-                changed = True
-            except Exception as e:
-                print(f"[License Key Auto-Gen Error]: {e}")
-                
+
+        # Never auto-mint UNBOUND license keys locally; keys must come from Central License Panel or explicit entry.
         ev = evaluate_tenant_effective_license(t)
         verification = ev.get("verification") or {}
         
