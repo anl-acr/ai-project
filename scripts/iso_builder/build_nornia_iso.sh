@@ -150,8 +150,8 @@ if apt-cache show libspandsp2t64 >/dev/null 2>&1; then
 elif apt-cache show libspandsp2 >/dev/null 2>&1; then
   TARGET_PKGS+=(libspandsp2)
 fi
-# NodeSource nodejs zaten npm içerir ve Ubuntu npm ile çakışır; yalnızca nodejs npm sağlamıyorsa npm ekle
-if ! apt-cache show nodejs 2>/dev/null | grep -qiE '^Provides:.*\bnpm\b'; then
+# NodeSource nodejs zaten npm içerir ve Ubuntu npm ile çakışır (Conflicts/Provides/Replaces: npm)
+if ! apt-cache show nodejs 2>/dev/null | grep -qiE '^(Provides|Conflicts|Replaces):.*\bnpm\b'; then
   TARGET_PKGS+=(npm)
 fi
 # pgvector varsa ekle
