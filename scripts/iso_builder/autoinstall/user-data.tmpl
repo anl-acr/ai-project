@@ -15,11 +15,15 @@ autoinstall:
         match:
           name: "en*"
         dhcp4: true
+        nameservers:
+          addresses: [8.8.8.8, 1.1.1.1]
         optional: true
       id1:
         match:
           name: "eth*"
         dhcp4: true
+        nameservers:
+          addresses: [8.8.8.8, 1.1.1.1]
         optional: true
   apt:
     fallback: offline-install

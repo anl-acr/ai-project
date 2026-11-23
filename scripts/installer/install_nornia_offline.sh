@@ -205,7 +205,15 @@ if [[ ! -f "${PROJECT_DIR}/backend/settings.json" ]]; then
   "trunks": [],
   "autoprovision": [],
   "tenants": [],
-  "pbx": {},
+  "pbx": {
+    "numbering_plan": {
+      "extension_range": {"start": 1000, "end": 1099},
+      "queue_range": {"start": 6000, "end": 6099},
+      "conference_range": {"start": 8000, "end": 8099},
+      "call_pickup": {"group": "*8", "directed": "**8"},
+      "pbx_features": {"voicemail_listen": "*97"}
+    }
+  },
   "nat": {
     "enabled": true,
     "extern_ip": "",
@@ -214,6 +222,14 @@ if [[ ! -f "${PROJECT_DIR}/backend/settings.json" ]]; then
 }
 EOF
 fi
+
+# Güvenilir yedek DNS (DHCP upstream DNS vermese bile panel.nornia.com.tr / connect.nornia.com.tr çözülsün)
+mkdir -p /etc/systemd/resolved.conf.d
+cat <<'EOF' > /etc/systemd/resolved.conf.d/99-nornia-dns.conf
+[Resolve]
+FallbackDNS=8.8.8.8 1.1.1.1
+EOF
+systemctl restart systemd-resolved 2>/dev/null || true
 
 # ------------------------------------------------------------------------------
 # 5. Python Virtual Environment (Tam Çevrimdışı Wheel Kurulumu)

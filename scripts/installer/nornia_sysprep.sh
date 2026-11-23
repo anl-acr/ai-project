@@ -37,7 +37,15 @@ cat <<'EOF' > /opt/ai-project/backend/settings.json
   "trunks": [],
   "autoprovision": [],
   "tenants": [],
-  "pbx": {},
+  "pbx": {
+    "numbering_plan": {
+      "extension_range": {"start": 1000, "end": 1099},
+      "queue_range": {"start": 6000, "end": 6099},
+      "conference_range": {"start": 8000, "end": 8099},
+      "call_pickup": {"group": "*8", "directed": "**8"},
+      "pbx_features": {"voicemail_listen": "*97"}
+    }
+  },
   "nat": {
     "enabled": true,
     "extern_ip": "",
@@ -46,8 +54,9 @@ cat <<'EOF' > /opt/ai-project/backend/settings.json
 }
 EOF
 
-# PostgreSQL içindeki tüm kullanıcı/oturum verilerini temizle
-sudo -u postgres psql -p 5444 -d ai_pbx -c "TRUNCATE TABLE system_users, calls, transcripts, chat_sessions, chat_messages, contacts RESTART IDENTITY CASCADE;" 2>/dev/null || true
+# PostgreSQL içindeki tüm ayar/kullanıcı/oturum verilerini temizle
+sudo -u postgres psql -p 5444 -d ai_pbx -c "TRUNCATE TABLE system_settings, system_users, trunks, pbx_queues, calls, transcripts, appointments, chat_sessions, chat_messages, contacts RESTART IDENTITY CASCADE;" 2>/dev/null || \
+sudo -u postgres psql -p 5444 -d ai_pbx -c "TRUNCATE TABLE system_settings, system_users, calls, transcripts, chat_sessions, chat_messages, contacts RESTART IDENTITY CASCADE;" 2>/dev/null || true
 
 # Bir sonraki açılışta yeni benzersiz key/TLS/machine-id üretilmesi için bayrak
 mkdir -p /var/lib/nornia
