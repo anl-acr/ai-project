@@ -34,6 +34,14 @@ function buildModuleTocItems(ch) {
       level: 1
     });
   }
+  if (ch.architectureDiagram) {
+    items.push({
+      num: `${seq++}.`,
+      label: "Sistem Topolojisi & Servis Bağlantı Diyagramı",
+      href: `#${ch.id}--mimari`,
+      level: 1
+    });
+  }
   if (ch.screenshots && ch.screenshots.length > 0) {
     items.push({ num: `${seq++}.`, label: "Canlı Santral Arayüz Ekran Görüntüsü", href: `#${ch.id}--ekran`, level: 1 });
   }

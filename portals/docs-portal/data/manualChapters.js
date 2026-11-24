@@ -8,6 +8,7 @@ import { CHAPTERS_CAGRI_YONLENDIRME } from "./chapters/05_cagri_yonlendirme";
 import { CHAPTERS_RAPORLAR } from "./chapters/06_raporlar";
 import { CHAPTERS_YONETIM_A } from "./chapters/07a_ayarlar";
 import { CHAPTERS_YONETIM_B } from "./chapters/07b_sistem";
+import { CHAPTERS_TEKNIK_MIMARI } from "./chapters/08_teknik_mimari";
 
 import { EDIT_GUIDES_PART1 } from "./editGuides/part1_baslangic_operasyon_ai";
 import { EDIT_GUIDES_PART2 } from "./editGuides/part2_santral_core";
@@ -27,7 +28,7 @@ export const MANUAL_META = {
   product: "Nornia Enterprise AI PBX",
   version: "v3.10.11",
   updatedAt: "24 Kasım 2026",
-  totalPages: 98,
+  totalPages: 103,
   fullPdfPath: "/pdfs/nornia-kullanim-kilavuzu-tam.pdf"
 };
 
@@ -79,6 +80,12 @@ export const MANUAL_GROUPS = [
     title: "Yönetim & Sistem Ayarları",
     subtitle: "Santral/NAT, Ağ/Nornia Connect, Multi-Site, Roller/KVKK/LDAP, Lisans, AI/Kanal Ayarları, sngrep ve Güvenlik",
     color: "slate"
+  },
+  {
+    id: "teknik-mimari",
+    title: "Teknik Mimari & Sistem Dokümantasyonu",
+    subtitle: "Çalışan tüm servisler, port/bağlantı haritası, SIP/WebRTC/AMI çağrı akışı, AudioSocket AI, Canlı Çeviri, Tünel ve PostgreSQL",
+    color: "indigo"
   }
 ];
 
@@ -92,7 +99,8 @@ const RAW_CHAPTERS = [
   ...CHAPTERS_CAGRI_YONLENDIRME,
   ...CHAPTERS_RAPORLAR,
   ...CHAPTERS_YONETIM_A,
-  ...CHAPTERS_YONETIM_B
+  ...CHAPTERS_YONETIM_B,
+  ...CHAPTERS_TEKNIK_MIMARI
 ];
 
 export const MANUAL_CHAPTERS = RAW_CHAPTERS.map((ch, idx) => {

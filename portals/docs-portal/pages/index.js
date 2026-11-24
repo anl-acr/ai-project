@@ -51,6 +51,13 @@ export default function DocsIndexPage() {
               <ArrowRight size={14} />
             </Link>
             <Link
+              href="/sistem-mimarisi-ve-servis-haritasi/"
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-sky-500/25 hover:bg-sky-500/40 border border-sky-300/30 text-white text-xs font-extrabold transition"
+            >
+              <Shield size={14} />
+              <span>Teknik Mimari &amp; Servisler</span>
+            </Link>
+            <Link
               href="/ilk-kurulum-sihirbazi/#kaynak-hesaplayici"
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500/25 hover:bg-emerald-500/40 border border-emerald-300/30 text-white text-xs font-extrabold transition"
             >

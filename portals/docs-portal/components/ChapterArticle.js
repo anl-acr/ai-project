@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { MANUAL_META, getChapterById } from "../data/manualChapters";
 import ServerSizingCalculator from "./ServerSizingCalculator";
+import SystemArchitectureDiagram from "./SystemArchitectureDiagram";
 
 function ScreenshotCard({ shot, onZoom, printMode = false }) {
   const [failed, setFailed] = useState(false);
@@ -248,6 +249,13 @@ export default function ChapterArticle({ chapter, printMode = false }) {
       {chapter.showSizingCalculator && (
         <div id={printMode ? `${chapter.id}--hesaplayici` : undefined}>
           <ServerSizingCalculator printMode={printMode} />
+        </div>
+      )}
+
+      {/* Visual System Architecture Diagram (when enabled on technical chapter) */}
+      {chapter.architectureDiagram && (
+        <div id={printMode ? `${chapter.id}--mimari` : "sistem-mimarisi"}>
+          <SystemArchitectureDiagram variant={chapter.architectureDiagram} />
         </div>
       )}
 
