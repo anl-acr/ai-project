@@ -231,6 +231,47 @@ export function calculateSizing(cfg) {
   };
 }
 
+function SliderTicks({ min, max, ticks, value, onSelect }) {
+  return (
+    <div className="relative h-5 select-none">
+      {ticks.map((t) => {
+        const pct = Math.max(0, Math.min(1, (t.v - min) / (max - min)));
+        const isFirst = t.v === min;
+        const isLast = t.v === max;
+        const active = value === t.v;
+        const posStyle = isFirst
+          ? { left: "0%" }
+          : isLast
+          ? { right: "0%" }
+          : { left: `calc(8px + (100% - 16px) * ${pct})`, transform: "translateX(-50%)" };
+        return (
+          <button
+            key={t.v}
+            type="button"
+            onClick={() => onSelect(t.v)}
+            style={posStyle}
+            className={`absolute top-0 flex flex-col items-center cursor-pointer transition font-mono text-[10px] leading-none ${
+              isFirst ? "items-start" : isLast ? "items-end" : "items-center"
+            } ${
+              active
+                ? "text-indigo-600 dark:text-indigo-400 font-black"
+                : "text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-300"
+            }`}
+            title={`${t.label} değerine ayarla`}
+          >
+            <span
+              className={`block w-px h-1.5 mb-0.5 ${
+                active ? "bg-indigo-600 dark:bg-indigo-400" : "bg-slate-300 dark:bg-slate-700"
+              }`}
+            />
+            <span>{t.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function ServerSizingCalculator({ printMode = false }) {
   const [cfg, setCfg] = useState(PRESETS[1]);
   const [copied, setCopied] = useState(false);
@@ -388,9 +429,12 @@ export default function ServerSizingCalculator({ printMode = false }) {
           {/* Users */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between gap-2">
-              <label className="text-xs font-extrabold text-slate-800 dark:text-slate-100">
-                Kayıtlı Kullanıcı / Dahili Sayısı
-              </label>
+              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <label className="text-xs font-extrabold text-slate-800 dark:text-slate-100">
+                  Kayıtlı Kullanıcı / Dahili Sayısı
+                </label>
+                <span className="text-[10px] text-slate-400">(kutudan 10.000&apos;e kadar yazabilirsiniz)</span>
+              </div>
               <input
                 type="number"
                 min={1}
@@ -409,20 +453,30 @@ export default function ServerSizingCalculator({ printMode = false }) {
               onChange={(e) => update("users", Number(e.target.value))}
               className="w-full accent-indigo-600 cursor-pointer"
             />
-            <div className="flex justify-between text-[10px] text-slate-400 font-mono">
-              <span>10</span>
-              <span>500</span>
-              <span>1.000</span>
-              <span>2.000+ (kutudan 10.000&apos;e kadar yazabilirsiniz)</span>
-            </div>
+            <SliderTicks
+              min={10}
+              max={2000}
+              value={cfg.users}
+              onSelect={(v) => update("users", v)}
+              ticks={[
+                { v: 10, label: "10" },
+                { v: 500, label: "500" },
+                { v: 1000, label: "1.000" },
+                { v: 1500, label: "1.500" },
+                { v: 2000, label: "2.000+" }
+              ]}
+            />
           </div>
 
           {/* Concurrent Calls */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between gap-2">
-              <label className="text-xs font-extrabold text-slate-800 dark:text-slate-100">
-                Eş Zamanlı Toplam Çağrı (SIP + WebRTC)
-              </label>
+              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <label className="text-xs font-extrabold text-slate-800 dark:text-slate-100">
+                  Eş Zamanlı Toplam Çağrı (SIP + WebRTC)
+                </label>
+                <span className="text-[10px] text-slate-400">(kutudan 5.000&apos;e kadar)</span>
+              </div>
               <input
                 type="number"
                 min={1}
@@ -441,13 +495,19 @@ export default function ServerSizingCalculator({ printMode = false }) {
               onChange={(e) => update("concurrentCalls", Number(e.target.value))}
               className="w-full accent-indigo-600 cursor-pointer"
             />
-            <div className="flex justify-between text-[10px] text-slate-400 font-mono">
-              <span>5</span>
-              <span>250</span>
-              <span>500</span>
-              <span>1.000</span>
-              <span>1.500+</span>
-            </div>
+            <SliderTicks
+              min={5}
+              max={1500}
+              value={cfg.concurrentCalls}
+              onSelect={(v) => update("concurrentCalls", v)}
+              ticks={[
+                { v: 5, label: "5" },
+                { v: 250, label: "250" },
+                { v: 500, label: "500" },
+                { v: 1000, label: "1.000" },
+                { v: 1500, label: "1.500+" }
+              ]}
+            />
           </div>
 
           {/* Live AI Voice Calls */}
