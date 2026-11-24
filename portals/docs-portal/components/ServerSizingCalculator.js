@@ -329,26 +329,26 @@ export default function ServerSizingCalculator({ printMode = false }) {
       className="rounded-3xl bg-white dark:bg-slate-900 border border-indigo-200/80 dark:border-indigo-900/60 shadow-sm overflow-hidden"
     >
       {/* Header */}
-      <div className="p-5 sm:p-6 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex flex-wrap items-center justify-between gap-3">
+      <div className="p-5 sm:p-6 bg-gradient-to-r from-indigo-50/80 via-white to-slate-50 dark:from-slate-900 dark:via-indigo-950/60 dark:to-slate-900 border-b border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white flex flex-wrap items-center justify-between gap-3">
         <div className="space-y-1">
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/10 border border-white/15 text-[10px] font-extrabold text-indigo-200">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-indigo-100/80 dark:bg-white/10 border border-indigo-200/80 dark:border-white/15 text-[10px] font-extrabold text-indigo-700 dark:text-indigo-200">
             <Sliders size={11} />
             <span>Etkileşimli Kapasite &amp; Donanım Hesaplayıcı</span>
           </div>
-          <h2 className="text-lg sm:text-xl font-black tracking-tight flex items-center gap-2">
-            <Server size={20} className="text-indigo-300" />
+          <h2 className="text-lg sm:text-xl font-black tracking-tight flex items-center gap-2 text-slate-900 dark:text-white">
+            <Server size={20} className="text-indigo-600 dark:text-indigo-300" />
             <span>Nornia Sunucu Kaynak Hesaplama Aracı</span>
           </h2>
-          <p className="text-xs text-indigo-100/85 max-w-2xl">
+          <p className="text-xs text-slate-600 dark:text-indigo-100/85 max-w-2xl">
             Abone adedinizi, eşzamanlı çağrı hedefinizi (1:1 yoğun senaryolar dahil), canlı AI ses akışını, ses kaydı süresini ve yerel LLM tercihinizi seçin; ihtiyacınız olan vCPU, RAM, NVMe/NAS disk, bant genişliği ve mimariyi anında hesaplayın.
           </p>
         </div>
         <button
           type="button"
           onClick={handleCopySummary}
-          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/15 hover:bg-white/25 border border-white/20 text-xs font-extrabold text-white cursor-pointer transition"
+          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-indigo-50 dark:bg-white/15 dark:hover:bg-white/25 border border-slate-200 dark:border-white/20 text-xs font-extrabold text-slate-700 dark:text-white shadow-xs cursor-pointer transition"
         >
-          {copied ? <Check size={14} className="text-emerald-300" /> : <Copy size={14} />}
+          {copied ? <Check size={14} className="text-emerald-600 dark:text-emerald-300" /> : <Copy size={14} className="text-indigo-600 dark:text-indigo-300" />}
           <span>{copied ? "Teknik Özet Kopyalandı" : "Teknik Özeti Kopyala"}</span>
         </button>
       </div>

@@ -22,29 +22,29 @@ export default function DocsIndexPage() {
 
       <div className="space-y-10">
         {/* Hero Banner */}
-        <section className="p-6 sm:p-9 rounded-3xl bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white shadow-xl space-y-5 relative overflow-hidden">
+        <section className="p-6 sm:p-9 rounded-3xl bg-gradient-to-br from-white via-indigo-50/75 to-sky-50/60 dark:from-slate-900 dark:via-indigo-950 dark:to-slate-900 text-slate-900 dark:text-white border border-indigo-200/80 dark:border-indigo-500/30 shadow-sm space-y-5 relative overflow-hidden">
           <div className="flex items-center gap-3">
-            <div className="h-12 w-12 rounded-2xl bg-white/10 p-1.5 backdrop-blur-sm border border-white/15 flex items-center justify-center shrink-0">
+            <div className="h-12 w-12 rounded-2xl bg-white dark:bg-white/10 p-1.5 border border-slate-200 dark:border-white/15 shadow-xs flex items-center justify-center shrink-0">
               <img src="/favicon.svg" alt="Nornia Logo" className="h-9 w-9 object-contain" />
             </div>
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 border border-white/15 text-[11px] font-bold">
-              <Sparkles size={13} className="text-amber-300" />
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-100/80 dark:bg-white/10 border border-indigo-200/80 dark:border-white/15 text-[11px] font-bold text-indigo-700 dark:text-indigo-200">
+              <Sparkles size={13} className="text-amber-500 dark:text-amber-300" />
               <span>{MANUAL_META.product} • Kurumsal Kullanım Kılavuzu</span>
             </div>
           </div>
 
-          <h1 className="text-2xl sm:text-4xl font-black tracking-tight leading-tight max-w-3xl">
+          <h1 className="text-2xl sm:text-4xl font-black tracking-tight leading-tight max-w-3xl text-slate-900 dark:text-white">
             Santralinizin Her Menüsü İçin En İnce Ayrıntısına Kadar Kullanım Kılavuzu
           </h1>
 
-          <p className="text-xs sm:text-sm text-indigo-100/90 leading-relaxed max-w-3xl">
+          <p className="text-xs sm:text-sm text-slate-600 dark:text-indigo-100/90 leading-relaxed max-w-3xl">
             Nornia santral arayüzündeki {MANUAL_GROUPS.length} ana menü grubu ve {MANUAL_CHAPTERS.length} ayrı modülün tamamı için gerçek canlı ekran görüntüleri (Temsilci Çağrı Paneli&apos;nin 10 sekmesi ve aktif görüşme/transfer/konferans/ACW ekranları dahil), her form alanının teknik açıklaması, rol yetki kodları (RBAC), adım adım uygulama örnekleri, sorun giderme matrisleri ve tek tıkla indirilebilir kurumsal A4 PDF kılavuzları.
           </p>
 
           <div className="flex flex-wrap gap-3 pt-1">
             <Link
               href="/kurulum-dokumani/"
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white text-indigo-700 hover:bg-indigo-50 text-xs font-extrabold shadow-md transition"
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 text-white hover:bg-indigo-500 text-xs font-extrabold shadow-sm transition"
             >
               <BookOpen size={14} />
               <span>Kurulum Dokümanından Başla</span>
@@ -52,14 +52,14 @@ export default function DocsIndexPage() {
             </Link>
             <Link
               href="/sistem-mimarisi-ve-servis-haritasi/"
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-sky-500/25 hover:bg-sky-500/40 border border-sky-300/30 text-white text-xs font-extrabold transition"
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white hover:bg-sky-50 dark:bg-sky-500/25 dark:hover:bg-sky-500/40 border border-sky-200 dark:border-sky-300/30 text-sky-700 dark:text-white text-xs font-extrabold transition"
             >
               <Shield size={14} />
               <span>Teknik Mimari &amp; Servisler</span>
             </Link>
             <Link
               href="/kurulum-dokumani/#kaynak-hesaplayici"
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500/25 hover:bg-emerald-500/40 border border-emerald-300/30 text-white text-xs font-extrabold transition"
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white hover:bg-emerald-50 dark:bg-emerald-500/25 dark:hover:bg-emerald-500/40 border border-emerald-200 dark:border-emerald-300/30 text-emerald-700 dark:text-white text-xs font-extrabold transition"
             >
               <Cpu size={14} />
               <span>Sunucu Kaynak Hesaplayıcı</span>
@@ -67,14 +67,14 @@ export default function DocsIndexPage() {
             <a
               href={MANUAL_META.fullPdfPath}
               download="nornia-kullanim-kilavuzu.pdf"
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-500/30 hover:bg-indigo-500/45 border border-white/20 text-white text-xs font-extrabold transition"
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white hover:bg-indigo-50 dark:bg-indigo-500/30 dark:hover:bg-indigo-500/45 border border-indigo-200 dark:border-white/20 text-indigo-700 dark:text-white text-xs font-extrabold transition"
             >
               <FileDown size={14} />
               <span>Tüm {MANUAL_CHAPTERS.length} Sayfayı Tek PDF İndir</span>
             </a>
             <a
               href="https://api.nornia.com.tr"
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 text-white text-xs font-bold transition"
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white hover:bg-slate-50 dark:bg-white/10 dark:hover:bg-white/20 border border-slate-200 dark:border-white/15 text-slate-700 dark:text-white text-xs font-bold transition"
             >
               <Code2 size={14} />
               <span>Geliştirici API Portalı</span>
