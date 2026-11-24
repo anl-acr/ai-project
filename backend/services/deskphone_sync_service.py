@@ -84,6 +84,14 @@ def is_echo_suppressed(ext: str, sip_username: str = "") -> bool:
         return (now_ts - max(t1, t2)) < ECHO_SUPPRESS_SECONDS
 
 
+def clear_phone_origin_change(ext: str) -> None:
+    """Clears any active phone-origin echo guard when an explicit Web/Admin change overrides it."""
+    prefix = f"{str(ext or '').strip()}::"
+    with _ECHO_GUARD_LOCK:
+        for k in [k for k in _PHONE_ORIGIN_TS if k.startswith(prefix)]:
+            _PHONE_ORIGIN_TS.pop(k, None)
+
+
 def _parse_fwd_obj(raw: Any) -> Dict[str, Any]:
     if isinstance(raw, str) and raw.strip().startswith("{"):
         try:
@@ -240,30 +248,52 @@ def build_yealink_sync_cfg_lines(
     noa_bit = 1 if (f_noa.get("active") and f_noa.get("target")) else 0
     noa_rings = max(1, min(20, int(f_noa.get("ring_count") or 6)))
 
+    alw_target_cfg = str(f_alw.get("target") or "").strip() if alw_bit else "%NULL%"
+    bsy_target_cfg = str(f_bsy.get("target") or "").strip() if bsy_bit else "%NULL%"
+    noa_target_cfg = str(f_noa.get("target") or "").strip() if noa_bit else "%NULL%"
+
     lines = [
         "",
         "# --- Nornia Cift Yonlu DND & Cagri Yonlendirme Senkronizasyonu (Yealink <-> Santral) ---",
         "sip.notify_reboot_enable = 0",
+        "static.auto_provision.custom.protect = 0",
+        "static.auto_provision.custom.sync = 0",
         "features.dnd.allow = 1",
         "features.dnd_mode = 0",
         f"features.dnd.enable = {dnd_bit}",
         "features.dnd.on_code = *78",
         "features.dnd.off_code = *79",
+        f"account.1.dnd.enable = {dnd_bit}",
+        "account.1.dnd.on_code = *78",
+        "account.1.dnd.off_code = *79",
         "features.fwd.allow = 1",
         "features.fwd_mode = 0",
         f"forward.always.enable = {alw_bit}",
-        f"forward.always.target = {f_alw.get('target') or ''}",
+        f"forward.always.target = {alw_target_cfg}",
         f"forward.always.on_code = {p_always}",
         f"forward.always.off_code = {p_always_off}",
         f"forward.busy.enable = {bsy_bit}",
-        f"forward.busy.target = {f_bsy.get('target') or ''}",
+        f"forward.busy.target = {bsy_target_cfg}",
         f"forward.busy.on_code = {p_busy}",
         f"forward.busy.off_code = {p_busy_off}",
         f"forward.no_answer.enable = {noa_bit}",
-        f"forward.no_answer.target = {f_noa.get('target') or ''}",
+        f"forward.no_answer.target = {noa_target_cfg}",
         f"forward.no_answer.timeout = {noa_rings}",
         f"forward.no_answer.on_code = {p_noans}",
         f"forward.no_answer.off_code = {p_noans_off}",
+        f"account.1.always_fwd.enable = {alw_bit}",
+        f"account.1.always_fwd.target = {alw_target_cfg}",
+        f"account.1.always_fwd.on_code = {p_always}",
+        f"account.1.always_fwd.off_code = {p_always_off}",
+        f"account.1.busy_fwd.enable = {bsy_bit}",
+        f"account.1.busy_fwd.target = {bsy_target_cfg}",
+        f"account.1.busy_fwd.on_code = {p_busy}",
+        f"account.1.busy_fwd.off_code = {p_busy_off}",
+        f"account.1.timeout_fwd.enable = {noa_bit}",
+        f"account.1.timeout_fwd.target = {noa_target_cfg}",
+        f"account.1.timeout_fwd.timeout = {noa_rings}",
+        f"account.1.timeout_fwd.on_code = {p_noans}",
+        f"account.1.timeout_fwd.off_code = {p_noans_off}",
     ]
 
     clean_base = str(sync_base_url or "").strip().rstrip("/")
@@ -292,16 +322,21 @@ def collect_user_physical_deskphones(user_dict: Optional[Dict[str, Any]], settin
     if not isinstance(user_dict, dict):
         return []
     ext_s = str(user_dict.get("extension") or "").strip()
+    uid_s = str(user_dict.get("id") or "").strip()
     if not ext_s:
         return []
 
     found: List[Dict[str, str]] = []
     seen_su = set()
 
-    # 1. From user.sip_devices
+    # 1. From user.sip_devices (passing BOTH autoprovision & user_deskphone_configs)
     try:
         from backend.services.autoprovision_service import normalize_user_sip_devices
-        devs = normalize_user_sip_devices(user_dict, settings_db.get("autoprovision") if isinstance(settings_db, dict) else None)
+        devs = normalize_user_sip_devices(
+            user_dict,
+            settings_db.get("autoprovision") if isinstance(settings_db, dict) else None,
+            settings_db.get("user_deskphone_configs") if isinstance(settings_db, dict) else None,
+        )
     except Exception:
         devs = user_dict.get("sip_devices") if isinstance(user_dict.get("sip_devices"), list) else []
 
@@ -322,13 +357,14 @@ def collect_user_physical_deskphones(user_dict: Optional[Dict[str, Any]], settin
             "brand": str(d.get("brand") or "Yealink").strip() or "Yealink",
         })
 
-    # 2. Fallback: autoprovision table entries matched by extension
+    # 2. Fallback: autoprovision table entries matched by extension OR user.id
+    match_keys = {k for k in (ext_s, uid_s) if k}
     if isinstance(settings_db, dict):
         for ap in settings_db.get("autoprovision", []) or []:
             if not isinstance(ap, dict):
                 continue
             ap_ext = str(ap.get("assigned_user") or ap.get("extension") or "").strip()
-            if ap_ext != ext_s:
+            if ap_ext not in match_keys:
                 continue
             su = str(ap.get("sip_username") or user_dict.get("sip_username") or "").strip()
             if su and su not in seen_su:
@@ -346,17 +382,25 @@ def push_live_state_to_user_deskphones(
     settings_db: Optional[Dict[str, Any]],
     exclude_sip_username: Optional[str] = None,
     reason_log: str = "Web / Santral Güncellemesi",
+    respect_echo_guard: bool = False,
 ) -> int:
     """
     Non-blocking background Zero-Reboot SIP NOTIFY (`Event: check-sync;reboot=false`) push
     to all physical desk phones of the given user so their LCD screen immediately reflects
     new DND or Call Forwarding state.
+
+    `respect_echo_guard=False` (default): Explicit Web / Admin / API updates ALWAYS push
+    immediately (even within seconds of a phone-originated change) and clear stale echo guards.
+    `respect_echo_guard=True`: Used only when fanning out a phone-originated event to peer phones.
     """
     if not isinstance(user_dict, dict):
         return 0
     ext_s = str(user_dict.get("extension") or "").strip()
     if not ext_s:
         return 0
+
+    if not respect_echo_guard:
+        clear_phone_origin_change(ext_s)
 
     excl = str(exclude_sip_username or "").strip().lower()
     devices = collect_user_physical_deskphones(user_dict, settings_db)
@@ -365,22 +409,49 @@ def push_live_state_to_user_deskphones(
         su = d["sip_username"]
         if excl and su.lower() == excl:
             continue
-        if is_echo_suppressed(ext_s, su):
+        if respect_echo_guard and is_echo_suppressed(ext_s, su):
             continue
         targets.append(d)
 
     if not targets:
+        if not excl:
+            print(f"[DeskPhone Live Sync] Dahili {ext_s} için bildirilecek fiziksel masa telefonu bulunamadı ({reason_log}).")
         return 0
 
     def _worker():
         try:
-            from backend.services.autoprovision_service import trigger_phone_sip_notify
+            import os
+            import subprocess
+            from backend.services.autoprovision_service import (
+                ensure_pjsip_notify_conf,
+                trigger_phone_sip_notify,
+            )
+            ast_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "asterisk_config")
+            ensure_pjsip_notify_conf(ast_dir)
+
             for dev in targets:
                 ok, msg = trigger_phone_sip_notify(dev["sip_username"], brand=dev["brand"], reboot=False)
+                if not ok and ("Unable to find notify" in str(msg) or "not found" in str(msg).lower()):
+                    try:
+                        subprocess.run(
+                            ["asterisk", "-rx", "module reload res_pjsip_notify.so"],
+                            capture_output=True,
+                            text=True,
+                            timeout=2.0,
+                            check=False,
+                        )
+                        ok, msg = trigger_phone_sip_notify(dev["sip_username"], brand=dev["brand"], reboot=False)
+                    except Exception:
+                        pass
                 if ok:
                     print(
                         f"[DeskPhone Live Sync] Dahili {ext_s} ({dev['brand']} • {dev['sip_username']}) "
                         f"ekranı yeniden başlatmasız güncellendi ({reason_log})."
+                    )
+                else:
+                    print(
+                        f"[DeskPhone Live Sync FAILED] Dahili {ext_s} ({dev['brand']} • {dev['sip_username']}) "
+                        f"SIP NOTIFY gönderilemedi ({reason_log}): {msg}"
                     )
         except Exception as exc:
             print(f"[DeskPhone Live Sync Warning] {exc}")

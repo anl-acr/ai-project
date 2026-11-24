@@ -16239,7 +16239,7 @@ async def _render_autoprovision_file_for_phone(
                 eff_prefs_merged.setdefault("time_format", _sys_dt["time_format"])
 
                 # Build live DND & 3-level Call Forwarding state + authenticated Action URL endpoint
-                _live_user_for_sync = dict(u)
+                _live_user_for_sync = copy.deepcopy(u)
                 _disk_u_match = next(
                     (
                         du for du in (settings_db.get("users") or [])
@@ -16248,10 +16248,25 @@ async def _render_autoprovision_file_for_phone(
                     None,
                 )
                 if isinstance(_disk_u_match, dict):
+                    def _extract_u_ts(u_obj: dict) -> int:
+                        try:
+                            cpp = u_obj.get("call_panel_prefs") if isinstance(u_obj.get("call_panel_prefs"), dict) else {}
+                            pm = cpp.get("profilesMeta") if isinstance(cpp.get("profilesMeta"), dict) else {}
+                            return max(int(u_obj.get("profiles_updated_ts") or 0), int(pm.get("updatedTs") or 0))
+                        except Exception:
+                            return 0
+                    _db_ts = _extract_u_ts(_live_user_for_sync)
+                    _disk_ts = _extract_u_ts(_disk_u_match)
                     for _sk in ("forwarding_always", "forwarding_busy", "forwarding_no_answer", "active_profile", "profiles", "call_panel_prefs"):
-                        if not _live_user_for_sync.get(_sk) and _disk_u_match.get(_sk):
-                            _live_user_for_sync[_sk] = _disk_u_match.get(_sk)
+                        if _disk_u_match.get(_sk) is not None and (_disk_ts >= _db_ts or not _live_user_for_sync.get(_sk)):
+                            _live_user_for_sync[_sk] = copy.deepcopy(_disk_u_match.get(_sk))
                 _live_sync_state = _extract_dp_sync_state(_live_user_for_sync)
+                print(
+                    f"[DeskPhone CFG Served] ext={ext_s}, su={dev_su}, dnd={_live_sync_state['dnd_enabled']}, "
+                    f"always={_live_sync_state['fwd_always'].get('active')}:{_live_sync_state['fwd_always'].get('target') or '-'}, "
+                    f"busy={_live_sync_state['fwd_busy'].get('active')}:{_live_sync_state['fwd_busy'].get('target') or '-'}, "
+                    f"no_answer={_live_sync_state['fwd_no_answer'].get('active')}:{_live_sync_state['fwd_no_answer'].get('target') or '-'}"
+                )
                 _raw_prov_base = str(prov_ep.get("active_prov_url") or "").strip().rstrip("/")
                 if _raw_prov_base.endswith("/lan"):
                     _raw_prov_base = _raw_prov_base[:-4]
@@ -16431,7 +16446,7 @@ async def deskphone_action_url_sync_endpoint(
         add_system_log("CALL_FORWARD", "INFO", f"Dahili {ext_clean} masa telefonu ekranından {rule_lbl} kuralını kapattı (Action URL).")
         u_fresh = await _load_merged_user_by_ext(ext_clean, db=db)
         if u_fresh:
-            push_live_state_to_user_deskphones(u_fresh, settings_db, exclude_sip_username=su_clean, reason_log=f"Masa Telefonu {ev_clean}")
+            push_live_state_to_user_deskphones(u_fresh, settings_db, exclude_sip_username=su_clean, reason_log=f"Masa Telefonu {ev_clean}", respect_echo_guard=True)
         return {"status": "ok", "ext": ext_clean, "event": ev_clean}
 
     fwd_on_map = {
@@ -16455,7 +16470,7 @@ async def deskphone_action_url_sync_endpoint(
                 add_system_log("CALL_FORWARD", "INFO", f"Dahili {ext_clean} masa telefonu ekranından {rule_lbl} kuralını '{clean_target}' hedefine açtı (Action URL).")
                 u_fresh = await _load_merged_user_by_ext(ext_clean, db=db)
                 if u_fresh:
-                    push_live_state_to_user_deskphones(u_fresh, settings_db, exclude_sip_username=su_clean, reason_log=f"Masa Telefonu {ev_clean}")
+                    push_live_state_to_user_deskphones(u_fresh, settings_db, exclude_sip_username=su_clean, reason_log=f"Masa Telefonu {ev_clean}", respect_echo_guard=True)
         await _stamp_deskphone_sync_meta(ext_clean, db=db, source_label="Masa Telefonu", event_name=ev_clean, synced_at=now_tr)
         return {"status": "ok", "ext": ext_clean, "event": ev_clean}
 
@@ -18879,6 +18894,7 @@ async def _apply_deskphone_dnd_state(
             settings_db,
             exclude_sip_username=origin_sip_username or None,
             reason_log=f"Masa Telefonu DND {'Açık' if dnd_enabled else 'Kapalı'}",
+            respect_echo_guard=True,
         )
     return True
 
@@ -19360,7 +19376,7 @@ async def resolve_subscriber_feature_code(
             await _stamp_deskphone_sync_meta(caller_ext, db=db, source_label="Masa Telefonu", event_name="fwd_all_off")
             u_sync = await _load_merged_user_by_ext(caller_ext, db=db)
             if u_sync:
-                _push_dp_live(u_sync, settings_db, exclude_sip_username=chan_peer or None, reason_log=f"Masa Telefonu ({raw_exten})")
+                _push_dp_live(u_sync, settings_db, exclude_sip_username=chan_peer or None, reason_log=f"Masa Telefonu ({raw_exten})", respect_echo_guard=True)
             add_system_log("CALL_FORWARD", "INFO", f"Dahili {caller_ext} masa telefonundan ({raw_exten}) tüm çağrı yönlendirmelerini iptal etti.")
             print(f"[Feature Code] Extension {caller_ext} -> ALL FORWARDING CANCELLED via {raw_exten}")
             return Response(content="CANCELLED", media_type="text/plain")
@@ -19382,7 +19398,7 @@ async def resolve_subscriber_feature_code(
                 await _stamp_deskphone_sync_meta(caller_ext, db=db, source_label="Masa Telefonu", event_name=f"{col_name}_off")
                 u_sync = await _load_merged_user_by_ext(caller_ext, db=db)
                 if u_sync:
-                    _push_dp_live(u_sync, settings_db, exclude_sip_username=chan_peer or None, reason_log=f"Masa Telefonu ({raw_exten})")
+                    _push_dp_live(u_sync, settings_db, exclude_sip_username=chan_peer or None, reason_log=f"Masa Telefonu ({raw_exten})", respect_echo_guard=True)
                 add_system_log("CALL_FORWARD", "INFO", f"Dahili {caller_ext} masa telefonundan ({raw_exten}) {rule_label} kuralını iptal etti.")
                 print(f"[Feature Code] Extension {caller_ext} -> {col_name} CANCELLED via {raw_exten}")
                 return Response(content="CANCELLED", media_type="text/plain")
@@ -19441,7 +19457,7 @@ async def resolve_subscriber_feature_code(
             await _stamp_deskphone_sync_meta(caller_ext, db=db, source_label="Masa Telefonu", event_name=f"{matched_col}_off")
             u_sync = await _load_merged_user_by_ext(caller_ext, db=db)
             if u_sync:
-                _push_dp_live(u_sync, settings_db, exclude_sip_username=chan_peer or None, reason_log=f"Masa Telefonu ({raw_exten})")
+                _push_dp_live(u_sync, settings_db, exclude_sip_username=chan_peer or None, reason_log=f"Masa Telefonu ({raw_exten})", respect_echo_guard=True)
             return Response(content="CANCELLED", media_type="text/plain")
 
         custom_timeout = existing_noans_timeout
@@ -19509,7 +19525,7 @@ async def resolve_subscriber_feature_code(
         await _stamp_deskphone_sync_meta(caller_ext, db=db, source_label="Masa Telefonu", event_name=f"{matched_col}_on")
         u_sync = await _load_merged_user_by_ext(caller_ext, db=db)
         if u_sync:
-            _push_dp_live(u_sync, settings_db, exclude_sip_username=chan_peer or None, reason_log=f"Masa Telefonu ({raw_exten})")
+            _push_dp_live(u_sync, settings_db, exclude_sip_username=chan_peer or None, reason_log=f"Masa Telefonu ({raw_exten})", respect_echo_guard=True)
         add_system_log(
             "CALL_FORWARD",
             "INFO",
@@ -40752,6 +40768,12 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                     pass
 
         current_users_list = settings_db.get("users", [])
+        # Deep-copy pre-save forwarding/DND snapshot before any in-place dict mutations occur
+        prev_dp_sync_snapshot_by_ext = {
+            str(u.get("extension") or "").strip(): copy.deepcopy(u)
+            for u in (current_users_list or [])
+            if isinstance(u, dict) and u.get("extension")
+        }
         existing_disk_by_id = {str(u.get("id")): u for u in current_users_list if isinstance(u, dict) and u.get("id") is not None}
         existing_disk_by_ext = {str(u.get("extension")): u for u in current_users_list if isinstance(u, dict) and u.get("extension")}
 
@@ -41367,18 +41389,13 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                 extract_user_live_phone_sync_state as _ext_dp_state,
                 push_live_state_to_user_deskphones as _push_dp_admin,
             )
-            prev_by_ext_dp = {
-                str(u_old.get("extension") or "").strip(): u_old
-                for u_old in (current_users_list or [])
-                if isinstance(u_old, dict) and u_old.get("extension")
-            }
             for u_new_dp in (new_users_out or []):
                 if not isinstance(u_new_dp, dict):
                     continue
                 ext_dp = str(u_new_dp.get("extension") or "").strip()
                 if not ext_dp:
                     continue
-                old_u_dp = prev_by_ext_dp.get(ext_dp)
+                old_u_dp = prev_dp_sync_snapshot_by_ext.get(ext_dp)
                 if not old_u_dp:
                     continue
                 st_old = _ext_dp_state(old_u_dp)
