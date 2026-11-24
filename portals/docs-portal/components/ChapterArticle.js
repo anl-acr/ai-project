@@ -23,7 +23,10 @@ import {
   Sliders,
   ChevronDown,
   ChevronRight,
-  Lightbulb
+  Lightbulb,
+  HardDrive,
+  Download,
+  Terminal
 } from "lucide-react";
 import { MANUAL_META, getChapterById } from "../data/manualChapters";
 import ServerSizingCalculator from "./ServerSizingCalculator";
@@ -244,6 +247,96 @@ export default function ChapterArticle({ chapter, printMode = false }) {
           </div>
         )}
       </div>
+
+      {/* Nornia Offline ISO Download Card (when enabled on Kurulum Dokümanı) */}
+      {chapter.showIsoDownload && chapter.isoMeta && (
+        <section
+          id={printMode ? `${chapter.id}--iso` : "iso-indir"}
+          className="print-avoid-break rounded-3xl bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white p-6 sm:p-7 border border-indigo-500/30 shadow-lg space-y-5"
+        >
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="space-y-2 max-w-2xl">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-emerald-200 text-[11px] font-extrabold">
+                <HardDrive size={13} />
+                <span>TAM ÇEVRİMDIŞI (AIR-GAPPED) APPLIANCE İMAJI • {chapter.isoMeta.version}</span>
+              </div>
+              <h2 className="text-xl sm:text-2xl font-black tracking-tight text-white">
+                Nornia Kurulum ISO Dosyasını İndirin
+              </h2>
+              <p className="text-xs sm:text-sm text-indigo-100/90 leading-relaxed">
+                Ubuntu 24.04 LTS, PostgreSQL 16 + pgvector, Asterisk PJSIP, Next.js 16.4.6 ve tüm güvenlik sertleştirmeleri
+                (Trivy 0/0/0, Fail2Ban, 401 Auth, HSTS) tek önyüklenebilir ISO imajında paketlenmiştir. İnternetsiz kapalı
+                ağlarda doğrudan kurulum yapılır.
+              </p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 shrink-0">
+              <a
+                href={chapter.isoMeta.downloadUrl}
+                download={chapter.isoMeta.filename}
+                className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs sm:text-sm shadow-lg shadow-emerald-950/40 transition"
+              >
+                <Download size={16} />
+                <span>ISO İndir ({chapter.isoMeta.size})</span>
+              </a>
+              <a
+                href={chapter.isoMeta.sha256Url}
+                download={`${chapter.isoMeta.filename}.sha256`}
+                className="inline-flex items-center justify-center gap-1.5 px-3.5 py-3 rounded-2xl bg-white/10 hover:bg-white/20 border border-white/15 text-white text-xs font-extrabold transition"
+                title="SHA-256 doğrulama dosyasını indir"
+              >
+                <Shield size={14} />
+                <span>.sha256</span>
+              </a>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1">
+            <div className="px-3.5 py-2.5 rounded-xl bg-white/5 border border-white/10">
+              <div className="text-[10px] font-bold text-indigo-200/70 uppercase">Sürüm</div>
+              <div className="text-xs font-black text-white mt-0.5">{chapter.isoMeta.version}</div>
+            </div>
+            <div className="px-3.5 py-2.5 rounded-xl bg-white/5 border border-white/10">
+              <div className="text-[10px] font-bold text-indigo-200/70 uppercase">Taban Sistem</div>
+              <div className="text-xs font-black text-white mt-0.5">{chapter.isoMeta.os}</div>
+            </div>
+            <div className="px-3.5 py-2.5 rounded-xl bg-white/5 border border-white/10">
+              <div className="text-[10px] font-bold text-indigo-200/70 uppercase">Dosya Boyutu</div>
+              <div className="text-xs font-black text-white mt-0.5">{chapter.isoMeta.size}</div>
+            </div>
+            <div className="px-3.5 py-2.5 rounded-xl bg-white/5 border border-white/10">
+              <div className="text-[10px] font-bold text-indigo-200/70 uppercase">Güncelleme</div>
+              <div className="text-xs font-black text-white mt-0.5">{chapter.isoMeta.updatedAt}</div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl bg-slate-950/70 border border-white/10">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400 shrink-0">SHA-256:</span>
+              <code className="text-[11px] font-mono text-slate-200 truncate">{chapter.isoMeta.sha256}</code>
+            </div>
+            {!printMode && (
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => copyCode(chapter.isoMeta.sha256, "iso-sha256")}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-[11px] font-bold text-white cursor-pointer transition"
+                >
+                  {copiedKey === "iso-sha256" ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                  <span>{copiedKey === "iso-sha256" ? "Kopyalandı" : "Kopyala"}</span>
+                </button>
+                <a
+                  href="#bolum-2"
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-500/30 hover:bg-indigo-500/50 text-[11px] font-bold text-indigo-100 transition"
+                >
+                  <Terminal size={12} />
+                  <span>Script ile Kuruluma Git</span>
+                </a>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
 
       {/* Interactive Server Sizing Calculator (when enabled on chapter) */}
       {chapter.showSizingCalculator && (

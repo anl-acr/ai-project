@@ -282,7 +282,7 @@ export default function ServerSizingCalculator({ printMode = false }) {
             <span>Sunucu Kaynak &amp; Kapasite Boyutlandırma Rehberi (Örnek Senaryolar)</span>
           </h2>
           <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded">
-            Canlı Hesaplayıcı: dokuman.nornia.com.tr/ilk-kurulum-sihirbazi/
+            Canlı Hesaplayıcı: dokuman.nornia.com.tr/kurulum-dokumani/
           </span>
         </div>
         <p className="text-xs text-slate-600 leading-relaxed">

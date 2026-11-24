@@ -371,6 +371,14 @@ export default function DocsShell({ activeChapter = null, children }) {
               <span>Bu Sayfada</span>
             </div>
             <nav className="space-y-1.5 text-xs">
+              {activeChapter.showIsoDownload && (
+                <a
+                  href="#iso-indir"
+                  className="block py-1 text-emerald-600 dark:text-emerald-400 hover:underline font-extrabold"
+                >
+                  Nornia ISO İndir
+                </a>
+              )}
               {activeChapter.showSizingCalculator && (
                 <a
                   href="#kaynak-hesaplayici"

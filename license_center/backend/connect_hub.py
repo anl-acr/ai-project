@@ -478,6 +478,16 @@ server {{
         add_header Cache-Control "no-cache, must-revalidate";
     }}
 
+    location /downloads/ {{
+        gzip off;
+        sendfile on;
+        tcp_nopush on;
+        add_header Content-Disposition "attachment";
+        add_header Accept-Ranges bytes;
+        add_header Cache-Control "public, max-age=3600";
+        try_files $uri =404;
+    }}
+
     location / {{
         add_header Cache-Control "no-cache, must-revalidate";
         try_files $uri $uri.html $uri/ /index.html;

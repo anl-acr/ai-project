@@ -28,7 +28,7 @@ export const MANUAL_META = {
   product: "Nornia Enterprise AI PBX",
   version: "v3.10.11",
   updatedAt: "24 Kasım 2026",
-  totalPages: 103,
+  totalPages: 104,
   fullPdfPath: "/pdfs/nornia-kullanim-kilavuzu-tam.pdf"
 };
 
@@ -36,7 +36,7 @@ export const MANUAL_GROUPS = [
   {
     id: "baslangic",
     title: "Başlangıç & Kurulum",
-    subtitle: "İlk kurulum sihirbazı, WebPhone/cihaz bağlantıları ve 11 sekmeli Kişisel Profil / Avatar Ayarları",
+    subtitle: "Kurulum dokümanı (ISO indir, kaynak hesaplayıcı, script kurulum), İlk Kurulum Sihirbazı (/setup), WebPhone ve Profil Ayarları",
     color: "indigo"
   },
   {

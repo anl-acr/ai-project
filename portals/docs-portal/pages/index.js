@@ -43,11 +43,11 @@ export default function DocsIndexPage() {
 
           <div className="flex flex-wrap gap-3 pt-1">
             <Link
-              href="/ilk-kurulum-sihirbazi/"
+              href="/kurulum-dokumani/"
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white text-indigo-700 hover:bg-indigo-50 text-xs font-extrabold shadow-md transition"
             >
               <BookOpen size={14} />
-              <span>İlk Kurulumdan Başla</span>
+              <span>Kurulum Dokümanından Başla</span>
               <ArrowRight size={14} />
             </Link>
             <Link
@@ -58,7 +58,7 @@ export default function DocsIndexPage() {
               <span>Teknik Mimari &amp; Servisler</span>
             </Link>
             <Link
-              href="/ilk-kurulum-sihirbazi/#kaynak-hesaplayici"
+              href="/kurulum-dokumani/#kaynak-hesaplayici"
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500/25 hover:bg-emerald-500/40 border border-emerald-300/30 text-white text-xs font-extrabold transition"
             >
               <Cpu size={14} />

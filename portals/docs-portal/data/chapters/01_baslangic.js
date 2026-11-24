@@ -1,29 +1,157 @@
 export const CHAPTERS_BASLANGIC = [
   {
-    id: "ilk-kurulum-sihirbazi",
+    id: "kurulum-dokumani",
     number: "01",
     groupId: "baslangic",
     category: "Başlangıç & Kurulum",
-    title: "İlk Kurulum Sihirbazı (/setup) & Sunucu Mimarisi",
-    shortTitle: "İlk Kurulum Sihirbazı",
-    menuPath: "Tarayıcı → http://<sunucu-ip>:3000/setup",
-    pbxRoute: "/setup",
-    permissions: ["system_settings:write (İlk kurulum — oturum gerektirmez, tamamlanınca kilitlenir)"],
-    badge: "Kurulum • 6 Adım",
-    readMinutes: 12,
+    title: "Kurulum Dokümanı — Çevrimdışı ISO, Kaynak Hesaplayıcı & Script Kurulum",
+    shortTitle: "Kurulum Dokümanı",
+    menuPath: "Kurulum Öncesi → ISO İndir / Kaynak Hesaplayıcı / Ubuntu 24.04 Script",
+    pbxRoute: "/kurulum-dokumani",
+    permissions: ["Sunucu root / sudo erişimi (Ubuntu 24.04 LTS veya Nornia Çevrimdışı ISO)"],
+    badge: "ISO • Hesaplayıcı • Script",
+    readMinutes: 14,
     summary:
-      "Nornia Enterprise AI PBX'i ister tam çevrimdışı Nornia ISO görüntüsünden ister temiz bir Ubuntu 24.04 LTS sunucusu üzerine çevrimiçi kurulum betiği ile kurup, 6 adımlı Kurulum Sihirbazı (/setup) üzerinden statik LAN IP, donanım kilidi (HW-ID) lisansı, Nornia Connect alt alan adı ve yönetici hesabını uçtan uca yapılandırma rehberidir.",
+      "Nornia Enterprise AI PBX'i ister tam çevrimdışı (Air-Gapped) Nornia ISO imajıyla ister temiz bir Ubuntu 24.04 LTS sunucusu üzerine tek komutluk çevrimiçi kurulum betiğiyle kurma rehberidir. Sunucu kaynak hesaplayıcısı, ISO indirme bağlantısı, SHA-256 doğrulama ve servis sağlık kontrollerini tek sayfada toplar.",
+    showIsoDownload: true,
+    isoMeta: {
+      version: "v3.10.11",
+      os: "Ubuntu 24.04 LTS (amd64)",
+      size: "4.5 GB",
+      filename: "nornia-v3.10.11-ubuntu24.04-amd64.iso",
+      downloadUrl: "https://dokuman.nornia.com.tr/downloads/nornia-v3.10.11-ubuntu24.04-amd64.iso",
+      sha256Url: "https://dokuman.nornia.com.tr/downloads/nornia-v3.10.11-ubuntu24.04-amd64.iso.sha256",
+      sha256: "b38169011e07729818e21231731494efd2c72a5e7b368adec121c7cd35a141be",
+      updatedAt: "24 Kasım 2026"
+    },
     showSizingCalculator: true,
     prerequisites: [
-      "Kurulum seçeneği 1 (ISO): Ubuntu 24.04 LTS tabanlı tam çevrimdışı Nornia ISO kurulumu tamamlanmış ve sunucu yerel ağdan DHCP veya geçici IP almış olmalıdır.",
-      "Kurulum seçeneği 2 (Online): ISO imajı olmayan bulut/sanal makinelerde temiz bir Ubuntu 24.04 LTS (amd64) işletim sistemi ve internet erişimi hazır olmalıdır.",
-      "Kurulum öncesi aşağıdaki 'Nornia Sunucu Kaynak Hesaplama Aracı' ile kullanıcı adedi, eşzamanlı çağrı, ses kaydı ve yerel LLM tercihinize göre gerekli vCPU, RAM, NVMe/NAS disk ve ağ kaynağını belirlemeniz önerilir.",
-      "Merkez Lisans Paneli'nden (panel.nornia.com.tr) bu sunucunun HW-ID'si için üretilmiş imzalı AIDA-... lisans anahtarı hazır olmalıdır."
+      "Kurulum öncesi aşağıdaki 'Nornia Sunucu Kaynak Hesaplama Aracı' ile kullanıcı adedi, eşzamanlı çağrı, ses kaydı saklama süresi ve yerel LLM/AI tercihinize göre gerekli vCPU, RAM, NVMe/NAS disk ve bant genişliğini belirleyin.",
+      "Kurulum Seçeneği 1 (Çevrimdışı ISO): 64-bit (amd64) fiziksel sunucu veya VMware / Proxmox / Hyper-V sanal makinesine Nornia ISO imajını bağlayın (kurulum sırasında internet gerekmez).",
+      "Kurulum Seçeneği 2 (Script ile Çevrimiçi Kurulum): Temiz bir Ubuntu 24.04 LTS (amd64) işletim sistemi ve internet erişimi hazır olmalıdır.",
+      "Kurulum tamamlandıktan sonra tarayıcıda açılacak 6 adımlı İlk Kurulum Sihirbazı (/setup) için Merkez Lisans Paneli'nden alınmış AIDA-... lisans anahtarınızı hazır bulundurun."
+    ],
+    fieldTable: [
+      { field: "Tam Çevrimdışı ISO (Air-Gapped)", type: "Önyüklenebilir ISO (4.5 GB)", defaultVal: "nornia-v3.10.11-ubuntu24.04-amd64.iso", required: false, description: "İnternet erişimi olmayan kapalı ağlar ve hızlı appliance kurulumu için Ubuntu 24.04, PostgreSQL 16 + pgvector, Asterisk, Next.js 16.4.6, Fail2Ban ve tüm güvenlik sertleştirmelerini tek imajda içerir." },
+      { field: "Çevrimiçi Kurulum Betiği", type: "Bash Script (12 Adım)", defaultVal: "install_nornia_online.sh", required: false, description: "Bulut (VPS/AWS/Hetzner) veya mevcut temiz Ubuntu 24.04 LTS makinelerde tek komutla tüm Nornia servislerini ve güvenlik duvarını kurar." },
+      { field: "Minimum Donanım (≤ 25 Kullanıcı)", type: "Sunucu Kaynağı", defaultVal: "4 vCPU / 8 GB RAM / 80 GB NVMe", required: true, description: "Bulut AI (Gemini/OpenAI) ile standart kurumsal santral kurulumları için başlangıç önerisi. Yerel LLM (Ollama) için aşağıdaki hesaplayıcıyı kullanın." },
+      { field: "Yönetim & Destek SSH Hesapları", type: "Linux Hesapları", defaultVal: "nornia (sudo) / destek (kısıtlı)", required: true, description: "Yeni çevrimiçi kurulumlarda her sunucu için benzersiz rastgele parolalar üretilir ve yalnızca root'un okuyabildiği /root/nornia-credentials.txt (chmod 0600) dosyasına kaydedilir." },
+      { field: "Güvenlik & Sertleştirme Paketi", type: "Yerleşik Koruma", defaultVal: "UFW + Fail2Ban (2 Jail) + HSTS + 401 Auth", required: true, description: "Merkezi imzalı oturum doğrulaması (NSESS), bcrypt parola hash, localhost-only DB/Backend/AMI, Fail2Ban [asterisk]+[sshd] ve Nginx TLS 1.2/1.3 güvenlik başlıkları hazır gelir." }
+    ],
+    sections: [
+      {
+        heading: "1. Tam Çevrimdışı (Air-Gapped) Nornia ISO ile Kurulum",
+        body: "Yukarıdaki indirme kartından aldığınız Nornia Appliance ISO dosyası tüm işletim sistemi, Asterisk, PostgreSQL 16, Node.js 20 LTS, Python sanal ortamı ve derlenmiş Next.js arayüzünü çevrimdışı paketlenmiş halde içerir. Fiziksel sunucuya USB (Rufus / BalenaEtcher / Ventoy) ile veya VMware ESXi, Proxmox VE, Hyper-V sanallaştırma ortamlarında sanal CD/DVD olarak bağlayarak 10–15 dakika içinde sıfır dokunuşla kurulum yapabilirsiniz.",
+        steps: [
+          "Yukarıdaki 'Nornia ISO İndir' butonundan nornia-v3.10.11-ubuntu24.04-amd64.iso dosyasını indirin ve SHA-256 özetini doğrulayın.",
+          "ISO dosyasını sanal makineye (VMware / Proxmox / Hyper-V) bağlayın veya fiziksel sunucu için USB belleğe yazdırıp UEFI/BIOS üzerinden ISO'dan başlatın.",
+          "Açılış (GRUB) menüsünden 'Nornia Otomatik Kurulum' seçeneğini seçin; disk bölümleme, paket kurulumu, servis yapılandırması ve güvenlik duvarı tamamen otomatik tamamlanır.",
+          "Sunucu yeniden başladığında TTY1 konsol ekranında görünen yerel IP adresini not edin ve tarayıcıdan http://<sunucu-ip>/setup adresini açarak 'Bölüm 02 — İlk Kurulum Sihirbazı' adımlarına geçin."
+        ],
+        codeBlock: {
+          title: "İndirilen ISO Dosyasının SHA-256 Bütünlük Doğrulaması",
+          lang: "bash",
+          code: `# macOS üzerinde doğrulama:
+shasum -a 256 ~/Downloads/nornia-v3.10.11-ubuntu24.04-amd64.iso
+
+# Linux üzerinde doğrulama:
+sha256sum nornia-v3.10.11-ubuntu24.04-amd64.iso
+
+# Beklenen SHA-256 özeti (v3.10.11):
+# b38169011e07729818e21231731494efd2c72a5e7b368adec121c7cd35a141be`
+        }
+      },
+      {
+        heading: "2. Temiz Ubuntu 24.04 LTS Üzerine Script ile Çevrimiçi (Online) Kurulum",
+        body: "ISO bağlama imkanı olmayan bulut sunucularında (VPS, AWS, Hetzner, DigitalOcean) veya halihazırda temiz Ubuntu 24.04 LTS (amd64) kurulu makinelerde resmi çevrimiçi kurulum betiği (install_nornia_online.sh) ile tüm sistem 12 adımda otomatik kurulur. Betik; imzalı NodeSource GPG deposundan Node.js 20 LTS, PostgreSQL 16 (Port 5444 + pgvector), Asterisk PJSIP (legacy chan_sip kapalı), Python sanal ortamı, Next.js 16.4.6 üretim derlemesi, PM2 servisleri (127.0.0.1 kilitli), Nginx HTTPS/WSS + güvenlik başlıkları, UFW ve Fail2Ban (sshd + asterisk jail) katmanlarını ISO ile birebir aynı standartta kurar.",
+        steps: [
+          "Sunucunuza SSH ile root veya sudo yetkili kullanıcı olarak bağlanın ve işletim sisteminin Ubuntu 24.04 LTS olduğunu doğrulayın (`lsb_release -a`).",
+          "`wget https://dokuman.nornia.com.tr/install_nornia_online.sh` komutuyla resmi kurulum betiğini sunucunuza indirin.",
+          "Betiği `sudo bash install_nornia_online.sh` ile başlatın (parametre verilmezse etkileşimli olarak paket/erişim adresini sorar; ya da `--bundle-url` / `--asterisk-deb` bayraklarıyla tek satırda çalıştırabilirsiniz).",
+          "Düşük bellekli sunucularda (< 6 GB RAM) betik derleme kararlılığı için otomatik 4 GB swap alanı oluşturur; kurulumda üretilen benzersiz rastgele AMI ve SSH parolaları `/root/nornia-credentials.txt` (`chmod 0600`) dosyasına kaydedilir.",
+          "Kurulum tamamlandığında ekranda PostgreSQL, Asterisk, Backend (8000) ve Frontend (3000) sağlık doğrulaması ile `http://<sunucu-ip>/setup` adresi yazdırılır; tarayıcıdan 'Bölüm 02 — İlk Kurulum Sihirbazı' ile devam edilir."
+        ],
+        codeBlock: {
+          title: "Ubuntu 24.04 LTS Script ile Çevrimiçi Kurulum Komutları",
+          lang: "bash",
+          code: `# 1. Resmi Nornia kurulum betiğini indir
+wget https://dokuman.nornia.com.tr/install_nornia_online.sh
+
+# 2. Etkileşimli başlatma
+sudo bash install_nornia_online.sh
+
+# --- VEYA tek satırda parametreli kurulum ---
+sudo bash install_nornia_online.sh \\
+  --bundle-url "<NORNIA_KURUMSAL_PAKET_URL>" \\
+  --bundle-token "<YETKILI_KURULUM_ANAHTARI>" \\
+  --asterisk-deb "<NORNIA_ASTERISK_DEB_URL>"
+
+# Opsiyonel güvenlik ve bulut parametreleri:
+#   --sysadmin-pass '<guclu-sifre>'   : 'nornia' SSH hesabı şifresi (verilmezse rastgele üretilir)
+#   --destek-pass '<destek-sifre>'    : Kısıtlı 'destek' konsol şifresi (verilmezse rastgele üretilir)
+#   --lock-root-ssh                   : Root SSH girişini tamamen kapatır (PermitRootLogin no)
+#   --skip-ufw                        : Mevcut harici bulut güvenlik duvarını korur
+
+# 3. Kurulum günlüğünü canlı izleme & üretilen parolaları görme
+tail -f /var/log/nornia-online-install.log
+sudo cat /root/nornia-credentials.txt`
+        },
+        callout: {
+          type: "warning",
+          title: "Güvenlik & Özel Kaynak Politikası",
+          text: "Nornia kaynak kodları kapalı kurumsal lisans altındadır. Kurulum sonrası tüm hassas parolalar (DB, AMI, Oturum Anahtarı, SSH) sunucuya özel rastgele üretilir; backend/.env ve /root/nornia-credentials.txt dosyaları yalnızca root (chmod 0600) erişimine açıktır."
+        }
+      },
+      {
+        heading: "3. Servis Mimarisi, Port Haritası ve Sağlık Doğrulama",
+        body: "Nornia tek sunucuda tümleşik kurumsal mimariyle çalışır. PM2 altında çalışan aida-app (Next.js 16.4.6 arayüz, 127.0.0.1:3000) ve aida-backend (FastAPI + AudioSocket AI TCP Motoru, 127.0.0.1:8000 / 9092), Nginx Reverse Proxy (80/443), PostgreSQL 16 (127.0.0.1:5444, ai_pbx veritabanı) ve Asterisk PJSIP (5060 UDP/TCP, 5061 TLS, 5160 Cisco TCP, 8089 WSS WebRTC, 10000–20000 UDP RTP) eşzamanlı çalışır.",
+        codeBlock: {
+          title: "Kurulum Sonrası Sunucu Sağlık Doğrulama Komutları (SSH)",
+          lang: "bash",
+          code: `# 1. PM2 servis durumunu kontrol et
+pm2 status
+
+# 2. Asterisk PJSIP transport ve kayıtlarını doğrula
+asterisk -rx "pjsip show transports"
+asterisk -rx "pjsip show endpoints"
+
+# 3. Fail2Ban (sshd + asterisk) ve API sağlık kontrolü
+sudo fail2ban-client status
+curl -sk https://127.0.0.1/api/version`
+        }
+      }
+    ],
+    troubleshooting: [
+      { problem: "ISO kurulumunda sanal makine önyükleme (boot) yapmıyor", cause: "VM ayarlarında Secure Boot açık kalmış veya CD/DVD önyükleme sırası diskin gerisinde.", solution: "VMware/Proxmox/Hyper-V ayarlarından Secure Boot'u devre dışı bırakıp ISO/CD-ROM sürücüsünü 1. önyükleme sırasına alın." },
+      { problem: "Çevrimiçi kurulumda Next.js derlemesi bellek (OOM) hatası veriyor", cause: "Sunucuda 4 GB'tan az RAM var ve swap alanı kapalı.", solution: "install_nornia_online.sh 6 GB altı RAM'de otomatik 4 GB swap açar; minimum 4 vCPU / 8 GB RAM önerilir." },
+      { problem: "Kurulum bitti ama tarayıcıdan http://<ip>/setup açılmıyor", cause: "Yerel güvenlik duvarı veya kurumsal ağ politikası 80/443 portunu engelliyor olabilir.", solution: "Sunucuda `pm2 status` ve `systemctl status nginx` çıktılarının active/online olduğunu ve `ufw status` içinde 80/443 izinlerini doğrulayın." }
+    ],
+    relatedPages: ["ilk-kurulum-sihirbazi", "sistem-mimarisi-ve-servis-haritasi", "sunucu-ag-ve-nornia-connect"],
+    relatedApis: ["GET /api/version", "GET /api/setup/status", "GET /api/system/health"]
+  },
+  {
+    id: "ilk-kurulum-sihirbazi",
+    number: "02",
+    groupId: "baslangic",
+    category: "Başlangıç & Kurulum",
+    title: "İlk Kurulum Sihirbazı (/setup)",
+    shortTitle: "İlk Kurulum Sihirbazı",
+    menuPath: "Tarayıcı → http://<sunucu-ip>/setup",
+    pbxRoute: "/setup",
+    permissions: ["system_settings:write (İlk kurulum — oturum gerektirmez, tamamlanınca otomatik kilitlenir)"],
+    badge: "Sihirbaz • 6 Adım",
+    readMinutes: 8,
+    summary:
+      "ISO veya çevrimiçi kurulum betiği tamamlandıktan sonra tarayıcıda açılan 6 adımlı İlk Kurulum Sihirbazı (/setup) üzerinden statik LAN IP, NAT, donanım kilidi (HW-ID) lisansı, Nornia Connect alt alan adı, numara planı ve yönetici hesabını adım adım yapılandırma rehberidir.",
+    prerequisites: [
+      "Bölüm 01 (Kurulum Dokümanı) adımlarıyla Nornia ISO veya Ubuntu 24.04 çevrimiçi kurulumu tamamlanmış ve sunucu yerel ağdan IP almış olmalıdır.",
+      "Merkez Lisans Paneli'nden (panel.nornia.com.tr) bu sunucunun HW-ID'si için üretilmiş imzalı AIDA-... lisans anahtarı hazır olmalıdır.",
+      "Kullanılacak kalıcı yerel LAN IP/CIDR, Gateway, DNS bilgileri ve tercih edilecek <firma>.nornia.com.tr alt alan adı belirlenmiş olmalıdır."
     ],
     screenshots: [
       {
         src: "/screenshots/01-system-status.jpg",
-        caption: "Kurulum sonrası Sistem Panosu & Sağlık görünümü — Ağ, FQDN, Asterisk ve Lisans doğrulaması",
+        caption: "İlk Kurulum Sihirbazı tamamlandıktan sonra Sistem Panosu & Sağlık görünümü — Ağ, FQDN, Asterisk ve Lisans doğrulaması",
         routeHint: "Yönetim & Ayarlar → Sistem Panosu & Sağlık"
       }
     ],
@@ -36,69 +164,12 @@ export const CHAPTERS_BASLANGIC = [
       { field: "Lisans Anahtarı (AIDA-...)", type: "HMAC-SHA256 Token", defaultVal: "Boş", required: true, description: "AIDA-{KOD}-{YYYYMMDD}-{HW8}-{SIG8}[.BASE64_KOTA] biçimindedir. Büyük/küçük harf duyarlı Base64 kota uzantısı (max_users, max_concurrent_calls, allowed_features) otomatik çözülür." },
       { field: "Nornia Alt Alan Adı (Subdomain)", type: "Slug (a-z, 0-9, -)", defaultVal: "Boş", required: true, description: "<ad>.nornia.com.tr adresini belirler. 'Kontrol Et' butonu Merkez Connect Hub'a HTTPS sorgusu atar; dolu veya rezerve (api, dokuman, panel, connect) ise ilerlemeyi engeller." },
       { field: "Dahili Basamak Planı", type: "Seçim (3 / 4 hane)", defaultVal: "4 Haneli (1000-1999)", required: true, description: "İlk kurulumda standart 4 haneli plan (Dahililer 1000+, Kuyruklar 2000+, Konferans 3000+, IVR 5000+) önerilir." },
-      { field: "Yönetici E-Posta & Şifre", type: "Email + Parola", defaultVal: "admin", required: true, description: "Kurulum bitiminde yeni sekmede açılan https://<ad>.nornia.com.tr ekranında giriş yapacağınız süper yönetici bilgileri." }
+      { field: "Yönetici E-Posta & Şifre", type: "Email + Parola", defaultVal: "admin", required: true, description: "Kurulum bitiminde yeni sekmede açılan https://<ad>.nornia.com.tr ekranında giriş yapacağınız süper yönetici bilgileri (bcrypt ile hashlenerek saklanır)." }
     ],
     sections: [
       {
-        heading: "1. Servis Mimarisi ve Port Haritası",
-        body: "Nornia ISO tek sunucuda tümleşik kurumsal mimariyle gelir. PM2 altında çalışan aida-app (Next.js arayüz, port 3000) ve aida-backend (FastAPI + AudioSocket AI TCP Motoru, port 8000 / 9092), Nginx Reverse Proxy (80/443), PostgreSQL 16 (port 5444, ai_pbx veritabanı) ve Asterisk 20 PJSIP (5060 UDP/TCP, 5061 TLS, 5160 Cisco Enterprise TCP, 8089 WSS WebRTC, 10000–20000 UDP RTP) eşzamanlı çalışır.",
-        codeBlock: {
-          title: "Kurulum Sonrası Sunucu Sağlık Doğrulama Komutları (SSH)",
-          lang: "bash",
-          code: `# 1. PM2 servis durumunu kontrol et
-pm2 status
-
-# 2. Asterisk PJSIP transport ve kayıtlarını doğrula
-asterisk -rx "pjsip show transports"
-asterisk -rx "pjsip show endpoints"
-
-# 3. Nornia Connect tünel durumunu sorgula
-curl -s http://127.0.0.1:8000/api/settings/ras/status | python3 -m json.tool`
-        }
-      },
-      {
-        heading: "2. ISO Olmadan Temiz Ubuntu 24.04 LTS Üzerine Çevrimiçi (Online) Kurulum",
-        body: "Fiziksel veya bulut sunucunuzda (VPS, AWS, Hetzner, VMware, Proxmox) Nornia ISO yerine standart temiz bir Ubuntu 24.04 LTS (64-bit) kuruluysa, Nornia destek ekibi tarafından sağlanan yetkili çevrimiçi kurulum betiği (install_nornia_online.sh) ile tüm sistem 12 adımda otomatik kurulur. Betik; PostgreSQL 16 (Port 5444 + pgvector), Nornia Asterisk (Cisco yaması + WebRTC SRTP + AudioSocket + Opus), Python sanal ortamı, Next.js üretim derlemesi, PM2 servisleri, Nginx HTTPS/WSS vekil sunucusu, UFW/Fail2Ban güvenlik duvarı ve 'nornia' / kısıtlı 'destek' hesaplarını ISO kurulumuyla birebir aynı standartta yapılandırır.",
-        steps: [
-          "Sunucunuza SSH ile root veya sudo yetkili kullanıcı olarak bağlanın ve işletim sisteminin Ubuntu 24.04 LTS olduğunu doğrulayın (`lsb_release -a`).",
-          "`wget https://dokuman.nornia.com.tr/install_nornia_online.sh` komutuyla resmi kurulum betiğini sunucunuza indirin.",
-          "Betiği `sudo bash install_nornia_online.sh` ile başlatın (parametre verilmezse etkileşimli olarak kurumsal paket adresinizi sorar; ya da `--bundle-url` / `--asterisk-deb` bayraklarıyla tek satırda çalıştırabilirsiniz).",
-          "Düşük bellekli sunucularda (< 6 GB RAM) betik derleme kararlılığı için otomatik 4 GB swap alanı oluşturur; hazır Asterisk .deb paketi verilirse ~15 saniyede kurulur, verilmezse kaynak koddan otomatik derlenir.",
-          "Kurulum tamamlandığında ekranda PostgreSQL, Asterisk, Backend (8000) ve Frontend (3000) sağlık doğrulaması ile `http://<sunucu-ip>/setup` adresi yazdırılır; tarayıcıdan 6 adımlı Kurulum Sihirbazı ile devam edilir."
-        ],
-        codeBlock: {
-          title: "Ubuntu 24.04 LTS Çevrimiçi Kurulum Komutları (dokuman.nornia.com.tr)",
-          lang: "bash",
-          code: `# 1. Resmi Nornia kurulum betiğini indir
-wget https://dokuman.nornia.com.tr/install_nornia_online.sh
-
-# 2. Etkileşimli başlatma (paket veya yetkili erişim bilgilerini sorar)
-sudo bash install_nornia_online.sh
-
-# --- VEYA tek satırda parametreli kurulum ---
-sudo bash install_nornia_online.sh \\
-  --bundle-url "<NORNIA_KURUMSAL_PAKET_URL>" \\
-  --bundle-token "<YETKILI_KURULUM_ANAHTARI>" \\
-  --asterisk-deb "<NORNIA_ASTERISK_DEB_URL>"
-
-# Opsiyonel güvenlik ve bulut parametreleri:
-#   --sysadmin-pass "<guclu-sifre>"   : 'nornia' SSH yönetim hesabı şifresi
-#   --destek-pass "<destek-sifre>"    : Kısıtlı 'destek' ağ konsolu şifresi
-#   --lock-root-ssh                   : Root SSH girişini tamamen kapatır (PermitRootLogin no)
-#   --skip-ufw                        : Mevcut harici bulut güvenlik duvarını korur
-
-# 3. Kurulum günlüğünü canlı izleme
-tail -f /var/log/nornia-online-install.log`
-        },
-        callout: {
-          type: "warning",
-          title: "Güvenlik & Özel Kaynak Politikası",
-          text: "Nornia kaynak kodları kapalı kurumsal lisans altındadır. Çevrimiçi kurulumda harici herkese açık kaynak deposu kullanılmaz; yalnızca Nornia yetkili kurulum paketi ve donanıma kilitli lisans anahtarı (HW-ID) ile kurulum yapılır. Bulut VPS kurulumlarında kilitlenmeyi önlemek için varsayılan SSH kuralı yalnızca SSH anahtarı ile root erişimine (prohibit-password) izin verir."
-        }
-      },
-      {
-        heading: "3. 6 Adımlı Kurulum Sihirbazı Akışı",
-        body: "Tarayıcıda /setup adresi açıldığında sihirbaz 6 ardışık adımdan geçer. Değişiklikler son adımda 'Kurulumu Tamamla' denilene kadar sunucunun mevcut ağ bağlantısını koparmaz; böylece tarayıcı oturumunuz kesilmeden tüm ayarları güvenle yapabilirsiniz.",
+        heading: "1. 6 Adımlı Kurulum Sihirbazı Akışı",
+        body: "Tarayıcıda http://<sunucu-ip>/setup adresi açıldığında sihirbaz 6 ardışık adımdan geçer. Değişiklikler son adımda 'Kurulumu Tamamla' denilene kadar sunucunun mevcut ağ bağlantısını koparmaz; böylece tarayıcı oturumunuz kesilmeden tüm ayarları güvenle tamamlayabilirsiniz.",
         steps: [
           "Adım 1 — Ağ & NAT Ayarları: Algılanan ağ kartını (enp0s3/eth0) görün, kalıcı LAN IP/CIDR, Gateway, DNS ve gerekirse Dış IP (External IP) girin.",
           "Adım 2 — Lisans & Donanım Kilidi: Ekranda gösterilen Donanım Kimliğini (HW-XXXX-XXXX) merkez panele verip aldığınız AIDA-... anahtarını yapıştırın ve 'Lisansı Doğrula'ya basın.",
@@ -112,6 +183,15 @@ tail -f /var/log/nornia-online-install.log`
           title: "Statik IP Değişikliği Ne Zaman Uygulanır?",
           text: "Adım 1'de yazdığınız yeni statik LAN IP (örn. 192.168.1.25/24) hemen uygulanmaz; Adım 6'da kurulum tamamlandıktan 2 saniye sonra Linux Netplan ile devreye alınır. Bu sayede sihirbaz ortasında bağlantı kopması yaşanmaz."
         }
+      },
+      {
+        heading: "2. Sihirbaz Tamamlandıktan Sonra Otomatik Kilitlenme",
+        body: "Adım 6 başarıyla tamamlandığında sistem `setup_wizard.completed = true` olarak işaretlenir ve `/setup` rotası ile tüm `/api/setup/*` uç noktaları güvenlik gereği otomatik olarak kilitlenir (HTTP 403). Kurulum sonrası ağ, lisans, alt alan adı veya yönetici ayarlarında değişiklik yapmak için yönetim paneline giriş yaparak ilgili Yönetim & Sistem Ayarları menülerini kullanabilirsiniz.",
+        callout: {
+          type: "success",
+          title: "Sonraki Adım",
+          text: "Sihirbaz tamamlandıktan sonra yeni sekmede açılan https://<alt-alan-adiniz>.nornia.com.tr adresinde oluşturduğunuz yönetici hesabıyla oturum açın ve 'Bölüm 03 — WebPhone & İstemciler' ile ilk test çağrınızı gerçekleştirin."
+        }
       }
     ],
     troubleshooting: [
@@ -119,8 +199,8 @@ tail -f /var/log/nornia-online-install.log`
       { problem: "Adım 3'te alt alan adı dolu görünüyor veya 'Kontrol Et' başarısız", cause: "Subdomain başka bir aktif santrale kilitli veya sunucunun DNS/HTTPS çıkışı yok.", solution: "DNS ayarlarında 8.8.8.8 / 1.1.1.1 tanımlı olduğundan emin olun; domain başka santraldeyse farklı benzersiz bir ad seçin." },
       { problem: "Kurulum sonrası eski IP'den erişim kesildi", cause: "Adım 1'de tanımlanan yeni statik IP başarıyla uygulandı.", solution: "Tarayıcıda yeni statik IP'yi veya doğrudan https://<alt-alan-adiniz>.nornia.com.tr adresini açın." }
     ],
-    relatedPages: ["sunucu-ag-ve-nornia-connect", "musteri-ve-lisans-yonetimi", "santral-entegrasyonu-ve-nat"],
-    relatedApis: ["GET /api/system/overview", "GET /api/settings/ras/status", "GET /api/settings/network/status"]
+    relatedPages: ["kurulum-dokumani", "sunucu-ag-ve-nornia-connect", "musteri-ve-lisans-yonetimi"],
+    relatedApis: ["GET /api/setup/status", "POST /api/setup/validate-license", "POST /api/setup/complete"]
   },
   {
     id: "masaustu-mobil-ve-webphone",

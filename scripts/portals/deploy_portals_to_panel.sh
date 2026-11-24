@@ -73,7 +73,8 @@ echo "[2/3] Statik dosyalar /var/www/nornia-web, /var/www/nornia-api ve /var/www
 mkdir -p /var/www/nornia-web /var/www/nornia-api /var/www/nornia-docs
 rsync -a --delete "${WEB_SRC}/" /var/www/nornia-web/
 rsync -a --delete "${API_SRC}/" /var/www/nornia-api/
-rsync -a --delete "${DOCS_SRC}/" /var/www/nornia-docs/
+rsync -a --delete --exclude='downloads/' --exclude='downloads/**' "${DOCS_SRC}/" /var/www/nornia-docs/
+mkdir -p /var/www/nornia-docs/downloads
 rsync -a "${REPO_ROOT}/portals/docs-portal/public/screenshots/" /var/www/nornia-docs/screenshots/
 rsync -a "${REPO_ROOT}/portals/docs-portal/public/pdfs/" /var/www/nornia-docs/pdfs/
 if [[ -f "${REPO_ROOT}/scripts/installer/install_nornia_online.sh" ]]; then
