@@ -36,7 +36,7 @@ export const MANUAL_GROUPS = [
   {
     id: "baslangic",
     title: "Başlangıç & Kurulum",
-    subtitle: "Kurulum dokümanı (ISO indir, kaynak hesaplayıcı, script kurulum), İlk Kurulum Sihirbazı (/setup), WebPhone ve Profil Ayarları",
+    subtitle: "Kurulum dokümanı (ISO indir, kaynak hesaplayıcı, script kurulum), İlk Kurulum Sihirbazı (/setup), Uygulamalar (Masaüstü & Mobil) ve Profil Ayarları",
     color: "indigo"
   },
   {

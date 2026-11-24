@@ -102,14 +102,163 @@ export const EDIT_GUIDES_PART1 = {
   "masaustu-mobil-ve-webphone": {
     editFormSections: [
       {
-        tabTitle: "WebPhone Ses Cihazları, Çift Hoparlör (Zil + Kulaklık) & SIP.js Kaydı",
-        badge: "Web Telefon",
-        screenshot: { src: "/screenshots/tabs/call-panel/02-webphone.jpg", caption: "Dahili WebPhone — Tuş takımı, ses cihazı seçici, aktif görüşme ve hızlı aktarım kontrolleri", routeHint: "Temsilci Çağrı Paneli → Web Telefon" },
-        description: "Tarayıcı içi şifreli WebRTC telefonun mikrofon, konuşma kulaklığı ve harici zil hoparlörü ayarları.",
+        tabTitle: "1. Uygulamalar & İndir Ekranı (Kurulum Paketleri, Magic Link & QR Eşleştirme)",
+        badge: "Masaüstü & Mobil Kurulum",
+        screenshot: {
+          src: "/screenshots/tabs/profile/08-uygulamalar-indir.jpg",
+          caption: "Uygulamalar & İndir — E-posta kurulum linki gönderimi, Masaüstü (.exe / Apple Silicon .dmg / Intel .dmg), Mobil (.ipa / .apk) indirme ve QR kod eşleştirme ekranı",
+          routeHint: "Avatar Menüsü → Uygulamalar & İndir"
+        },
+        description: "Tüm masaüstü ve mobil kurulum paketlerinin, e-posta ile tek tık kurulum bağlantısının, Masaüstü Kolay Giriş Linkinin (URL) ve Mobil QR eşleştirme kodunun yönetildiği merkez ekrandır.",
         fields: [
-          { name: "Mikrofon & Konuşma Hoparlörü", type: "Tarayıcı MediaDevice", defaultVal: "Sistem Varsayılanı", required: true, effect: "USB/Bluetooth kulaklığı seçer; kullanıcı ayarındaki AI Mikrofon Gürültü Engelleme ofis uğultusunu keser." },
-          { name: "İkincil Zil Sesi Hoparlörü (Secondary Ringer)", type: "Audio Output", defaultVal: "PC Hoparlörü", required: false, effect: "Kulaklık masadayken gelen çağrı zilini bilgisayar hoparlöründen de çalar." },
-          { name: "Call Flip (*11) & Hot-Desking (*75 / *76)", type: "Özellik Kodları", defaultVal: "*11 / *75 / *76", required: false, effect: "*11 ile aktif görüşmeyi cihazlar arası kesintisiz taşır; *75/*76 ile paylaşımlı masa telefonuna PIN ile oturum açar/kapatırsınız." }
+          { name: "Kurulum & Kolay Giriş Bağlantısını E-Postama Gönder", type: "E-Posta + Geçerlilik Süresi", defaultVal: "24 Saat (1 Gün)", required: false, effect: "Kullanıcının e-posta adresine işletim sistemine uygun indirme linkleri ve tek tıkla otomatik oturum açan süreli bağlantı gönderir." },
+          { name: "Masaüstü Kolay Giriş Linki (URL) & 'Masaüstü Uygulamasında Aç'", type: "Süreli Token URL", defaultVal: "Linki Yenile / İptal Et", required: false, effect: "Kopyala butonuyla RUNA Masaüstü giriş ekranına yapıştırılır veya doğrudan tarayıcıdan kurulu RUNA uygulamasını tetikler." },
+          { name: "Masaüstü Kurulum Paketleri & Hazır Ayar Dosyası (.json)", type: "Windows .exe / macOS .dmg / .json", defaultVal: "v2.9.3", required: true, effect: "Windows Setup (.exe ~78.5 MB), macOS Apple Silicon M1–M4 (.dmg ~95.5 MB), macOS Intel (.dmg ~99.9 MB) ve BT dağıtımı için sunucu ayar JSON dosyası." },
+          { name: "Masaüstü Davranış Tercihleri", type: "3 Checkbox", defaultVal: "Öne Getir + Tray Açık", required: false, effect: "'Çağrıda Pencereyi Öne Getir', 'Sistem Tepsisinde (Tray) Çalıştır' ve 'Bilgisayar Açıldığında Otomatik Başlat' seçeneklerini hesap bazlı senkronize eder." },
+          { name: "Mobil Uygulama (Runa) — QR Kod & .ipa / .apk İndirme", type: "QR SVG + iOS / Android Paketi", defaultVal: "QR Aktif", required: true, effect: "RUNA Mobil'den kamerayla okutulduğunda sunucu ve şifre girmeden 3 saniyede oturum açar; iOS (.ipa) ve Android (.apk) paketlerini doğrudan indirir." }
+        ]
+      },
+      {
+        tabTitle: "2. RUNA Masaüstü — Giriş & Kolay Bağlantı (Magic Link) Ekranı",
+        badge: "Masaüstü Ekranı 1/5",
+        screenshot: {
+          src: "/screenshots/apps/runa-desktop-login.jpg",
+          caption: "RUNA Masaüstü Giriş Ekranı — Sunucu adresi, Kullanıcı/Dahili, Parola, sağ üst Kolay Giriş Linki (🔗), Beni Hatırla ve Bilgisayar Açıldığında Başlat",
+          routeHint: "RUNA Masaüstü → Giriş Ekranı"
+        },
+        description: "Windows ve macOS üzerinde RUNA açıldığında kullanıcıyı karşılayan oturum açma ekranıdır. Çoklu santral desteği için son bağlanılan sunucuları hatırlar ve tek tıkla Magic Link ile şifresiz giriş sunar.",
+        fields: [
+          { name: "Kolay Giriş Linki (Sağ Üst 🔗 Butonu)", type: "Açılır URL Kutusu", defaultVal: "Şifresiz Otomatik Giriş", required: false, effect: "Santralden kopyalanan `app_token` URL'i yapıştırılıp 'Bağlan' denildiğinde sunucu, kullanıcı ve oturum otomatik doğrulanır." },
+          { name: "Sunucu Adresi & Son Sunucular", type: "FQDN / IP + Hızlı Çipler", defaultVal: "Son Sunucu", required: true, effect: "Örn. `firma.nornia.com.tr`. Daha önce bağlanılan santraller alt kısımda hızlı seçim çipleri olarak listelenir." },
+          { name: "Kullanıcı Adı / E-Posta / Dahili & Şifre", type: "Kimlik + Göster/Gizle Göz İkonu", defaultVal: "Zorunlu", required: true, effect: "Dahili numarası (1000) veya e-posta adresi ile giriş yapılır; 2FA aktifse doğrulama adımı açılır." },
+          { name: "Beni Hatırla & Bilgisayar Açıldığında Başlat", type: "2 Checkbox", defaultVal: "Beni Hatırla Aktif", required: false, effect: "Oturumu güvenli biçimde saklar; 'Bilgisayar açıldığında başlat' Windows Başlangıç ve macOS LaunchAgent (`com.runa.agent.desktop`) kaydını oluşturur." }
+        ]
+      },
+      {
+        tabTitle: "3. RUNA Masaüstü — Ana Çağrı Paneli, Tuş Takımı & 10 Çalışma Sekmesi",
+        badge: "Masaüstü Ekranı 2/5",
+        screenshot: {
+          src: "/screenshots/tabs/call-panel/02-webphone.jpg",
+          caption: "RUNA Masaüstü Çalışma Ekranı — Dahili Telefon & Tuş Takımı, canlı SIP kayıt göstergesi ve tüm temsilci sekmeleri (Pano, Temsilciler, Hızlı Arama, Kayıp Çağrı, Rehber, Geçmiş, Sesli Posta, Sohbet)",
+          routeHint: "RUNA Masaüstü → Ana Çalışma Ekranı"
+        },
+        description: "Oturum açıldığında tarayıcı sekmelerinden arındırılmış tam ekran Temsilci Çağrı Paneli yüklenir. Temsilcinin gün boyu kullandığı tüm iletişim modülleri tek pencerede yer alır.",
+        fields: [
+          { name: "Telefon & Tuş Takımı (WebRTC / SIP)", type: "DTMF Tuş Takımı + Hızlı Arama", defaultVal: "Otomatik Kayıt", required: true, effect: "Numara çevirme, rehberden isimle arama, çoklu hat yönetimi ve üstte canlı SIP bağlantı göstergesi sunar." },
+          { name: "Pano, Temsilciler (BLF) & Hızlı Arama", type: "Canlı Ekip Görünümü", defaultVal: "Anlık Durum", required: false, effect: "Günlük çağrı/mola istatistikleri, çalışma arkadaşlarının Müsait/Meşgul/Çalıyor BLF ışıkları ve tek tık arama." },
+          { name: "Kayıp Çağrı, Rehber, Çağrı Geçmişi & Sesli Posta", type: "Operasyon Sekmeleri", defaultVal: "Senkronize", required: false, effect: "Geri arama hatırlatıcıları, kurumsal rehber, dinlenebilir ses kayıtları ve sesli posta mesajlarını tek yerden yönetir." },
+          { name: "Dahili Sohbet & Omnichannel (Yetkiye Bağlı)", type: "Anlık Mesajlaşma", defaultVal: "Rol Bazlı", required: false, effect: "Ekip içi yazışma, dosya paylaşımı ve yetkili temsilciler için WhatsApp/Instagram/Telegram/E-posta mesaj ekranları." }
+        ]
+      },
+      {
+        tabTitle: "4. RUNA Masaüstü — Gelen Çağrı, Aktif Görüşme, Transfer & Konferans Ekranı",
+        badge: "Masaüstü Ekranı 3/5",
+        screenshot: {
+          src: "/screenshots/tabs/call-panel/active/03-aktif-gorusme.jpg",
+          caption: "RUNA Masaüstü Aktif Görüşme Ekranı — Sessiz, Beklet, Kör/Danışmalı Transfer, Konferans, Canlı AI Çeviri, Kayıt Duraklatma ve Çağrı Sonrası Not (ACW)",
+          routeHint: "RUNA Masaüstü → Gelen & Aktif Görüşme"
+        },
+        description: "Gelen çağrıda işletim sistemi bildirimiyle birlikte uygulama penceresi otomatik öne taşınır; görüşme sırasında tüm profesyonel çağrı kontrol butonları tek satırda erişilebilir durumdadır.",
+        fields: [
+          { name: "Gelen Çağrı OS Bildirimi & Pencereyi Öne Getirme", type: "macOS / Windows Native", defaultVal: "Otomatik", required: false, effect: "Arayan kişi adı, numarası ve kuyruk bilgisiyle sistem bildirimi çıkar; pencere simge durumundaysa öne odaklanır." },
+          { name: "Sessiz (Mute), Beklet (Hold) & DTMF Tuş Takımı", type: "Canlı Çağrı Kontrolleri", defaultVal: "Tek Tık", required: false, effect: "Mikrofonu kapatır, karşı tarafa bekleme müziği çalar veya IVR menüleri için görüşme içi DTMF tuşlaması gönderir." },
+          { name: "Kör & Danışmalı Transfer + Konferans", type: "Aktarım & 3+ Kişi", defaultVal: "Çift Hat Destekli", required: false, effect: "Çağrıyı doğrudan başka dahili/kuyruğa aktarabilir, önce danışıp sonra birleştirebilir veya konferansa çevirebilirsiniz." },
+          { name: "Canlı AI Çeviri, Kayıt Duraklatma & ACW Notu", type: "Gelişmiş Özellikler", defaultVal: "Yetkiye Bağlı", required: false, effect: "Yabancı dildeki çağrılarda canlı tercüme panelini açar, KVKK/ödeme anında ses kaydını duraklatır ve çağrı bitiminde sonuç kodu/not kaydeder." }
+        ]
+      },
+      {
+        tabTitle: "5. RUNA Masaüstü — Sistem Tepsisi (Tray) & 3 Bağımsız Ses Donanımı Ekranı",
+        badge: "Masaüstü Ekranı 4/5",
+        screenshot: {
+          src: "/screenshots/tabs/profile/04-donanim.jpg",
+          caption: "RUNA Masaüstü Donanım & Ses Ekranı — Mikrofon, Görüşme Kulaklığı ve Harici Çalma Zili Hoparlörü bağımsız seçimi + AI RNNoise gürültü engelleme",
+          routeHint: "Sistem Tepsisi → Ses & Çalma Aygıtları..."
+        },
+        description: "Masaüstü uygulamasını tarayıcıdan ayıran en kritik katmandır: uygulama penceresi kapatılsa bile sistem tepsisinde (Windows sağ alt / macOS üst menü çubuğu) aktif kalır ve 3 ayrı ses aygıtını eşzamanlı yönetir.",
+        fields: [
+          { name: "Sistem Tepsisi (Tray) Durum Menüsü", type: "Uygun / Uzakta / Toplantıda", defaultVal: "Canlı Senkron", required: false, effect: "Pencereyi açmadan tepsi ikonundan temsilci durumunu değiştirmenizi, canlı SIP kayıt durumunu görmenizi ve pencereyi geri getirmenizi sağlar." },
+          { name: "Mikrofon (Ses Girişi) & AI RNNoise Gürültü Engelleme", type: "Bağımsız Giriş Cihazı", defaultVal: "Sistem Varsayılanı", required: true, effect: "USB/Bluetooth kulaklık mikrofonunu seçer; AI RNNoise açıkken ofis arka plan gürültüsünü ve klavye sesini gerçek zamanlı filtreler." },
+          { name: "Görüşme Kulaklığı (Konuşma Çıkışı)", type: "Bağımsız Çıkış #1", defaultVal: "Kulaklık", required: true, effect: "Yalnızca aktif görüşmedeki karşı tarafın sesini kulaklığınıza yönlendirir." },
+          { name: "İkincil Çalma Zili Hoparlörü (Secondary Ringer)", type: "Bağımsız Çıkış #2", defaultVal: "PC Hoparlörü", required: false, effect: "Kulaklığınız masada dururken gelen çağrı zilinin bilgisayar veya harici hoparlörden yüksek sesle çalmasını sağlar." },
+          { name: "Uyku Engelleme (powerSaveBlocker)", type: "Otomatik Sistem Koruması", defaultVal: "Her Zaman Aktif", required: false, effect: "Uygulama arka planda veya simge durumundayken işletim sisteminin WebRTC ses motorunu askıya almasını engeller." }
+        ]
+      },
+      {
+        tabTitle: "6. RUNA Masaüstü — Bağlantı Kesintisi & Otomatik Yeniden Bağlan Ekranı",
+        badge: "Masaüstü Ekranı 5/5",
+        screenshot: {
+          src: "/screenshots/apps/runa-desktop-offline.jpg",
+          caption: "RUNA Masaüstü Kesinti Kurtarma Ekranı — 8 saniyelik otomatik yeniden deneme geri sayımı, Şimdi Yeniden Dene ve Sunucu Değiştir butonları",
+          routeHint: "RUNA Masaüstü → Bağlantı Bekleniyor Ekranı"
+        },
+        description: "Ofis interneti koptuğunda, Wi-Fi ağı değiştiğinde veya santral güncellenirken kullanıcıyı boş hata ekranı yerine akıllı kurtarma ekranıyla karşılar.",
+        fields: [
+          { name: "8 Saniyelik Otomatik Yeniden Bağlanma", type: "Otomatik Sayaç", defaultVal: "8 sn Döngü", required: false, effect: "Ağ erişimi geri geldiği anda kullanıcı müdahalesine gerek kalmadan oturumu ve SIP kaydını kaldığı yerden geri yükler." },
+          { name: "Şimdi Yeniden Dene & Sunucu Değiştir", type: "2 Hızlı Aksiyon", defaultVal: "Anlık", required: false, effect: "Geri sayımı beklemeden anında bağlantı test eder veya 'Sunucu Değiştir' ile farklı bir santral adresine geçiş yapar." }
+        ]
+      },
+      {
+        tabTitle: "7. RUNA Mobil (iOS & Android) — Giriş, QR Kamera Tarayıcı & 2FA Ekranı",
+        badge: "Mobil Ekranı 1/4",
+        screenshot: {
+          src: "/screenshots/apps/runa-mobile-overview.jpg",
+          caption: "RUNA Mobil (iOS & Android) — QR Kod ile 3 saniyede şifresiz kurulum, Call Flip (*11) ve PushKit / Android VoIP arka plan uyandırma mimarisi",
+          routeHint: "RUNA Mobil → Giriş & QR Eşleştirme"
+        },
+        description: "Hem iOS (SwiftUI) hem de Android (Jetpack Compose) için aynı görsel dilde geliştirilen yerel giriş ekranıdır. QR kod tarayarak sıfır yazımla bağlantı veya kurumsal kimlik + 2FA ile güvenli giriş sunar.",
+        fields: [
+          { name: "QR Kod Tarayıcı (Sağ Üst İkon)", type: "Canlı Kamera Tarama", defaultVal: "3 sn Otomatik Kurulum", required: false, effect: "iOS `QRScannerSheet` ve Android QR diyaloğu üzerinden santraldeki QR kodu okutur; sunucu adresini ve oturum token'ını otomatik işler." },
+          { name: "Sunucu Adresi, Son Sunucular & Kimlik Bilgileri", type: "FQDN + Kullanıcı/Dahili + Şifre", defaultVal: "Beni Hatırla Aktif", required: true, effect: "Önceki bağlanılan santralleri hızlı çipler halinde sunar; 'Beni hatırla' ile güvenli cihaz deposuna (Keychain / EncryptedPrefs) kaydeder." },
+          { name: "6 Haneli 2FA Güvenlik Kodu Ekranı", type: "OTP Doğrulama", defaultVal: "2FA Açıksa Otomatik", required: false, effect: "Kullanıcıda iki faktörlü doğrulama aktifse otomatik açılır; 6 haneli kodu doğrular ve 'Kodu Tekrar Gönder' / 'Geri Dön' seçenekleri sunar." }
+        ]
+      },
+      {
+        tabTitle: "8. RUNA Mobil — Alt Navigasyon (4 Ana Sekme) & 'Daha Fazlası' (5 Ek Modül)",
+        badge: "Mobil Ekranı 2/4",
+        screenshot: {
+          src: "/screenshots/tabs/call-panel/09-sohbet.jpg",
+          caption: "RUNA Mobil Çalışma Ekranları — Alt çubuktaki 4 ana sekme (Çağrı Geçmişi, Rehber, Telefon, Sohbet) ve 'Daha Fazlası' altındaki 5 modül (Pano, Temsilciler, Hızlı Arama, Kayıp Çağrı, Sesli Posta)",
+          routeHint: "RUNA Mobil → Alt Navigasyon & Daha Fazlası"
+        },
+        description: "Mobil ekran boyutuna göre tek elle kullanıma optimize edilmiş alt navigasyon çubuğudur. Tüm temsilci çalışma modüllerini 4 ana sekme ve 5 ek sekme altında toplar.",
+        fields: [
+          { name: "1. Çağrı Geçmişi (Alt Çubuk)", type: "Ana Sekme #1", defaultVal: "Filtre + Arama", required: false, effect: "Gelen, giden ve cevapsız çağrıları kronolojik listeler; tek dokunuşla geri arama ve ses kaydı oynatma sunar." },
+          { name: "2. Rehber (Alt Çubuk)", type: "Ana Sekme #2", defaultVal: "Kurumsal & Kişisel", required: false, effect: "Santral rehberinde ad/şirket/numara araması yapar, tek dokunuşla kurumsal hattan arama başlatır." },
+          { name: "3. Telefon (Alt Çubuk)", type: "Ana Sekme #3", defaultVal: "Tuş Takımı", required: false, effect: "Büyük ergonomik tuş takımı, kurumsal CallerID ile dış arama ve `*11` Call Flip çağrı çekme ekranıdır." },
+          { name: "4. Sohbet (Alt Çubuk)", type: "Ana Sekme #4", defaultVal: "Liste ↔ Konuşma", required: false, effect: "Mobil uyumlu iki aşamalı görünümde ekip sohbetlerini ve size atanan müşteri mesajlarını okunmamış rozetiyle gösterir." },
+          { name: "5. Daha Fazlası Popover Menüsü (5 Ek Modül)", type: "Pano / Temsilciler / Hızlı Arama / Kayıp Çağrı / Sesli Posta", defaultVal: "Tek Dokunuş", required: false, effect: "Performans panosu, canlı ekip BLF listesi, hızlı arama tuşları, geri arama hatırlatıcıları ve dinlenebilir sesli posta kutusuna tek dokunuşla erişim sağlar." }
+        ]
+      },
+      {
+        tabTitle: "9. RUNA Mobil — Kilit Ekranı Gelen Çağrı & Aktif Görüşme Ekranı (CallKit / VoIP)",
+        badge: "Mobil Ekranı 3/4",
+        screenshot: {
+          src: "/screenshots/tabs/call-panel/active/02-gelen-cagri-calarken.jpg",
+          caption: "RUNA Mobil Gelen & Aktif Çağrı Deneyimi — Tam ekran çalma, iOS CallKit / Android IncomingCallOverlay, 6'lı görüşme kontrol ızgarası, DTMF ve Canlı Çeviri",
+          routeHint: "RUNA Mobil → Gelen Çağrı & Aktif Görüşme"
+        },
+        description: "Telefon kilitliyken veya başka uygulamadayken gelen santral çağrılarını yerel telefon araması kalitesinde tam ekran açar; görüşme sırasında tüm kurumsal kontrollere kesintisiz erişim sunar.",
+        fields: [
+          { name: "Gelen Çağrı Tam Ekran Çalma (Kilit Ekranı)", type: "iOS CallKit / Android VoIP", defaultVal: "Otomatik Uyandırma", required: false, effect: "Arayan kişi adı ve numarasıyla tam ekran açılır; iOS'ta 'yanıtlamak için kaydırın / Kabul Et / Reddet / Anımsat / Mesaj', Android'de anında sesli/titreşimli tam ekran yanıt sunar." },
+          { name: "6'lı Aktif Görüşme Kontrol Izgarası", type: "Sessiz / Tuş Takımı / Hoparlör / Beklet / Aktar / Çeviri", defaultVal: "Tam Ekran", required: false, effect: "Mikrofon sessize alma, görüşme içi DTMF tuş takımı, Hoparlör/Ahize/Bluetooth geçişi, bekletme, başka dahiliye aktarma ve mobil tam ekran Canlı AI Çeviri paneli." },
+          { name: "'Arama Ekranına Dön' Üst Yeşil Şeridi", type: "Canlı Süre Çubuğu", defaultVal: "Görüşmede Aktif", required: false, effect: "Aktif çağrı sürerken Rehber, Sohbet veya Çağrı Geçmişine geçtiğinizde ekranın en üstünde canlı süreyi gösterir; dokunulduğunda görüşmeye döner." },
+          { name: "Android Arka Plan VoIP Servisi & Güç Tuşu Susturma", type: "ForegroundService + ConnectionService", defaultVal: "Kesintisiz Hat", required: false, effect: "Android'de kalıcı VoIP servisi ile SIP/WSS bağlantısını ve sohbet/kayıp çağrı/sesli posta bildirimlerini canlı tutar; çalarken güç tuşuna basıldığında zili sessize alır." }
+        ]
+      },
+      {
+        tabTitle: "10. RUNA Mobil — Hızlı Durum Çekmecesi (Quick Tray), Ses Çıkışı & Mobil Ayarlar",
+        badge: "Mobil Ekranı 4/4",
+        screenshot: {
+          src: "/screenshots/tabs/profile/00-avatar-dropdown.jpg",
+          caption: "RUNA Mobil Hızlı Durum Çekmecesi & Profil Menüsü — Uygun/Uzakta/Toplantıda geçişi, iOS Hoparlör/Bluetooth seçici, Paneli Yenile, Mobil Ayarlar ve Sunucu Değiştir",
+          routeHint: "RUNA Mobil → Üst Çubuk / Hızlı Durum Çekmecesi"
+        },
+        description: "Mobil üst çubuktan açılan hızlı kontrol çekmecesi, ses çıkış yönlendirmesi, mobil uyumlu ayarlar listesi ve kesinti kurtarma ekranını kapsar.",
+        fields: [
+          { name: "Temsilci Durumu Değiştir (Quick Tray)", type: "Uygun / Uzakta / Toplantıda", defaultVal: "Canlı Senkron", required: false, effect: "Tek dokunuşla santral durumunuzu değiştirir; 'Toplantıda' veya 'Uzakta' seçildiğinde ilgili profil yönlendirme kuralları anında devreye girer." },
+          { name: "iOS & Android Ses Çıkışı Seçici (Ahize / Hoparlör / Bluetooth)", type: "AVRoutePickerView / AudioManager", defaultVal: "Otomatik", required: false, effect: "AirPods, araç Bluetooth kiti, telefon ahizesi ve dış hoparlör arasında anında ses çıkışı geçişi sağlar." },
+          { name: "Mobil Ayarlar Ekranı (Liste ↔ Detay Görünümü)", type: "Dokunmatik Uyumlu", defaultVal: "Kullanıcı Bazlı", required: false, effect: "Avatar & Tema, Profiller & Yönlendirme, Klavye/Bildirim ve Güvenlik ayarlarını mobil ekran için sadeleştirilmiş liste/detay yapısında sunar." },
+          { name: "Paneli Yenile, Sunucu Değiştir & Bağlantı Kurtarma", type: "Hızlı Kurtarma", defaultVal: "Anlık", required: false, effect: "Ağ değişiminde (Wi-Fi ↔ 4.5G/5G) tek dokunuşla paneli yeniler, sunucu erişilemezse 'Yeniden Bağlan' veya 'Sunucu Değiştir' ekranını açar." }
         ]
       }
     ]

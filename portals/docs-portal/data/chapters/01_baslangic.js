@@ -196,7 +196,7 @@ curl -sk https://127.0.0.1/api/version`
         callout: {
           type: "success",
           title: "Sonraki Adım",
-          text: "Sihirbaz tamamlandıktan sonra yeni sekmede açılan https://<alt-alan-adiniz>.nornia.com.tr adresinde oluşturduğunuz yönetici hesabıyla oturum açın ve 'Bölüm 03 — WebPhone & İstemciler' ile ilk test çağrınızı gerçekleştirin."
+          text: "Sihirbaz tamamlandıktan sonra yeni sekmede açılan https://<alt-alan-adiniz>.nornia.com.tr adresinde oluşturduğunuz yönetici hesabıyla oturum açın ve 'Bölüm 03 — Uygulamalar' rehberiyle RUNA Masaüstü ve Mobil uygulamalarını kurun."
         }
       }
     ],
@@ -210,69 +210,93 @@ curl -sk https://127.0.0.1/api/version`
   },
   {
     id: "masaustu-mobil-ve-webphone",
-    number: "02",
+    number: "03",
     groupId: "baslangic",
     category: "Başlangıç & Kurulum",
-    title: "WebPhone, Masaüstü (Electron), Mobil & Hot-Desking",
-    shortTitle: "WebPhone & İstemciler",
-    menuPath: "Operasyon → Temsilci Çağrı Paneli → Web Telefon / Cihazlarım",
-    pbxRoute: "/?tab=cagri-merkezi",
-    permissions: ["call_panel:tab_webphone", "call_panel:call_flip", "call_panel:tab_deskphone"],
-    badge: "WebRTC • SIP • *11",
-    readMinutes: 10,
+    title: "Uygulamalar — RUNA Masaüstü (macOS / Windows) & RUNA Mobil (iOS / Android)",
+    shortTitle: "Uygulamalar",
+    menuPath: "Sağ Üst Avatar Menüsü → Uygulamalar & İndir (PC / Mobil)",
+    pbxRoute: "/ (Avatar → Uygulamalar & İndir)",
+    permissions: ["call_panel:tab_webphone", "desktop_enabled (Kullanıcı bazlı Masaüstü izni)", "mobile_enabled (Kullanıcı bazlı Mobil izni)"],
+    badge: "Masaüstü • Mobil • RUNA",
+    readMinutes: 15,
     summary:
-      "Nornia santralde bir kullanıcı aynı anda WebPhone (tarayıcı WebRTC), Nornia Masaüstü Uygulaması (Windows/macOS Electron), IP Masa Telefonu (Yealink/Fanvil/Grandstream/Cisco) ve Mobil SIP uygulaması üzerinden çalışabilir. Bu sayfa WebRTC bağlantı mimarisini, *11 Call Flip (cihazlar arası canlı çağrı aktarma) ve *75/*76 Hot-Desking ortak masa kullanımını detaylandırır.",
+      "Nornia santral için geliştirilen RUNA Masaüstü (Windows & macOS Electron) ve RUNA Mobil (iOS SwiftUI & Android Kotlin) uygulamalarının kurulum paketlerini, Magic Link / QR kod ile şifresiz eşleştirmeyi ve her iki uygulamadaki tüm ekranların (Giriş, 2FA, Ana Çağrı Paneli, Gelen/Aktif Çağrı, 3 Bağımsız Ses Donanımı, Sistem Tepsisi, Alt Navigasyon, Sohbet, Hızlı Durum Çekmecesi ve Kesinti Kurtarma) en ince ayrıntısına kadar kullanımını kapsar.",
     prerequisites: [
-      "WebPhone için tarayıcıda HTTPS bağlantısı (https://<alt-alan>.nornia.com.tr) ve mikrofon izni zorunludur.",
-      "Kurumsal güvenlik duvarında WSS (8089 veya 443 /ras-sip-ws) ve RTP/TURN bağlantısına izin verilmelidir."
+      "Kullanıcı kartında veya profil ayarlarında ilgili kullanıcı için Masaüstü (`desktop_enabled`) ve/veya Mobil (`mobile_enabled`) uygulama giriş yetkisi aktif olmalıdır.",
+      "Kurulum dosyaları (`.exe`, Apple Silicon `.dmg`, Intel `.dmg`, `.ipa`, `.apk`) ve kişisel Kolay Giriş Linki / QR Kodu santral arayüzündeki 'Avatar → Uygulamalar & İndir' ekranından alınır.",
+      "Uygulama girişinde santral adresine HTTPS (443) ve WebRTC/WSS erişimi açık olmalıdır; Nornia Bulut FQDN (`<firma>.nornia.com.tr`) kullanılıyorsa ek port yönlendirmesi gerekmez."
     ],
     screenshots: [
       {
-        src: "/screenshots/04-call-center.jpg",
-        caption: "Temsilci Çağrı Paneli dahili WebPhone, tuş takımı, aktif görüşme ve hızlı aktarım kontrolleri",
-        routeHint: "Operasyon & İzleme → Temsilci Çağrı Paneli"
+        src: "/screenshots/apps/runa-desktop-overview.jpg",
+        caption: "RUNA Masaüstü Uygulaması (macOS & Windows) — Aktif çağrı, tuş takımı, Omnichannel bildirimleri, Sistem Tepsisi ve 3 bağımsız ses donanımı",
+        routeHint: "RUNA Masaüstü (Electron • .dmg / .exe)"
+      },
+      {
+        src: "/screenshots/apps/runa-mobile-overview.jpg",
+        caption: "RUNA Mobil Uygulaması (iOS & Android) — QR ile 3 saniyede kurulum, kilit ekranı VoIP uyandırma, aktif çağrı kontrolleri ve 9 mobil ekran",
+        routeHint: "RUNA Mobil (iOS .ipa / Android .apk)"
       }
     ],
     fieldTable: [
-      { field: "WSS Sinyal Kanalı", type: "WebSocket TLS", defaultVal: "wss://<fqdn>/ras-sip-ws (veya :8089/ws)", required: true, description: "SIP.js tabanlı dahili WebPhone'un Asterisk PJSIP ile şifreli kayıt (REGISTER) ve arama sinyalleşme kanalı." },
-      { field: "Çoklu Cihaz (Max Contacts)", type: "Integer", defaultVal: "5 eşzamanlı cihaz", required: false, description: "Aynı dahili numaranın WebPhone + Masa Telefonu + Mobil uygulamada aynı anda çalabilmesini sağlar." },
-      { field: "Call Flip (*11)", type: "Özellik Kodu", defaultVal: "*11", required: false, description: "Aktif görüşme sürerken başka bir cihazınızdan (örn. mobil uygulamadan masa telefonuna) *11 tuşlayarak görüşmeyi kesintisiz o cihaza çekersiniz." },
-      { field: "Hot-Desk Giriş (*75)", type: "Özellik Kodu", defaultVal: "*75 + Dahili + PIN", required: false, description: "Ortak çalışma masalarındaki paylaşımlı fiziksel IP telefondan kendi dahili kimliğinizle oturum açmanızı sağlar." },
-      { field: "Hot-Desk Çıkış (*76)", type: "Özellik Kodu", defaultVal: "*76", required: false, description: "Vardiya bitiminde masa telefonundaki oturumu kapatır. Gece yarısı otomatik çıkış (auto_logout_midnight) kullanıcı ayarından açılabilir." },
-      { field: "STUN / TURN Sunucusu", type: "ICE Relay", defaultVal: "Otomatik (Nornia TURN)", required: false, description: "Katı kurumsal simetrik NAT/Firewall arkasındaki uzak WebPhone kullanıcılarında tek yönlü ses sorununu ortadan kaldırır." }
+      { field: "RUNA Masaüstü Kurulum Paketleri", type: "Windows .exe / macOS .dmg", defaultVal: "v2.9.3", required: true, description: "Windows Kurulum Sihirbazı (.exe ~78.5 MB), macOS Apple Silicon M1/M2/M3/M4 (.dmg ~95.5 MB) ve macOS Intel (.dmg ~99.9 MB) doğrudan santralden indirilir." },
+      { field: "RUNA Mobil Kurulum Paketleri", type: "iOS .ipa / Android .apk", defaultVal: "v2.9.3", required: true, description: "iOS (SwiftUI + CallKit + AudioSession) ve Android (Kotlin/Compose + Foreground VoIP Service + ConnectionService) yerel mobil istemcileri." },
+      { field: "Kolay Giriş Linki (Magic Link URL)", type: "Süreli Token URL", defaultVal: "24 Saat (1 Gün)", required: false, description: "Masaüstü giriş ekranında sağ üstteki bağlantı ikonuna yapıştırıldığında sunucu adresi ve şifre girmeden doğrudan oturum açar; e-posta ile kullanıcıya gönderilebilir." },
+      { field: "QR Kod ile Mobil Eşleştirme", type: "SVG QR + Kamera Tarayıcı", defaultVal: "Tek Taramada Giriş", required: false, description: "RUNA Mobil giriş ekranındaki QR butonuna dokunup santraldeki QR kodu okutarak sunucu, kullanıcı ve oturumu 3 saniyede otomatik yapılandırır." },
+      { field: "3 Bağımsız Ses Donanımı (Masaüstü)", type: "Mikrofon / Kulaklık / Zil", defaultVal: "Ayrı Yönlendirme", required: false, description: "Görüşme sesi kulaklıktan giderken gelen çağrı zilinin harici masaüstü hoparlöründen çalmasını ve AI RNNoise mikrofon gürültü engellemeyi sağlar." },
+      { field: "Masaüstü Sistem Tepsisi (Tray)", type: "Arka Plan & Hızlı Menü", defaultVal: "Aktif", required: false, description: "Pencere kapatıldığında uygulamayı arka planda açık tutar; tepsi menüsünden Uygun/Uzakta/Toplantıda durum geçişi, ses aygıtı ve otomatik başlatma sunar." },
+      { field: "Çağrıda Pencereyi Öne Getir & Uyku Kilidi", type: "OS Bildirim + PowerSave", defaultVal: "Aktif", required: false, description: "Gelen çağrıda simge durumundaki RUNA penceresini öne taşır; powerSaveBlocker ile uygulama arka planda uyutulmaz ve WebRTC hattı kopmaz." },
+      { field: "Mobil Kilit Ekranı VoIP Uyandırma", type: "iOS CallKit / Android VoIP", defaultVal: "Tam Ekran Çalma", required: false, description: "Telefon kilitliyken veya uygulama arka plandayken gelen kurumsal çağrıları tam ekran çalar; Bluetooth/AirPods, ahize ve hoparlör geçişini yönetir." },
+      { field: "Mobil Alt Navigasyon & Daha Fazlası", type: "4 Ana + 5 Ek Sekme", defaultVal: "9 Mobil Ekran", required: false, description: "Alt çubukta Çağrı Geçmişi, Rehber, Telefon ve Sohbet; 'Daha Fazlası' menüsünde Pano, Temsilciler, Hızlı Arama, Kayıp Çağrı ve Sesli Posta yer alır." },
+      { field: "Kesinti Koruması (Offline Ekranı)", type: "Otomatik Yeniden Bağlan", defaultVal: "8 sn Geri Sayım", required: false, description: "İnternet veya sunucu erişimi geçici kesildiğinde her 8 saniyede bir otomatik yeniden bağlanmayı dener; istenirse 'Sunucu Değiştir' ile başka santrale geçilir." }
     ],
     sections: [
       {
-        heading: "1. WebPhone Çevrimiçi Kayıt ve Otomatik Ses Kontrolü",
-        body: "Kullanıcı sisteme giriş yaptığında WebPhone otomatik olarak PJSIP endpoint'ine kayıt olur ve üst çubukta yeşil 'Bağlı' göstergesi yanar. Çıkış (Logout) yapıldığında santral /api/webrtc/unregister_notify üzerinden kaydı temizler ve temsilciyi çevrimdışı durumuna geçirir. Sistem 'admin' hesabı operasyonel çağrı almamak için otomatik WebPhone kaydı başlatmaz.",
+        heading: "1. RUNA Masaüstü Uygulaması Kurulumu ve İlk Giriş (Windows & macOS)",
+        body: "RUNA Masaüstü uygulaması, tarayıcı sekmesine bağımlı kalmadan bilgisayarınızda yerel bir çağrı merkezi istemcisi olarak çalışır. Arka planda tarayıcı uyku moduna girmediği (`disable-renderer-backgrounding` + `powerSaveBlocker`) için uzun vardiyalarda gelen çağrı kaçırma riskini ortadan kaldırır.",
         steps: [
-          "Tarayıcı adres çubuğunun solundaki kilit ikonundan Mikrofon iznini 'İzin Ver' olarak ayarlayın.",
-          "Temsilci Çağrı Paneli → Web Telefon sekmesinde ses girişi (mikrofon) ve çıkış (kulaklık / zil sesi hoparlörü) cihazlarını seçin.",
-          "Zil sesi için harici hoparlör, konuşma için USB/Bluetooth kulaklık ayrı ayrı atanabilir."
+          "Santral arayüzünde sağ üstteki Avatar menüsünden 'Uygulamalar & İndir' ekranını açın.",
+          "İşletim sisteminize uygun paketi indirin: Windows için `.exe`, Apple Silicon (M1–M4) Mac için `arm64.dmg` veya Intel Mac için `Intel .dmg`.",
+          "Kurulumu tamamlayıp RUNA uygulamasını başlatın. İsterseniz Sunucu Adresi, Kullanıcı Adı/Dahili ve Şifrenizi girin; isterseniz sağ üstteki bağlantı (🔗) ikonuna tıklayıp panelden kopyaladığınız 'Masaüstü Kolay Giriş Linki'ni yapıştırarak şifresiz bağlanın.",
+          "Bilgisayar her açıldığında otomatik başlaması için giriş ekranındaki veya sistem tepsisindeki 'Bilgisayar açıldığında başlat' seçeneğini işaretleyin (macOS LaunchAgent / Windows Başlangıç otomatik ayarlanır).",
+          "Giriş yaptıktan sonra sistem tepsisinden 'Ses & Çalma Aygıtları...' seçeneğini açarak Mikrofon, Görüşme Kulaklığı ve Harici Çalma Zili Hoparlörünü ayrı ayrı seçin."
+        ],
+        callout: {
+          type: "info",
+          title: "Toplu Kurulum İçin Hazır Ayar Dosyası (.json)",
+          text: "BT yöneticileri 'Uygulamalar & İndir' kartındaki 'Hazır Ayar Dosyası (.json)' indirme bağlantısıyla sunucu adresi ön tanımlı konfigürasyon dosyasını tüm şirket bilgisayarlarına dağıtabilir."
+        }
+      },
+      {
+        heading: "2. RUNA Mobil Uygulaması Kurulumu ve QR Kod ile 3 Saniyede Eşleştirme (iOS & Android)",
+        body: "RUNA Mobil uygulaması (iOS & Android), ofis dışındayken veya hibrit çalışırken kurumsal dahili numaranızı cep telefonunuzda taşımanızı sağlar. Kurumsal numaranızla dış arama yapabilir, gelen santral/kuyruk çağrılarını kilit ekranından yanıtlayabilir ve ekip sohbetlerini anlık takip edebilirsiniz.",
+        steps: [
+          "Santral arayüzünde 'Avatar → Uygulamalar & İndir' ekranındaki 'Mobil Uygulama (Runa)' kartından cihazınıza göre iOS (`.ipa`) veya Android (`.apk`) paketini indirin ve kurun.",
+          "Uygulamayı ilk açtığınızda Mikrofon, Bildirim ve (Android'de) Arka Plan Pil İstisnası izinlerini onaylayın.",
+          "Giriş ekranının sağ üst köşesindeki QR Kod ikonuna dokunun ve santral ekranınızdaki aktif QR kodu kameraya okutun (sunucu adresi, kullanıcı ve oturum otomatik tanımlanır).",
+          "QR kullanmak istemezseniz santral adresini (örn. `firma.nornia.com.tr`), kullanıcı adı/dahili ve şifrenizi girin; 2FA aktifse 6 haneli güvenlik kodunu doğrulayarak giriş yapın.",
+          "Alt menüdeki Telefon, Çağrı Geçmişi, Rehber, Sohbet ve 'Daha Fazlası' (Pano, Temsilciler, Hızlı Arama, Kayıp Çağrı, Sesli Posta) ekranlarını kullanmaya başlayın."
         ]
       },
       {
-        heading: "2. Call Flip (*11) ve Hot-Desking (*75 / *76) Kullanımı",
-        body: "Mobil çalışanlar veya vardiyalı çağrı merkezleri için Nornia iki özel fiziksel/sanal cihaz akışı sunar: Call Flip ile ofisten çıkarken masa telefonundaki aktif görüşmeyi tek tuşla mobil uygulamaya aktarabilirsiniz; Hot-Desking ile her temsilci boş bulduğu masadaki telefona kendi dahili numarası ve 4 haneli PIN'i ile bağlanabilir.",
-        codeBlock: {
-          title: "Fiziksel Telefon Özellik Kodları Özeti",
-          lang: "text",
-          code: `*11        -> Aktif çağrıyı diğer cihazınıza çek (Call Flip)
-*75        -> Hot-Desking Oturum Açma (Sesli yönlendirme ile Dahili + PIN girilir)
-*76        -> Hot-Desking Oturum Kapatma
-*97        -> Sesli Posta (Voicemail) Dinleme
-*9         -> Aktif Görüşmede Ses Kaydını Duraklat / Devam Ettir (KVKK / PCI)
-*70        -> Abone Profil Değiştirme (Ofis / Evden Çalışma / Dışarıda)
-*74        -> Patron-Sekreter Yönlendirme Aç/Kapat`
-        }
+        heading: "3. Masaüstü ve Mobil Uygulamalar Arası Çoklu Cihaz & Kesintisiz Geçiş",
+        body: "Aynı dahili kullanıcı hem RUNA Masaüstü hem de RUNA Mobil uygulamalarında eşzamanlı oturum açabilir (varsayılan 5 eşzamanlı kayıt). Gelen çağrılar profil tercihlerinize göre her iki uygulamada birden çalar; bir cihazdan yanıtlandığında diğer cihazdaki çalma otomatik durur.",
+        steps: [
+          "Masaüstü uygulamasında görüşme yaparken ofisten çıkmanız gerekirse, mobil uygulamanın Telefon tuş takımından `*11` (Call Flip) tuşlayarak aktif görüşmeyi kesmeden cep telefonunuza aktarabilirsiniz.",
+          "Mobil uygulamada aktif çağrı sırasında başka bir sekmeye (ör. Rehber veya Sohbet) geçtiğinizde ekranın üstünde beliren yeşil 'Arama Ekranına Dön' şeridine dokunarak anında görüşme ekranına geri dönersiniz.",
+          "Hızlı durum değişiklikleri için Masaüstü'nde sistem tepsisi sağ tık menüsünü, Mobil'de ise üst çubuktaki Hızlı Durum Çekmecesi'ni (Uygun / Uzakta / Toplantıda) kullanabilirsiniz."
+        ]
       }
     ],
     troubleshooting: [
-      { problem: "WebPhone bağlı görünüyor ama çağrıda tek yönlü ses var", cause: "Şirket güvenlik duvarı UDP RTP veya TURN portlarını engelliyor.", solution: "Sistem Ayarları → NAT ve Dış IP bölümünde Dış IP'yi doğrulayın ve Nornia Connect TURN rölesinin aktif olduğundan emin olun." },
-      { problem: "Hot-Desk *75 ile giriş yaparken 'PIN hatalı' uyarısı veriyor", cause: "Kullanıcı kartında Hot-Desking aktif edilmemiş veya PIN boş bırakılmış.", solution: "Santral → Kullanıcılar → ilgili kullanıcı → Hot-Desking sekmesinden özelliği aktif edip 4-6 haneli PIN tanımlayın." }
+      { problem: "Masaüstü uygulaması simge durumundayken gelen çağrı çalmıyor veya öne gelmiyor", cause: "Sistem tepsisi / 'Çağrıda Pencereyi Öne Getir' kapalı olabilir veya işletim sistemi bildirimleri kısıtlanmıştır.", solution: "Uygulamalar & İndir ayarlarından 'Çağrıda Pencereyi Öne Getir' ve 'Sistem Tepsisinde Çalıştır' kutucuklarını aktif edip kaydedin; Windows/macOS bildirim izinlerinde Runa'ya izin verin." },
+      { problem: "Masaüstü uygulamasında görüşme sesi kulaklıktan geliyor ama zil sesi duyulmuyor", cause: "İkincil Zil Sesi Hoparlörü seçilmemiş veya sessize alınmış.", solution: "Sistem tepsisi → 'Ses & Çalma Aygıtları...' ekranından Görüşme Kulaklığı için USB/Bluetooth kulaklığınızı, Çalma Zili Hoparlörü için bilgisayar hoparlörünü seçip test edin." },
+      { problem: "Mobil uygulamada QR kod okutulduğunda 'Geçersiz veya süresi dolmuş bağlantı' hatası veriyor", cause: "Kolay Giriş Linki / QR kodunun geçerlilik süresi (varsayılan 24 saat) dolmuş veya iptal edilmiş.", solution: "Santral panelinde 'Uygulamalar & İndir' ekranında 'QR Kodu Yenile' butonuna basıp yeni QR kodu okutun." },
+      { problem: "Android veya iOS ekran kilitliyken gelen çağrılar gecikmeli düşüyor", cause: "Android pil optimizasyonu arka plan VoIP servisini kısıtlıyor veya iOS bildirim/mikrofon izni eksik.", solution: "Android'de Uygulama Bilgisi → Pil ayarını 'Kısıtlanmamış' yapın ve Runa arka plan bildirimine izin verin; iOS'ta Ayarlar → Runa altında Mikrofon ve Bildirim izinlerini açın." }
     ],
-    relatedPages: ["temsilci-cagri-paneli", "kullanicilar", "oto-provizyon", "kisisel-profil-ve-ust-cubuk"],
-    relatedApis: ["GET /api/hotdesk/sessions", "DELETE /api/hotdesk/sessions/{session_key}", "POST /api/v1/calls/originate"]
+    relatedPages: ["kisisel-profil-ve-ust-cubuk", "temsilci-cagri-paneli", "kullanicilar"],
+    relatedApis: ["GET /api/downloads/mobile/ios", "GET /api/downloads/mobile/android", "POST /api/auth/login"]
   },
   {
     id: "kisisel-profil-ve-ust-cubuk",
