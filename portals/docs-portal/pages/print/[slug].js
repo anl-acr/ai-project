@@ -1,6 +1,6 @@
 import React, { useEffect } from "react";
 import Head from "next/head";
-import { MANUAL_CHAPTERS, MANUAL_META } from "../../data/manualChapters";
+import { MANUAL_CHAPTERS, MANUAL_GROUPS, MANUAL_META } from "../../data/manualChapters";
 import ChapterArticle from "../../components/ChapterArticle";
 
 export async function getStaticPaths() {
@@ -21,6 +21,60 @@ export async function getStaticProps({ params }) {
   };
 }
 
+function buildModuleTocItems(ch) {
+  if (!ch) return [];
+  const items = [];
+  let seq = 1;
+  items.push({ num: `${seq++}.`, label: "Genel Bakış, Menü Yolu & Rol Yetkileri", href: `#${ch.id}--genel`, level: 1 });
+  if (ch.screenshots && ch.screenshots.length > 0) {
+    items.push({ num: `${seq++}.`, label: "Canlı Santral Arayüz Ekran Görüntüsü", href: `#${ch.id}--ekran`, level: 1 });
+  }
+  if (ch.fieldTable && ch.fieldTable.length > 0) {
+    items.push({
+      num: `${seq++}.`,
+      label: `Tüm Alanlar, Parametreler & Teknik Etkileri (${ch.fieldTable.length} alan)`,
+      href: `#${ch.id}--alanlar`,
+      level: 1
+    });
+  }
+  if (ch.editFormSections && ch.editFormSections.length > 0) {
+    const parentNum = seq++;
+    items.push({
+      num: `${parentNum}.`,
+      label: `Ekle / Düzenle & Alt Ekran Referansı (${ch.editFormSections.length} alt bölüm)`,
+      href: `#${ch.id}--alt-ayarlar`,
+      level: 1
+    });
+    ch.editFormSections.forEach((sub, idx) => {
+      items.push({
+        num: `${parentNum}.${idx + 1}`,
+        label: sub.tabTitle,
+        href: `#${ch.id}--edit-${idx + 1}`,
+        level: 2
+      });
+    });
+  }
+  if (ch.sections && ch.sections.length > 0) {
+    ch.sections.forEach((sec, idx) => {
+      items.push({
+        num: `${seq++}.`,
+        label: sec.heading,
+        href: `#${ch.id}--sec-${idx + 1}`,
+        level: 1
+      });
+    });
+  }
+  if (ch.troubleshooting && ch.troubleshooting.length > 0) {
+    items.push({
+      num: `${seq++}.`,
+      label: `Sık Karşılaşılan Hatalar & Sorun Giderme (${ch.troubleshooting.length} kayıt)`,
+      href: `#${ch.id}--sorun`,
+      level: 1
+    });
+  }
+  return items;
+}
+
 export default function PrintManualPage({ isAll, chapters }) {
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -33,9 +87,12 @@ export default function PrintManualPage({ isAll, chapters }) {
     }
   }, []);
 
+  const singleChapter = !isAll ? chapters[0] : null;
+  const singleTocItems = singleChapter ? buildModuleTocItems(singleChapter) : [];
+
   const docTitle = isAll
     ? `${MANUAL_META.product} — Tam Kullanım Kılavuzu (${MANUAL_META.version})`
-    : `${MANUAL_META.product} — Bölüm ${chapters[0]?.number}: ${chapters[0]?.title}`;
+    : `${MANUAL_META.product} — Bölüm ${singleChapter?.number}: ${singleChapter?.title}`;
 
   return (
     <div className="min-h-screen bg-white text-slate-900">
@@ -60,7 +117,7 @@ export default function PrintManualPage({ isAll, chapters }) {
             PDF Olarak Kaydet / Yazdır
           </button>
           <a
-            href={isAll ? "/" : `/${chapters[0]?.id}/`}
+            href={isAll ? "/" : `/${singleChapter?.id}/`}
             className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-bold"
           >
             Kılavuza Dön
@@ -68,9 +125,9 @@ export default function PrintManualPage({ isAll, chapters }) {
         </div>
       </div>
 
-      {/* Corporate PDF Cover Header — EXACT NORNIA LOGO */}
-      <div className="max-w-4xl mx-auto px-6 sm:px-10 py-8 space-y-10">
-        <div className="p-8 rounded-3xl bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white space-y-4">
+      {/* Corporate PDF Cover + Clickable Table of Contents (Page 1) */}
+      <div className="max-w-4xl mx-auto px-4 sm:px-8 py-6 space-y-6">
+        <div className="print-avoid-break p-7 rounded-3xl bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-11 h-11 rounded-2xl bg-white/10 p-1.5 border border-white/15 flex items-center justify-center">
@@ -94,46 +151,114 @@ export default function PrintManualPage({ isAll, chapters }) {
               </div>
             </div>
             <div className="text-right text-[11px] font-mono text-indigo-200">
-              <div>{MANUAL_META.version}</div>
-              <div>{MANUAL_META.updatedAt}</div>
+              <div className="px-2.5 py-1 rounded-lg bg-white/10 border border-white/15 font-bold">
+                {MANUAL_META.version}
+              </div>
             </div>
           </div>
 
-          <h1 className="text-2xl sm:text-3xl font-black tracking-tight pt-2">
+          <h1 className="text-2xl sm:text-3xl font-black tracking-tight pt-1">
             {isAll
-              ? `Nornia Enterprise AI PBX — Tam Kullanım Kılavuzu (${MANUAL_CHAPTERS.length} Menü)`
-              : `Bölüm ${chapters[0]?.number}: ${chapters[0]?.title}`}
+              ? `Nornia Enterprise AI PBX — Tam Kullanım Kılavuzu (${MANUAL_CHAPTERS.length} Bölüm)`
+              : `Bölüm ${singleChapter?.number}: ${singleChapter?.title}`}
           </h1>
           <p className="text-xs text-indigo-100 leading-relaxed">
             {isAll
-              ? `Tüm ${MANUAL_CHAPTERS.length} menü sayfasının canlı ekran görüntülerini, parametre referans tablolarını, rol yetki kodlarını, yapılandırma örneklerini ve sorun giderme rehberlerini içeren resmi kurumsal el kitabı.`
-              : chapters[0]?.summary}
+              ? `Tüm ${MANUAL_CHAPTERS.length} menü ve rapor sayfasının canlı ekran görüntülerini, parametre referans tablolarını, rol yetki kodlarını, adım adım uygulama rehberlerini ve sorun giderme çözümlerini içeren resmi kurumsal el kitabı.`
+              : singleChapter?.summary}
           </p>
         </div>
 
-        {/* Table of Contents for Full Manual */}
-        {isAll && (
-          <div className="p-6 rounded-2xl border border-slate-200 space-y-3 print-page-break">
-            <h2 className="text-base font-black text-slate-900">İçindekiler ({chapters.length} Bölüm)</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[11px]">
-              {chapters.map((c) => (
-                <div
-                  key={c.id}
-                  className="flex items-center justify-between gap-2 py-1 border-b border-slate-100"
-                >
-                  <span className="font-bold text-slate-800 truncate">
-                    {c.number}. {c.shortTitle || c.title}
-                  </span>
-                  <span className="text-[10px] text-slate-500 shrink-0">{c.category}</span>
-                </div>
-              ))}
+        {/* Clickable Table of Contents — Full Book PDF */}
+        {isAll ? (
+          <div className="p-6 rounded-2xl border border-slate-200 bg-slate-50/50 space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+              <div>
+                <h2 className="text-lg font-black text-slate-900">İçindekiler ({chapters.length} Bölüm)</h2>
+                <p className="text-[11px] text-slate-500">
+                  Herhangi bir bölüm başlığına tıklayarak doğrudan ilgili sayfaya gidebilirsiniz.
+                </p>
+              </div>
+              <span className="px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-700 text-[10px] font-extrabold">
+                Etkileşimli PDF Dizini
+              </span>
             </div>
+
+            <div className="space-y-4">
+              {MANUAL_GROUPS.map((grp, gIdx) => {
+                const grpChapters = chapters.filter((c) => c.groupId === grp.id);
+                if (grpChapters.length === 0) return null;
+                return (
+                  <div key={grp.id} className="print-avoid-break space-y-1.5">
+                    <div className="text-[11px] font-black uppercase tracking-wider text-indigo-700 bg-indigo-50/80 px-3 py-1.5 rounded-lg border border-indigo-100">
+                      GRUP {gIdx + 1}: {grp.title} ({grpChapters.length} Bölüm)
+                    </div>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 px-1">
+                      {grpChapters.map((c) => (
+                        <a
+                          key={c.id}
+                          href={`#chapter-${c.id}`}
+                          className="flex items-center justify-between gap-2 py-1 border-b border-slate-200/70 text-[10.5px] text-slate-800 hover:text-indigo-700"
+                        >
+                          <span className="truncate font-semibold">
+                            <span className="font-mono font-black text-indigo-600 mr-1.5">{c.number}.</span>
+                            {c.shortTitle || c.title}
+                          </span>
+                          <span className="text-[9px] text-indigo-500 font-bold shrink-0">→</span>
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
+          /* Clickable Table of Contents — Single Module PDF */
+          <div className="print-avoid-break p-6 rounded-2xl border border-slate-200 bg-slate-50/50 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+              <div>
+                <h2 className="text-base font-black text-slate-900">İçindekiler</h2>
+                <p className="text-[11px] text-slate-500">
+                  İlgili başlığa tıklayarak PDF içinde doğrudan o bölüme atlayabilirsiniz.
+                </p>
+              </div>
+              <span className="px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-700 text-[10px] font-extrabold">
+                {singleTocItems.length} Başlık
+              </span>
+            </div>
+
+            <nav className="space-y-1">
+              {singleTocItems.map((item, idx) => (
+                <a
+                  key={idx}
+                  href={item.href}
+                  className={`flex items-center justify-between gap-3 py-1.5 border-b border-slate-200/70 hover:text-indigo-700 ${
+                    item.level === 2
+                      ? "pl-6 text-[11px] text-slate-600 font-medium"
+                      : "text-xs text-slate-900 font-bold"
+                  }`}
+                >
+                  <span className="flex items-baseline gap-2 min-w-0">
+                    <span
+                      className={`font-mono font-black shrink-0 ${
+                        item.level === 2 ? "text-purple-600 text-[10px]" : "text-indigo-600 text-[11px]"
+                      }`}
+                    >
+                      {item.num}
+                    </span>
+                    <span className="truncate">{item.label}</span>
+                  </span>
+                  <span className="text-[10px] text-indigo-500 font-bold shrink-0">Git →</span>
+                </a>
+              ))}
+            </nav>
           </div>
         )}
 
-        {/* Chapters */}
-        {chapters.map((ch, idx) => (
-          <div key={ch.id} className={isAll && idx > 0 ? "print-page-break pt-4" : ""}>
+        {/* Chapters (Each starts cleanly on a new page after TOC) */}
+        {chapters.map((ch) => (
+          <div key={ch.id} id={`chapter-${ch.id}`} className="print-page-break pt-1">
             <ChapterArticle chapter={ch} printMode={true} />
           </div>
         ))}

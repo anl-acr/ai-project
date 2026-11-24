@@ -134,6 +134,7 @@ async function main() {
               "--disable-gpu",
               "--no-sandbox",
               `--user-data-dir=${profileDir}`,
+              "--no-pdf-header-footer",
               "--print-to-pdf-no-header",
               `--print-to-pdf=${destPublic}`,
               targetUrl

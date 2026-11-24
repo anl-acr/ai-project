@@ -27,21 +27,21 @@ import {
 } from "lucide-react";
 import { MANUAL_META, getChapterById } from "../data/manualChapters";
 
-function ScreenshotCard({ shot, onZoom }) {
+function ScreenshotCard({ shot, onZoom, printMode = false }) {
   const [failed, setFailed] = useState(false);
 
   return (
     <figure className="print-avoid-break rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden shadow-xs">
       {!failed ? (
         <div
-          className="relative group cursor-zoom-in bg-slate-100 dark:bg-slate-950"
+          className={`relative group ${printMode ? "" : "cursor-zoom-in"} bg-slate-100 dark:bg-slate-950`}
           onClick={() => onZoom && onZoom(shot)}
         >
           <img
             src={shot.src}
             alt={shot.caption}
             onError={() => setFailed(true)}
-            className="w-full h-auto max-h-[500px] object-contain mx-auto"
+            className={`w-full h-auto ${printMode ? "max-h-[380px]" : "max-h-[500px]"} object-contain mx-auto`}
           />
           <div className="no-print absolute top-3 right-3 px-2.5 py-1.5 rounded-xl bg-slate-900/75 text-white text-[11px] font-bold opacity-0 group-hover:opacity-100 transition flex items-center gap-1.5">
             <Maximize2 size={12} />
@@ -132,9 +132,12 @@ export default function ChapterArticle({ chapter, printMode = false }) {
   };
 
   return (
-    <article className="space-y-8">
+    <article className="space-y-6">
       {/* Chapter Header Card */}
-      <div className="p-6 sm:p-8 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs space-y-5">
+      <div
+        id={printMode ? `${chapter.id}--genel` : undefined}
+        className="print-avoid-break p-6 sm:p-7 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs space-y-4"
+      >
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="px-2.5 py-1 rounded-xl bg-indigo-600 text-white text-xs font-mono font-black">
@@ -186,7 +189,7 @@ export default function ChapterArticle({ chapter, printMode = false }) {
         </p>
 
         {/* Technical Metadata Strip: Menu Path, Route & RBAC Permissions */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
+        <div className="print-avoid-break grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
           {chapter.menuPath && (
             <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 space-y-1">
               <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
@@ -223,7 +226,7 @@ export default function ChapterArticle({ chapter, printMode = false }) {
 
         {/* Prerequisites */}
         {chapter.prerequisites && chapter.prerequisites.length > 0 && (
-          <div className="p-4 rounded-2xl bg-indigo-50/70 dark:bg-indigo-950/20 border border-indigo-200/70 dark:border-indigo-900/50 space-y-2">
+          <div className="print-avoid-break p-4 rounded-2xl bg-indigo-50/70 dark:bg-indigo-950/20 border border-indigo-200/70 dark:border-indigo-900/50 space-y-2">
             <div className="text-[11px] font-extrabold uppercase tracking-wider text-indigo-700 dark:text-indigo-300 flex items-center gap-1.5">
               <ListChecks size={13} />
               <span>Başlamadan Önce Ön Koşullar</span>
@@ -242,16 +245,20 @@ export default function ChapterArticle({ chapter, printMode = false }) {
 
       {/* Live Screenshots */}
       {chapter.screenshots && chapter.screenshots.length > 0 && (
-        <section id="ekran-goruntuleri" className="space-y-4">
-          <h2 className="text-sm font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-2">
+        <section
+          id={printMode ? `${chapter.id}--ekran` : "ekran-goruntuleri"}
+          className="print-avoid-break space-y-3"
+        >
+          <h2 className="print-keep-with-next text-sm font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-2">
             <ImageIcon size={15} className="text-indigo-500" />
             <span>Canlı Santral Arayüz Ekran Görüntüsü</span>
           </h2>
-          <div className="grid grid-cols-1 gap-5">
+          <div className="grid grid-cols-1 gap-4">
             {chapter.screenshots.map((shot, idx) => (
               <ScreenshotCard
                 key={idx}
                 shot={shot}
+                printMode={printMode}
                 onZoom={printMode ? null : (s) => setZoomShot(s)}
               />
             ))}
@@ -262,10 +269,10 @@ export default function ChapterArticle({ chapter, printMode = false }) {
       {/* Field-by-Field Reference Table */}
       {chapter.fieldTable && chapter.fieldTable.length > 0 && (
         <section
-          id="alan-referansi"
-          className="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-4 shadow-xs"
+          id={printMode ? `${chapter.id}--alanlar` : "alan-referansi"}
+          className="p-5 sm:p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-4 shadow-xs"
         >
-          <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="print-keep-with-next flex items-center justify-between gap-2 flex-wrap">
             <h2 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
               <Table2 size={18} className="text-indigo-500" />
               <span>Tüm Alanlar, Parametreler &amp; Teknik Etkileri</span>
@@ -315,10 +322,10 @@ export default function ChapterArticle({ chapter, printMode = false }) {
       {/* Deep Edit / Sub-Screen Tabs Reference (En İnce Ayrıntısına Kadar) */}
       {chapter.editFormSections && chapter.editFormSections.length > 0 && (
         <section
-          id="duzenle-ve-alt-ayarlar"
+          id={printMode ? `${chapter.id}--alt-ayarlar` : "duzenle-ve-alt-ayarlar"}
           className="space-y-4"
         >
-          <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="print-keep-with-next flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
                 <Sliders size={18} className="text-indigo-500" />
@@ -351,74 +358,82 @@ export default function ChapterArticle({ chapter, printMode = false }) {
           <div className="space-y-3.5">
             {chapter.editFormSections.map((sub, sIdx) => {
               const isOpen = printMode || openEditTabs[sIdx] !== false;
+              const isTallBlock = printMode && sub.screenshot && (sub.fields || []).length > 3;
               return (
                 <div
                   key={sIdx}
-                  id={`edit-tab-${sIdx + 1}`}
-                  className={`print-avoid-break rounded-2xl bg-white dark:bg-slate-900 border shadow-xs overflow-hidden ${
+                  id={printMode ? `${chapter.id}--edit-${sIdx + 1}` : `edit-tab-${sIdx + 1}`}
+                  className={`${isTallBlock ? "" : "print-avoid-break"} rounded-2xl bg-white dark:bg-slate-900 border shadow-xs overflow-hidden ${
                     sub.level === 3
                       ? "ml-0 sm:ml-6 border-purple-200 dark:border-purple-900/60"
                       : "border-slate-200 dark:border-slate-800"
                   }`}
                 >
-                  <button
-                    type="button"
-                    onClick={() =>
-                      !printMode && setOpenEditTabs((prev) => ({ ...prev, [sIdx]: !isOpen }))
-                    }
-                    className={`w-full px-5 py-4 border-b flex items-center justify-between gap-3 text-left cursor-pointer ${
-                      sub.level === 3
-                        ? "bg-purple-50/70 dark:bg-purple-950/25 border-purple-200/70 dark:border-purple-900/50"
-                        : "bg-slate-50/80 dark:bg-slate-950/50 border-slate-200/70 dark:border-slate-800"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0 flex-wrap">
-                      <span
-                        className={`px-2 py-0.5 rounded-lg text-white font-mono text-[10px] font-black shrink-0 ${
-                          sub.level === 3 ? "bg-purple-600" : "bg-indigo-600"
-                        }`}
-                      >
-                        {sub.level === 3 ? `↳ ${sIdx + 1}` : sIdx + 1}
-                      </span>
-                      <span className="text-sm font-black text-slate-900 dark:text-white">
-                        {sub.tabTitle}
-                      </span>
-                      {sub.level === 3 && (
-                        <span className="px-2 py-0.5 rounded-md bg-purple-500/15 text-purple-700 dark:text-purple-300 text-[10px] font-extrabold">
-                          Alt Pencere / Derin Ayar
+                  <div className="print-avoid-break">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        !printMode && setOpenEditTabs((prev) => ({ ...prev, [sIdx]: !isOpen }))
+                      }
+                      className={`print-keep-with-next w-full px-5 py-3.5 border-b flex items-center justify-between gap-3 text-left cursor-pointer ${
+                        sub.level === 3
+                          ? "bg-purple-50/70 dark:bg-purple-950/25 border-purple-200/70 dark:border-purple-900/50"
+                          : "bg-slate-50/80 dark:bg-slate-950/50 border-slate-200/70 dark:border-slate-800"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0 flex-wrap">
+                        <span
+                          className={`px-2 py-0.5 rounded-lg text-white font-mono text-[10px] font-black shrink-0 ${
+                            sub.level === 3 ? "bg-purple-600" : "bg-indigo-600"
+                          }`}
+                        >
+                          {sub.level === 3 ? `↳ ${sIdx + 1}` : sIdx + 1}
+                        </span>
+                        <span className="text-sm font-black text-slate-900 dark:text-white">
+                          {sub.tabTitle}
+                        </span>
+                        {sub.level === 3 && (
+                          <span className="px-2 py-0.5 rounded-md bg-purple-500/15 text-purple-700 dark:text-purple-300 text-[10px] font-extrabold">
+                            Alt Pencere / Derin Ayar
+                          </span>
+                        )}
+                        {sub.badge && (
+                          <span className="px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 text-[10px] font-bold">
+                            {sub.badge}
+                          </span>
+                        )}
+                        <span className="text-[10px] font-semibold text-slate-400">
+                          ({(sub.fields || []).length} ayar)
+                        </span>
+                      </div>
+                      {!printMode && (
+                        <span className="text-slate-400 shrink-0">
+                          {isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                         </span>
                       )}
-                      {sub.badge && (
-                        <span className="px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 text-[10px] font-bold">
-                          {sub.badge}
-                        </span>
-                      )}
-                      <span className="text-[10px] font-semibold text-slate-400">
-                        ({(sub.fields || []).length} ayar)
-                      </span>
-                    </div>
-                    {!printMode && (
-                      <span className="text-slate-400 shrink-0">
-                        {isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                      </span>
+                    </button>
+
+                    {isOpen && (sub.description || sub.screenshot) && (
+                      <div className="px-5 pt-4 pb-2 space-y-3">
+                        {sub.description && (
+                          <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+                            {sub.description}
+                          </p>
+                        )}
+
+                        {sub.screenshot && (
+                          <ScreenshotCard
+                            shot={sub.screenshot}
+                            printMode={printMode}
+                            onZoom={printMode ? null : (s) => setZoomShot(s)}
+                          />
+                        )}
+                      </div>
                     )}
-                  </button>
+                  </div>
 
-                  {isOpen && (
-                    <div className="p-5 space-y-4">
-                      {sub.description && (
-                        <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-                          {sub.description}
-                        </p>
-                      )}
-
-                      {sub.screenshot && (
-                        <ScreenshotCard
-                          shot={sub.screenshot}
-                          onZoom={printMode ? null : (s) => setZoomShot(s)}
-                        />
-                      )}
-
+                  {isOpen && ((sub.fields && sub.fields.length > 0) || (sub.tips && sub.tips.length > 0)) && (
+                    <div className="px-5 pb-5 pt-2 space-y-4">
                       {sub.fields && sub.fields.length > 0 && (
                         <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
                           <table className="w-full text-left text-xs border-collapse">
@@ -432,7 +447,7 @@ export default function ChapterArticle({ chapter, printMode = false }) {
                             </thead>
                             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                               {sub.fields.map((f, fIdx) => (
-                                <tr key={fIdx} className="align-top hover:bg-slate-50/70 dark:hover:bg-slate-800/30">
+                                <tr key={fIdx} className="print-avoid-break align-top hover:bg-slate-50/70 dark:hover:bg-slate-800/30">
                                   <td className="px-3 py-2.5 font-extrabold text-slate-900 dark:text-white min-w-[165px]">
                                     <div>{f.name}</div>
                                     {f.required && (
@@ -458,7 +473,7 @@ export default function ChapterArticle({ chapter, printMode = false }) {
                       )}
 
                       {sub.tips && sub.tips.length > 0 && (
-                        <div className="p-3.5 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200/70 dark:border-emerald-900/40 space-y-1.5">
+                        <div className="print-avoid-break p-3.5 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200/70 dark:border-emerald-900/40 space-y-1.5">
                           <div className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5">
                             <Lightbulb size={12} />
                             <span>Pratik İpuçları &amp; Dikkat Edilecekler</span>
@@ -482,7 +497,7 @@ export default function ChapterArticle({ chapter, printMode = false }) {
       {/* Detailed Sections */}
       <div className="space-y-6">
         {(chapter.sections || []).map((sec, idx) => {
-          const secId = `sec-${idx + 1}`;
+          const secId = printMode ? `${chapter.id}--sec-${idx + 1}` : `sec-${idx + 1}`;
           return (
             <section
               key={idx}
@@ -566,10 +581,10 @@ export default function ChapterArticle({ chapter, printMode = false }) {
       {/* Troubleshooting Matrix */}
       {chapter.troubleshooting && chapter.troubleshooting.length > 0 && (
         <section
-          id="sorun-giderme"
+          id={printMode ? `${chapter.id}--sorun` : "sorun-giderme"}
           className="print-avoid-break p-6 rounded-2xl bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200/80 dark:border-amber-900/50 space-y-4"
         >
-          <h2 className="text-base font-black text-amber-900 dark:text-amber-200 flex items-center gap-2">
+          <h2 className="print-keep-with-next text-base font-black text-amber-900 dark:text-amber-200 flex items-center gap-2">
             <Wrench size={16} />
             <span>Sık Karşılaşılan Hatalar &amp; Sorun Giderme</span>
           </h2>
@@ -577,7 +592,7 @@ export default function ChapterArticle({ chapter, printMode = false }) {
             {chapter.troubleshooting.map((tr, idx) => (
               <div
                 key={idx}
-                className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-amber-200/60 dark:border-amber-900/40 space-y-1.5"
+                className="print-avoid-break p-4 rounded-xl bg-white dark:bg-slate-900 border border-amber-200/60 dark:border-amber-900/40 space-y-1.5"
               >
                 <div className="text-xs font-extrabold text-rose-700 dark:text-rose-400">
                   Belirti: {tr.problem}
