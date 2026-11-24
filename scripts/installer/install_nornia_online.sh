@@ -51,6 +51,10 @@ BRANCH="${NORNIA_BRANCH:-main}"
 GIT_TOKEN="${NORNIA_GIT_TOKEN:-}"
 ASTERISK_DEB_SRC="${NORNIA_ASTERISK_DEB_URL:-}"
 SYSADMIN_USER="${NORNIA_SYSADMIN_USER:-nornia}"
+SYSADMIN_PASS_EXPLICIT=0
+if [[ -n "${NORNIA_SYSADMIN_PASS:-}" ]]; then
+  SYSADMIN_PASS_EXPLICIT=1
+fi
 SYSADMIN_PASS="${NORNIA_SYSADMIN_PASS:-NorniaAdmin2027!*}"
 DESTEK_USER="destek"
 DESTEK_PASS="${NORNIA_DESTEK_PASS:-destekgiris2027!*}"
@@ -91,6 +95,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     --sysadmin-pass)
       SYSADMIN_PASS="${2:-}"
+      SYSADMIN_PASS_EXPLICIT=1
       shift 2
       ;;
     --destek-pass)
@@ -675,12 +680,18 @@ EOF
   visudo -cf /etc/sudoers.d/nornia-destek
 fi
 
+SYSADMIN_PASS_STATUS="mevcut şifreniz korundu"
 if ! id -u "$SYSADMIN_USER" >/dev/null 2>&1; then
   useradd -m -s /bin/bash -G sudo "$SYSADMIN_USER"
+  echo "${SYSADMIN_USER}:${SYSADMIN_PASS}" | chpasswd
+  SYSADMIN_PASS_STATUS="yeni oluşturuldu (ilk girişte passwd ile değiştirin)"
 else
   usermod -aG sudo "$SYSADMIN_USER"
+  if [[ "$SYSADMIN_PASS_EXPLICIT" == "1" ]]; then
+    echo "${SYSADMIN_USER}:${SYSADMIN_PASS}" | chpasswd
+    SYSADMIN_PASS_STATUS="parametre ile güncellendi"
+  fi
 fi
-echo "${SYSADMIN_USER}:${SYSADMIN_PASS}" | chpasswd
 chmod 0750 "${PROJECT_DIR}/backend" 2>/dev/null || true
 
 if [[ "$SKIP_SSH_CONFIG" != "1" ]]; then
@@ -819,7 +830,7 @@ echo "    • Frontend UI (3000)   : HTTP ${FRONTEND_OK}"
 echo "----------------------------------------------------------------------"
 echo "  Erişim & Hesap Bilgileri:"
 echo "    • İlk Kurulum Sihirbazı: http://${SERVER_IP}/setup"
-echo "    • Yönetim SSH Hesabı   : ${SYSADMIN_USER}"
+echo "    • Yönetim SSH Hesabı   : ${SYSADMIN_USER} (${SYSADMIN_PASS_STATUS})"
 echo "    • Kısıtlı Destek Hesabı: ${DESTEK_USER} (Ağ & IP konsolu)"
 echo "    • Kurulum Logu         : ${LOG_FILE}"
 echo "======================================================================"
