@@ -156,7 +156,7 @@ export const CHAPTERS_YONETIM_A = [
     troubleshooting: [
       { problem: "Active Directory 'Bağlantı Testi' başarısız oluyor", cause: "Bind DN formatı hatalı veya 389/636 portu firewall'da kapalı.", solution: "Bind DN'i 'CN=svc_pbx,OU=Services,DC=sirket,DC=local' veya 'svc_pbx@sirket.local' formatında girin; LDAPS (636) kullanıyorsanız sertifika doğrulamasını kontrol edin." }
     ],
-    relatedPages: ["kullanicilar", "temsilci-cagri-paneli", "temsilci-performans-mola-puantaj"],
+    relatedPages: ["kullanicilar", "temsilci-cagri-paneli", "rapor-mola-puantaj"],
     relatedApis: ["GET /api/v1/extensions"]
   },
   {
@@ -237,7 +237,7 @@ export const CHAPTERS_YONETIM_A = [
     troubleshooting: [
       { problem: "AI sağlayıcı testi '401/403' hatası veriyor", cause: "API anahtarı süresi dolmuş, kredi bakiyesi bitmiş veya kopyalanırken başında/sonunda boşluk kalmış.", solution: "Anahtarı sağlayıcı konsolundan teyit edip yeniden yapıştırın ve 'Bağlantıyı Test Et' ile yeşil onay alın." }
     ],
-    relatedPages: ["ai-temsilcileri", "api-butce-ve-tuketim", "ai-analitik-duygu-niyet-qa"],
+    relatedPages: ["ai-temsilcileri", "api-butce-ve-tuketim", "rapor-duygu-analizi"],
     relatedApis: ["GET /api/qa/questions", "POST /api/qa/questions", "POST /api/live-translator/translate-text"]
   }
 ];

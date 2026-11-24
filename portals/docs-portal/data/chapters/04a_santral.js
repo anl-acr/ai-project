@@ -154,7 +154,7 @@ Operatöre bağlanmak için lütfen bekleyiniz.`
     troubleshooting: [
       { problem: "Kuyrukta bekleyen çağrı var ama müsait temsilcinin telefonu çalmıyor", cause: "Temsilci molada (Paused), Wrap-Up süresinde veya SIP cihazı kayıtlı değil.", solution: "Canlı Çağrı İzleme veya Temsilci Panelinden temsilcinin 'Müsait' olduğunu ve SIP kaydının yeşil olduğunu doğrulayın." }
     ],
-    relatedPages: ["canli-izleme-paneli", "kuyruk-sla-anket-ve-fcr", "arama-akis-yonetimi"],
+    relatedPages: ["canli-izleme-paneli", "rapor-kuyruk-sla", "arama-akis-yonetimi"],
     relatedApis: ["GET /api/v1/queues", "POST /api/v1/queues", "PUT /api/v1/queues/{queue_id}", "DELETE /api/v1/queues/{queue_id}"]
   },
   {
@@ -340,7 +340,7 @@ https://sirketiniz.nornia.com.tr/api/prov/`
     troubleshooting: [
       { problem: "*8 tuşlayınca 'Çağrı çekilemedi' diyor", cause: "Çalan telefon ile *8 tuşlayan telefon aynı Çağrı Toplama Grubunda değil.", solution: "Her iki dahiliyi de aynı Çağrı Toplama Grubuna ekleyip kaydedin." }
     ],
-    relatedPages: ["kullanicilar", "abone-grubu", "kuyruk-sla-anket-ve-fcr"],
+    relatedPages: ["kullanicilar", "abone-grubu", "rapor-kuyruk-sla"],
     relatedApis: ["GET /api/v1/extensions"]
   },
   {

@@ -58,6 +58,145 @@ export const EDIT_GUIDES_PART1 = {
       }
     ]
   },
+  "kisisel-profil-ve-ust-cubuk": {
+    editFormSections: [
+      {
+        tabTitle: "Üst Çubuk: Global Arama & Sesli Komut Paleti (Ctrl+K / ⌘K)",
+        badge: "Üst Bar • Ctrl+K",
+        screenshot: { src: "/screenshots/tabs/profile/12-global-arama-ctrl-k.jpg", caption: "Üst Çubuk → Global Arama (Ctrl+K / ⌘K) ve Sesli Komut Paleti — Menü, ayar, kullanıcı, dahili ve rapor araması", routeHint: "Üst Bar → Arama Kutusu (Ctrl+K)" },
+        description: "Nornia'nın herhangi bir ekranında tek kısayolla tüm modüllere, ayar alt sekmelerine, 44 rapora ve kullanıcı dahililerine anında ulaşmanızı sağlar.",
+        fields: [
+          { name: "Anlık Arama Kutusu (Ctrl+K) & Mikrofon Sesli Komut", type: "Klavye + Sesli Dikte", defaultVal: "Her Ekranda Aktif", required: false, effect: "Örn. '1001', 'MOS', 'NAT' veya 'WhatsApp' yazıldığında ilgili kullanıcı, rapor veya ayar ekranını doğrudan açar." },
+          { name: "Dil Seçici (TR/EN), Bildirim Zili, Karanlık Mod & Sistem Bilgisi", type: "Üst Bar Sağ Araçları", defaultVal: "TR / Canlı", required: false, effect: "Anlık sistem/kriz bildirimlerini açar, karanlık/aydınlık temayı değiştirir ve yüklü sürüm bilgisini gösterir." }
+        ]
+      },
+      {
+        tabTitle: "Sağ Üst Avatar Menüsü (Hızlı Profil Seçici, Uygulamalar & Güvenli Çıkış)",
+        badge: "Avatar Menüsü",
+        screenshot: { src: "/screenshots/tabs/profile/00-avatar-dropdown.jpg", caption: "Sağ üst Avatar Menüsü — Müsait / Dışarıda / Toplantı / Diğer hızlı profil seçimi ve Profil Ayarları erişimi", routeHint: "Sağ Üst Avatar → Açılır Menü" },
+        description: "Temsilcilerin günlük iş akışında en sık kullandığı durum/profil geçişini ve kişisel ayar penceresini tek tıkla sunar.",
+        fields: [
+          { name: "Aktif Profil Seçimi (Müsait / Dışarıda / Toplantı / Diğer) & 'Profilleri Özelleştir'", type: "4 Hızlı Profil Butonu", defaultVal: "Müsait", required: false, effect: "Seçilen profile ait çalacak cihazları ve yönlendirme kurallarını (örn. Toplantı → Sekreter/Voicemail) anında aktif eder." },
+          { name: "Profil Ayarları / Uygulamalar & İndir / Çıkış Yap", type: "Kişisel Aksiyonlar", defaultVal: "11 Sekme", required: false, effect: "Profil Ayarları 11 sekmeli kişisel yapılandırma penceresini açar; Çıkış Yap hem oturumu hem WebRTC kaydını temizler." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Profil Sekmesi 1/11: Avatar & Tema (42 Hazır Avatar, Özel Fotoğraf, Arayüz Şablonu & Tema)",
+        badge: "Profil Ayarları 1/11",
+        screenshot: { src: "/screenshots/tabs/profile/01-avatar-tema.jpg", caption: "Temsilci Profil Ayarları → Sekme 1: Avatar Koleksiyonu, Özel Fotoğraf Yükleme, Renk Teması ve Arayüz Şablonu", routeHint: "Avatar → Profil Ayarları → Avatar & Tema" },
+        description: "Kullanıcının kendi profil avatarını, panel renk temasını, arayüz görünüm şablonunu (Aurora Glass vb.) ve otomatik karanlık mod saatlerini seçtiği sekmedir.",
+        fields: [
+          { name: "Bilgisayardan Avatar Yükle & 42 Hazır Avatar Koleksiyonu", type: "Sinema / Klasik / Robotik + Özel Görsel", defaultVal: "Çevrimdışı SVG", required: false, effect: "Wallboard, ekip listesi ve sohbet ekranlarında temsilcinin görünen profil simgesini belirler." },
+          { name: "Arayüz Görünüm Şablonu, Renk Paleti & Karanlık/Aydınlık Saat Zamanlayıcısı", type: "Kişisel Tema", defaultVal: "Otomatik Kayıt", required: false, effect: "Diğer kullanıcıları etkilemeden yalnızca kendi ekranınızın görsel stilini ve gece tema geçiş saatini özelleştirir." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Profil Sekmesi 2/11: Başlangıç Ekranı (Girişte Açılacak Ekran & Akıllı Başlangıç Modları)",
+        badge: "Profil Ayarları 2/11",
+        screenshot: { src: "/screenshots/tabs/profile/02-baslangic-ekrani.jpg", caption: "Temsilci Profil Ayarları → Sekme 2: Girişte Açılacak Başlangıç Ekranı, 'Açık Ekranı Seç' ve Çağrı Paneli Açılış Sekmesi", routeHint: "Avatar → Profil Ayarları → Başlangıç Ekranı" },
+        description: "Kullanıcının oturum açtığında doğrudan hangi ekran ve hangi alt sekmeyle başlamak istediğini belirlediği sekmedir.",
+        fields: [
+          { name: "Akıllı Başlangıç Modları & 'Açık Ekranı Seç' / 'Varsayılana Sıfırla'", type: "Role Göre Otomatik / Son Kaldığım Ekrandan Devam Et", defaultVal: "Varsayılan", required: false, effect: "Oturum açıldığında her seferinde aranan ekrana tıklamak yerine doğrudan belirlenen modüle veya son kalınan sayfaya düşer." },
+          { name: "Temsilci Çağrı Paneli Açılış Alt Sekmesi & İzinli Ekran Arama", type: "Pano / Web Telefon / Temsilciler / Sohbet / Masa Telefonum...", defaultVal: "Sıralamadaki İlk Sekme", required: false, effect: "Rol yetkinizin izin verdiği tüm ekran ve raporlar içinde arama yaparak sabit başlangıç sayfası belirlemenizi sağlar." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Profil Sekmesi 3/11: Profiller & Yönlendirme (Kişisel *70 Profilleri, Cihaz Seçimi & 3-Seviye Yönlendirme)",
+        badge: "Profil Ayarları 3/11",
+        screenshot: { src: "/screenshots/tabs/profile/03-profiller-yonlendirme.jpg", caption: "Temsilci Profil Ayarları → Sekme 3: Kişisel Profiller (Müsait / Dışarıda / Toplantı / Diğer), Çalma Süresi ve Çağrı Yönlendirme", routeHint: "Avatar → Profil Ayarları → Profiller & Yönlendirme" },
+        description: "Temsilcinin yöneticiye gerek kalmadan kendi Müsait, Dışarıda, Toplantı ve Diğer profillerinin hangi cihazları çaldıracağını ve çağrıları nereye yönlendireceğini yönettiği sekmedir.",
+        fields: [
+          { name: "Profil Bazlı Cihaz Seçimi (Masa Telefonu / Web / PC / Mobil) & Çalma Süresi (15s–45s)", type: "4 Cihaz + Saniye + *70*X Kodu", defaultVal: "30 sn", required: false, effect: "Örn. 'Dışarıda' profilinde sadece Mobil çalarken açılmazsa 15 saniye sonra cep telefonuna veya asistana yönlendirme yapılabilir." },
+          { name: "Her Zaman / Meşgul Durumda / Zaman Aşımında (Cevapsız) Yönlendirme & GSM", type: "Dahili / Kuyruk / Dış Numara / Sesli Posta", defaultVal: "Anında Asterisk Sync", required: false, effect: "Kaydedildiğinde Asterisk yönlendirme çözücüsü anında yeni kurala göre çalışır." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Profil Sekmesi 4/11: Donanım (Hızlı Ses Testi, Zil Melodisi, AI RNNoise Gürültü Engelleme & Çift Hoparlör)",
+        badge: "Profil Ayarları 4/11",
+        screenshot: { src: "/screenshots/tabs/profile/04-donanim.jpg", caption: "Temsilci Profil Ayarları → Sekme 4: Hızlı Ses Testi, Çağrı Zil Sesi, AI RNNoise Gürültü Engelleme ve Ses Çıkış Aygıtları", routeHint: "Avatar → Profil Ayarları → Donanım" },
+        description: "WebPhone görüşmeleri öncesi mikrofon, kulaklık, ikincil zil hoparlörü ve Yapay Zeka (RNNoise) gürültü engelleme seviyesini test edip kaydettiğiniz sekmedir.",
+        fields: [
+          { name: "Ses Cihazı Hızlı Testi & 'Aygıtları Tara'", type: "Canlı Mikrofon + Hoparlör VU Metre", defaultVal: "Tek Tık Doğrulama", required: false, effect: "Vardiyaya başlamadan önce USB/Bluetooth kulaklığın ve mikrofonun çalıştığını canlı seviye çubuğuyla doğrular." },
+          { name: "Çağrı Zil Sesi + 'Dinle' & İkincil Zil Hoparlörü", type: "Klasik / Modern Melodiler + İkinci Hoparlör", defaultVal: "Klasik Telefon Melodisi", required: false, effect: "Kulaklık kafanızda değilken gelen çağrı zilini bilgisayarın harici hoparlöründen de duyurur." },
+          { name: "Yapay Zeka (AI) Gürültü Engelleme + 'Mikrofonu Test Et (Kendini Dinle)'", type: "Yapay Zeka (RNNoise + Yan Ses Kesici) / Standart / Kapalı", defaultVal: "Yapay Zeka (AI)", required: false, effect: "Kalabalık çağrı merkezinde yan masadaki konuşmaları, klavye seslerini ve klima uğultusunu müşteriye gitmeden temizler." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Profil Sekmesi 5/11: Klavye Kısayolları (Çağrı Cevapla, Sessize Al, Transfer & Müşteri 360° Kısayolları)",
+        badge: "Profil Ayarları 5/11",
+        screenshot: { src: "/screenshots/tabs/profile/05-klavye-kisayollari.jpg", caption: "Temsilci Profil Ayarları → Sekme 5: Kişiselleştirilebilir Klavye Kısayolları Tablosu", routeHint: "Avatar → Profil Ayarları → Klavye Kısayolları" },
+        description: "Yoğun çağrı trafiğinde fareye dokunmadan çağrı cevaplama, kapatma, bekletme, transfer ve Müşteri 360° (`Alt+C`) açma tuş kombinasyonlarını kişiselleştirir.",
+        fields: [
+          { name: "Kısayol Atama & Varsayılana Sıfırla", type: "Alt/Ctrl/Shift + Tuş Kombinasyonu", defaultVal: "Özelleştirilebilir", required: false, effect: "Her temsilci kendi el alışkanlığına göre kısayol tuşlarını tanımlayabilir." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Profil Sekmesi 6/11: Ortak Masa Telefonu (Kişisel Hot-Desking *75 / *76 PIN & Aktif Oturum)",
+        badge: "Profil Ayarları 6/11",
+        screenshot: { src: "/screenshots/tabs/profile/06-ortak-masa-telefonu.jpg", caption: "Temsilci Profil Ayarları → Sekme 6: Kişisel Ortak Masa Telefonu (Hot-Desking *75 / *76) PIN ve Oturum Yönetimi", routeHint: "Avatar → Profil Ayarları → Ortak Masa Telefonu" },
+        description: "Vardiyalı ofislerde temsilcinin kendi Hot-Desking PIN şifresini yönetmesini ve hangi paylaşımlı masa telefonunda oturumunun açık olduğunu görüp uzaktan kapatmasını sağlar.",
+        fields: [
+          { name: "Hot-Desking PIN, *75*Dahili*PIN Giriş & *76 / Tek Tık Uzaktan Çıkış", type: "4–6 Hane PIN + Aktif Masa Durumu", defaultVal: "Gece 00:00 Oto Çıkış", required: false, effect: "Masadan ayrılırken *76 tuşlamayı unutan temsilci kendi profilinden masadaki oturumunu tek tıkla kapatabilir." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Profil Sekmesi 7/11: Güvenlik (Parola Değiştirme, Kişisel 2FA Kurulumu & Güvenilen Cihazlar)",
+        badge: "Profil Ayarları 7/11",
+        screenshot: { src: "/screenshots/tabs/profile/07-guvenlik.jpg", caption: "Temsilci Profil Ayarları → Sekme 7: Kişisel Şifre Değiştirme, 2FA Eşleştirme ve Aktif Güvenilen Cihazlar", routeHint: "Avatar → Profil Ayarları → Güvenlik" },
+        description: "Kullanıcının kendi giriş şifresini değiştirdiği, Google/Microsoft Authenticator 2FA QR eşleştirmesini yaptığı ve güvenilen tarayıcı cihazlarını yönettiği sekmedir.",
+        fields: [
+          { name: "Mevcut / Yeni Parola, Kişisel 2FA QR Eşleştirme & Güvenilen Cihazları İptal Et", type: "Self-Servis Güvenlik", defaultVal: "Audit Loglu", required: false, effect: "Kayıp/ortak bilgisayardaki oturum ve güvenilen cihaz kayıtları tek tıkla iptal edilir." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Profil Sekmesi 8/11: Uygulamalar & İndir (RUNA PC/Mac & Mobil İndirme + QR Sihirli Giriş)",
+        badge: "Profil Ayarları 8/11",
+        screenshot: { src: "/screenshots/tabs/profile/08-uygulamalar-indir.jpg", caption: "Temsilci Profil Ayarları → Sekme 8: RUNA Masaüstü & Mobil Uygulama İndirme, Magic Link ve QR Kod İle Eşleştirme", routeHint: "Avatar → Profil Ayarları → Uygulamalar & İndir" },
+        description: "Temsilcilerin Windows/macOS masaüstü ve iOS/Android mobil uygulamalarını indirip şifre ya da sunucu adresi yazmadan QR kodla anında giriş yapmalarını sağlar.",
+        fields: [
+          { name: "Windows (.exe) / macOS (.dmg) / iOS & Android Kurulum + QR / Sihirli Bağlantı", type: "Tek Kullanımlık Güvenli Token", defaultVal: "Otomatik Sunucu & SIP Ayarı", required: false, effect: "QR okutulduğunda FQDN, oturum ve SIP/WebRTC bilgileri mobil uygulamaya eksiksiz aktarılır." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Profil Sekmesi 9/11: Çağrı Paneli (Sekme Sırası, İkon+Başlık / Sadece İkon & Tam Ekran Tercihi)",
+        badge: "Profil Ayarları 9/11",
+        screenshot: { src: "/screenshots/tabs/profile/09-cagri-paneli.jpg", caption: "Temsilci Profil Ayarları → Sekme 9: Temsilci Çağrı Paneli Sekme Görünüm Stili, Sıralama ve Çalışma Alanı Tercihleri", routeHint: "Avatar → Profil Ayarları → Çağrı Paneli" },
+        description: "Temsilci Çağrı Paneli'ndeki 10 sekmenin görünüm stilini, sıralamasını ve gelen çağrı pop-up davranışlarını özelleştirir.",
+        fields: [
+          { name: "Sekme Görünüm Stili (İkon+Başlık / Sadece İkon), Sekme Sıralaması & Otomatik Odaklama", type: "Kişisel Arayüz Tercihi", defaultVal: "İkon + Başlık", required: false, effect: "Çağrı geldiğinde otomatik Web Telefon sekmesine geçme ve küçük ekranlarda kompakt ikon çubuğu kullanma seçenekleri sunar." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Profil Sekmesi 10/11: Üst Bar Özelleştirme (Topbar Bileşen Görünürlüğü & Hizalama)",
+        badge: "Profil Ayarları 10/11",
+        screenshot: { src: "/screenshots/tabs/profile/10-ust-bar.jpg", caption: "Temsilci Profil Ayarları → Sekme 10: Üst Bar (Topbar) Modül Görünürlüğü, Hızlı Kısayollar ve Düzen Ayarları", routeHint: "Avatar → Profil Ayarları → Üst Bar Özelleştirme" },
+        description: "Üst çubukta hangi araçların (Global Arama, Bildirim Zili, Karanlık Mod, Dil Seçici, Hızlı Çağrı vb.) görüneceğini ve yerleşimini özelleştirir.",
+        fields: [
+          { name: "Üst Bar Bileşen Anahtarları & Sıralama", type: "Açık/Kapalı + Konum", defaultVal: "Kişisel Kayıt", required: false, effect: "Sade bir çalışma ekranı isteyen temsilciler kullanmadıkları üst bar öğelerini gizleyebilir." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Profil Sekmesi 11/11: Canlı İzleme Paneli (Kişisel Wallboard Tercihleri)",
+        badge: "Profil Ayarları 11/11",
+        screenshot: { src: "/screenshots/tabs/profile/11-canli-izleme.jpg", caption: "Temsilci Profil Ayarları → Sekme 11: Kişisel Canlı İzleme Paneli (Wallboard) Görünüm ve Yenileme Tercihleri", routeHint: "Avatar → Profil Ayarları → Canlı İzleme Paneli" },
+        description: "Kullanıcının Canlı İzleme Paneli (Wallboard) ekranındaki kart yoğunluğu, sesli bekleme uyarısı ve varsayılan kuyruk filtresini yönetir.",
+        fields: [
+          { name: "Wallboard Kart Yoğunluğu, Sesli Uyarı & Varsayılan Kuyruk Görünümü", type: "Kişisel Wallboard Ayarı", defaultVal: "Otomatik", required: false, effect: "Süpervizörlerin ve TV ekranlarının kendilerine özel sadeleştirilmiş canlı izleme düzeniyle açılmasını sağlar." }
+        ]
+      }
+    ]
+  },
   "gercek-zamanli-ai-pano": {
     editFormSections: [
       {
@@ -137,6 +276,30 @@ export const EDIT_GUIDES_PART1 = {
         ]
       },
       {
+        level: 3,
+        tabTitle: "Alt Pencere 2.1: Web Telefon Sistem Kontrolü & 6 Adımlı Sorun Giderme Ekranı",
+        badge: "Web Telefon → Sistem Kontrolü",
+        screenshot: { src: "/screenshots/tabs/call-panel/deep/webphone-diagnostics.jpg", caption: "Web Telefon → 'WEB TELEFON HAZIR' durum çipi: İnternet, HTTPS/WebRTC, Mikrofon İzni, Santral WSS/SIP, Web Lock ve Hoparlör 6'lı Sağlık Kontrolü", routeHint: "Temsilci Çağrı Paneli → Web Telefon → Sistem Kontrolü" },
+        description: "Web Telefon üstündeki yeşil/kırmızı durum rozetine tıklandığında açılan ve ses, mikrofon veya kayıt sorunlarını temsilcinin kendi başına 10 saniyede teşhis etmesini sağlayan 6'lı tanılama ekranıdır.",
+        fields: [
+          { name: "Bu Bilgisayarın Cihaz Anahtarı (AIDA-DEV-...) & 'Tekrar Tara'", type: "Benzersiz İstemci ID", defaultVal: "Kopyalanabilir", required: false, effect: "BT destek ekibinin ilgili bilgisayarın WebRTC oturumunu loglarda anında bulmasını sağlar." },
+          { name: "1. İnternet & Ağ • 2. Güvenli Bağlantı (HTTPS/WebRTC) • 3. Mikrofon İzni ('İzni Tekrar Dene')", type: "SORUNSUZ / SORUN VAR", defaultVal: "Canlı Kontrol", required: false, effect: "Mikrofon reddedildiyse adres çubuğundaki kilit ikonundan nasıl açılacağını adım adım gösterir ve tek tıkla yeniden izin ister." },
+          { name: "4. Santral (WSS/SIP) Bağlantısı • 5. Arka Plan & Bellek Tasarrufu Koruması (Web Lock) • 6. Hoparlör & Zil Çıkışı ('Test Sesi Çal')", type: "WSS + Uyku Koruması + Ses Testi", defaultVal: "Aktif", required: false, effect: "Tarayıcının sekmeyi uyutup gelen çağrıları kaçırmasını önleyen Web Lock korumasını doğrular ve hoparlöre canlı test sesi yollar." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Pencere 2.2: Aktif Görüşme Araçları — Canlı Çeviri, Müşteri 360° (Alt+C), AI Not Asistanı & ACW",
+        badge: "Web Telefon → Görüşme Araçları",
+        description: "Görüşme başladığında veya ACW (Çağrı Sonrası İşlem) aşamasına geçildiğinde Web Telefon ekranında açılan ileri seviye temsilci yardımcı araçlarıdır.",
+        fields: [
+          { name: "Canlı Konuşma & Çeviri Akışı (Live Translator)", type: "Anlık Çift Yönlü Çeviri + Sesli Okutma", defaultVal: "Çok Dilli", required: false, effect: "Yabancı dil konuşan müşterinin sözlerini anlık Türkçeye çevirir; temsilcinin yazdığı Türkçe yanıtı müşterinin diline çevirip hatta sesli okutur." },
+          { name: "Müşteri 360° Tüm Kanal Geçmişi (Alt+C) & CRM Screen Pop", type: "Birleşik Zaman Tüneli", defaultVal: "Alt+C", required: false, effect: "Arayan müşterinin geçmiş tüm telefon çağrılarını, WhatsApp/E-Posta yazışmalarını, randevularını ve temsilci notlarını tek yan çekmecede gösterir." },
+          { name: "Yeni Çağrı / 2. Hat Ekle, Kör/Danışmalı Transfer & 3'lü Konferans", type: "Çoklu Hat Yönetimi", defaultVal: "WebRTC", required: false, effect: "Mevcut müşteriyi bekletip 2. dahili/dış hattı arayabilir, önce konuşup sonra bağlayabilir (Danışmalı Transfer) veya 3 kişiyi konferansa alabilirsiniz." },
+          { name: "ACW Notu, Sonuç Kodu & AI Not Asistanı", type: "Otomatik Özet + Hızlı Kaydet & Müsaite Geç", defaultVal: "Kuyruk ACW Süreli", required: false, effect: "Görüşme bitiminde AI'ın çıkardığı özet notu ve önerdiği sonuç kodunu tek tıkla onaylayıp hemen tekrar Müsait duruma dönersiniz." }
+        ]
+      },
+      {
         tabTitle: "Sekme 3: Temsilciler (Ekip Canlı Durum & BLF Transfer Matrisi)",
         badge: "Çağrı Paneli 3/10",
         screenshot: { src: "/screenshots/tabs/call-panel/03-temsilciler.jpg", caption: "Temsilci Çağrı Paneli → Temsilciler — Ekip arkadaşlarının anlık durumu, süresi ve hızlı transfer", routeHint: "Temsilci Çağrı Paneli → Temsilciler" },
@@ -156,12 +319,32 @@ export const EDIT_GUIDES_PART1 = {
         ]
       },
       {
+        level: 3,
+        tabTitle: "Alt Pencere 4.1: Yeni Hızlı Arama Ekle / Düzenle Modalı",
+        badge: "Hızlı Arama → Yeni Ekle (+)",
+        screenshot: { src: "/screenshots/tabs/call-panel/deep/speeddial-add-modal.jpg", caption: "Temsilci Çağrı Paneli → Hızlı Arama → '+' Yeni Hızlı Arama Ekle penceresi", routeHint: "Temsilci Çağrı Paneli → Hızlı Arama → +" },
+        description: "Temsilcinin sık aradığı dahili veya dış telefon numaralarını kısa kod ve açıklamayla kişisel/kurumsal hızlı arama kartlarına eklediği alt penceredir.",
+        fields: [
+          { name: "Kısa Kod, Hedef Numara & Açıklama", type: "Örn. *05 → 0212... → Kargo Şubesi", defaultVal: "Anında Kart Ekler", required: true, effect: "Eklendiği anda Hızlı Arama sekmesinde tek tıkla aranabilir kart olarak görünür." }
+        ]
+      },
+      {
         tabTitle: "Sekme 5: Kayıp Çağrı (Cevapsız Sahiplenme / Claim & Geri Arama)",
         badge: "Çağrı Paneli 5/10",
         screenshot: { src: "/screenshots/tabs/call-panel/05-kayip-cagri.jpg", caption: "Temsilci Çağrı Paneli → Kayıp Çağrı — Cevapsız çağrıları sahiplenme (Claim) ve geri arama", routeHint: "Temsilci Çağrı Paneli → Kayıp Çağrı" },
         description: "Cevapsız kalan çağrıları listeler ve iki temsilcinin aynı müşteriyi tekrar aramasını önleyen 'Üzerime Al (Claim)' kilidi sunar.",
         fields: [
           { name: "Üzerime Al (Claim) & Tek Tıkla Geri Ara", type: "call_panel:tab_missed", defaultVal: "missed_claims", required: false, effect: "Bir temsilci kayıp çağrıyı sahiplendiğinde diğer tüm temsilcilerin ekranında kim tarafından ilgilenildiği görünür." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Pencere 5.1: Yeni Geri Arama Hatırlatıcısı & İleri Tarihli Geri Arama Planla Modalı",
+        badge: "Kayıp Çağrı → Geri Arama Planla",
+        screenshot: { src: "/screenshots/tabs/call-panel/deep/missed-callback-modal.jpg", caption: "Temsilci Çağrı Paneli → Kayıp Çağrı → Yeni Geri Arama Hatırlatıcısı / Planla penceresi", routeHint: "Temsilci Çağrı Paneli → Kayıp Çağrı → Geri Arama Planla" },
+        description: "Müşteri 'beni saat 15:00'te tekrar arayın' dediğinde veya cevapsız bir çağrı için ileri saatli hatırlatma oluşturulmak istendiğinde açılan alt penceredir.",
+        fields: [
+          { name: "Müşteri Telefonu, Müşteri Adı, Planlanan Tarih/Saat & Hatırlatma Notu", type: "Tarih/Saat + Öncelik + Not", defaultVal: "Zamanı Gelince Uyarı", required: true, effect: "Planlanan saat geldiğinde temsilciye görsel/sesli hatırlatma çıkarır ve tek tıkla geri arama başlatır." }
         ]
       },
       {
@@ -183,30 +366,81 @@ export const EDIT_GUIDES_PART1 = {
         ]
       },
       {
+        level: 3,
+        tabTitle: "Alt Pencere 7.1: Kişisel Çağrı Geçmişi Gelişmiş Filtre Paneli & Transkript Popup'ı",
+        badge: "Çağrı Geçmişi → Filtreler",
+        screenshot: { src: "/screenshots/tabs/call-panel/deep/history-filters.jpg", caption: "Temsilci Çağrı Paneli → Çağrı Geçmişi → 'Filtreler' çekmecesi: Yön, Durum, Tarih ve Numara/İsim filtreleri", routeHint: "Temsilci Çağrı Paneli → Çağrı Geçmişi → Filtreler" },
+        description: "Temsilcinin kendi çağrı kayıtlarını yön (Gelen/Giden/Dahili), sonuç (Cevaplanan/Cevapsız) ve tarih aralığına göre süzmesini ve satırdaki transkript penceresini açmasını sağlar.",
+        fields: [
+          { name: "Yön, Sonuç, Tarih Aralığı & Numara/İsim Araması + Tekrar Ara", type: "Hızlı Filtre Paneli", defaultVal: "Bugün / Hafta / Özel", required: false, effect: "Doğrudan dahilinize gelen yanıtsız çağrıları ve belirli bir müşteriyle yapılan geçmiş görüşmeleri saniyeler içinde bulur." }
+        ]
+      },
+      {
         tabTitle: "Sekme 8: Sesli Posta (Görsel Voicemail Oynatıcı)",
         badge: "Çağrı Paneli 8/10",
         screenshot: { src: "/screenshots/tabs/call-panel/08-sesli-posta.jpg", caption: "Temsilci Çağrı Paneli → Sesli Posta — Bırakılan sesli mesajları dinleme ve yönetme", routeHint: "Temsilci Çağrı Paneli → Sesli Posta" },
         description: "*97 aramadan doğrudan tarayıcıdan sesli mesaj dinleme, okundu işaretleme ve geri arama sekmesidir.",
         fields: [
-          { name: "Ses Oynatıcı, Okundu İşareti & Silme", type: "call_panel:tab_voicemail", defaultVal: "WAV Stream", required: false, effect: "Yeni mesaj bırakıldığında kırmızı rozetle temsilciyi uyarır." }
+          { name: "Ses Oynatıcı, .WAV İndirme, Geri Ara, Okundu İşareti & Silme", type: "call_panel:tab_voicemail", defaultVal: "WAV Stream", required: false, effect: "Yeni mesaj bırakıldığında kırmızı rozetle temsilciyi uyarır; mesaj .wav olarak indirilebilir veya tek tıkla geri aranabilir." }
         ]
       },
       {
-        tabTitle: "Sekme 9: Sohbet (Omnichannel / İç Mesajlaşma)",
+        tabTitle: "Sekme 9: Sohbet (Omnichannel Müşteri & Ekip İçi Mesajlaşma)",
         badge: "Çağrı Paneli 9/10",
-        screenshot: { src: "/screenshots/tabs/call-panel/09-sohbet.jpg", caption: "Temsilci Çağrı Paneli → Sohbet — Temsilciye atanmış mesajlaşma ve sohbet oturumları", routeHint: "Temsilci Çağrı Paneli → Sohbet" },
-        description: "Temsilcinin çağrı panelinden ayrılmadan yazılı mesajlara ve ekip içi sohbetlere yanıt vermesini sağlar.",
+        screenshot: { src: "/screenshots/tabs/call-panel/09-sohbet.jpg", caption: "Temsilci Çağrı Paneli → Sohbet — Temsilciye atanmış müşteri ve ekip içi sohbet oturumları", routeHint: "Temsilci Çağrı Paneli → Sohbet" },
+        description: "Temsilcinin çağrı panelinden ayrılmadan hem atanmış müşteri (WhatsApp/E-Posta/Telegram) hem ekip içi yazışmaları yönettiği sekmedir.",
         fields: [
-          { name: "Canlı Sohbet Akışı", type: "call_panel:tab_chat", defaultVal: "Gerçek Zamanlı", required: false, effect: "Hızlı cevap şablonlarıyla saniyeler içinde yazılı yanıt gönderilir." }
+          { name: "AI ↔ Temsilci Devral / Devret, Yeni İç Yazışma & İletildi/Okundu Tikleri", type: "call_panel:tab_chat", defaultVal: "Gerçek Zamanlı", required: false, effect: "Müşteri sohbetini AI'dan devralabilir, işiniz bitince AI'a geri devredebilir ve ekip arkadaşlarıyla iç sohbet başlatabilirsiniz." }
         ]
       },
       {
-        tabTitle: "Sekme 10: Masa Telefonum (BLF / Hızlı Arama / Softkey Kişisel Yönetimi)",
+        tabTitle: "Sekme 10: Masa Telefonum — Canlı Görsel Tasarımcı (Fiziksel IP Telefon Simülatörü)",
         badge: "Çağrı Paneli 10/10",
-        screenshot: { src: "/screenshots/tabs/call-panel/10-masa-telefonum.jpg", caption: "Temsilci Çağrı Paneli → Masa Telefonum — Fiziksel IP telefon tuşlarının kişisel düzenlenmesi", routeHint: "Temsilci Çağrı Paneli → Masa Telefonum" },
-        description: "Temsilcinin kendi masasında duran Yealink/Fanvil/Grandstream/Cisco IP telefonun BLF ve hızlı arama tuşlarını BT ekibine ihtiyaç duymadan düzenlemesini sağlar.",
+        screenshot: { src: "/screenshots/tabs/call-panel/deep/deskphone-visual-simulator.jpg", caption: "Temsilci Çağrı Paneli → Masa Telefonum: Canlı Görsel IP Telefon Tasarımcısı (Yealink T42S Monokrom LCD, T1–T6 Tuşları ve Rehberden Tek Tıkla BLF)", routeHint: "Temsilci Çağrı Paneli → Masa Telefonum → Tuşlar" },
+        description: "Temsilcinin kendi masasında duran Yealink/Fanvil/Grandstream/Cisco IP telefonunu birebir görsel kasa ve LCD ekran üzerinde tasarlayıp tek tıkla telefona gönderdiği (Check-Sync / Reboot) stüdyodur.",
         fields: [
-          { name: "BLF / Line / Speed Dial / Softkey Atama", type: "call_panel:tab_deskphone", defaultVal: "Oto Provizyon Sync", required: false, effect: "Kaydedildiğinde SIP NOTIFY (check-sync) ile fiziksel masa telefonuna otomatik uygulanır." }
+          { name: "Üst Aksiyon Çubuğu (Sıfırla • Kod Önizle • Kaydet • Hızlı Uygula • Telefona Gönder & Yeniden Başlat)", type: "Canlı Provizyon Kontrolü", defaultVal: "SIP NOTIFY", required: false, effect: "'Hızlı Uygula' telefonu kapatmadan Check-Sync gönderir; 'Telefona Gönder & Yeniden Başlat' tam provizyon uygular." },
+          { name: "Görsel Telefon Tuşları (T1 Kilitli Ana Hat + T2..T24 + Sidecar Genişleme Modülü) & 'Rehberden Tek Tıkla Ata'", type: "BLF / Speed Dial / Voicemail / DND / Transfer / Pickup", defaultVal: "Otomatik İsimli", required: false, effect: "Telefon gövdesindeki herhangi bir tuşa tıklayıp sağdaki rehber listesinden ekip arkadaşını seçtiğinizde BLF ve LCD etiketi anında ekranda önizlenir." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Pencere 10.1: Masa Telefonum → Ses & Zil Sekmesi (Zil Melodisi Dinleme, Kodek & İnterkom)",
+        badge: "Masa Telefonum → Ses & Zil",
+        screenshot: { src: "/screenshots/tabs/call-panel/deep/deskphone-tab-audio.jpg", caption: "Masa Telefonum → Ses & Zil sekmesi: Fiziksel telefon zil melodisi seçimi, ön dinleme ve ses ayarları", routeHint: "Temsilci Çağrı Paneli → Masa Telefonum → Ses & Zil" },
+        description: "Fiziksel masa telefonunun çalma melodisini (Ring1..Ring8), tarayıcıdan ön dinleme ile seçip ses/kodek tercihlerini özelleştirdiğiniz alt sekmedir.",
+        fields: [
+          { name: "Zil Melodisi Seçici + 'Melodiyi Dinle', Otomatik Cevap (İnterkom) & Ses Tercihleri", type: "Donanım Ses Profili", defaultVal: "Ring1.wav", required: false, effect: "Kaydedilip telefona gönderildiğinde fiziksel IP telefonun zil sesi anında güncellenir." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Pencere 10.2: Masa Telefonum → Ekran Sekmesi (LCD Dil, Saat Biçimi, Kontrast & Bekleme Ekranı)",
+        badge: "Masa Telefonum → Ekran",
+        screenshot: { src: "/screenshots/tabs/call-panel/deep/deskphone-tab-screen.jpg", caption: "Masa Telefonum → Ekran sekmesi: Fiziksel telefon LCD ekran dili, saat dilimi, ekran koruyucu ve etiket ayarları", routeHint: "Temsilci Çağrı Paneli → Masa Telefonum → Ekran" },
+        description: "Fiziksel IP telefonun LCD ekranında görünecek dil, saat formatı, arka ışık zaman aşımı ve kullanıcı karşılama etiketini yönetir.",
+        fields: [
+          { name: "Ekran Dili, Saat Formatı (24s/12s), Arka Işık & Bekleme Etiketi", type: "LCD Görünüm Ayarları", defaultVal: "Türkçe / 24 Saat", required: false, effect: "Yapılan değişiklikler soldaki canlı LCD telefon simülatöründe anında önizlenir." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Pencere 10.3: Masa Telefonum → Provizyon Sekmesi (LAN / WAN URL & Son Provizyon Durumu)",
+        badge: "Masa Telefonum → Provizyon",
+        screenshot: { src: "/screenshots/tabs/call-panel/deep/deskphone-tab-provision.jpg", caption: "Masa Telefonum → Provizyon sekmesi: LAN/WAN Auto-Provision URL kopyalama ve cihaz bağlantı detayları", routeHint: "Temsilci Çağrı Paneli → Masa Telefonum → Provizyon" },
+        description: "Telefonun MAC adresi, SIP Endpoint kimliği, son provizyon zamanı ve ofis içi (LAN) / uzak şube (WAN) otomatik kurulum bağlantılarını sunar.",
+        fields: [
+          { name: "LAN URL Kopyala / WAN URL Kopyala & Son Provizyon Zamanı", type: "Zero-Touch Provizyon", defaultVal: "HTTP/HTTPS", required: false, effect: "Telefonun web arayüzündeki Auto Provision Server URL alanına yapıştırılarak sıfırdan kurulum yapılmasını sağlar." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Pencere 10.4: Masa Telefonum → Canlı Oto-Provizyon Kodu (.CFG / .XML) Önizle & İndir Modalı",
+        badge: "Masa Telefonum → Kod Önizle",
+        screenshot: { src: "/screenshots/tabs/call-panel/deep/deskphone-cfg-preview.jpg", caption: "Masa Telefonum → 'Kod Önizle' Modalı: Telefon için üretilen canlı .cfg/.xml dosyasını inceleme, kopyalama ve indirme", routeHint: "Temsilci Çağrı Paneli → Masa Telefonum → Kod Önizle" },
+        description: "Üst çubuktaki 'Kod Önizle' butonuna tıklandığında santralin bu masa telefonu için anlık ürettiği ham `.cfg` veya `.xml` yapılandırma dosyasını gösteren teknik inceleme penceresidir.",
+        fields: [
+          { name: "Canlı Üretilen .CFG/.XML İçeriği, 'Kopyala' & 'İndir' Butonları", type: "Yealink / Fanvil / Grandstream / Cisco / Snom", defaultVal: "Anlık Render", required: false, effect: "SIP hesap bloğu, NAT keep-alive, DTMF, ses kodek öncelikleri ve tüm BLF/DSS tuş satırlarını telefona göndermeden önce doğrulamanızı sağlar." }
         ]
       }
     ]

@@ -144,7 +144,7 @@ export const CHAPTERS_CAGRI_YONLENDIRME = [
     troubleshooting: [
       { problem: "Kampanyayı başlattım ama hiç arama çıkmıyor", cause: "Şu anki saat kampanya zaman penceresi dışında, aktif SIP Trunk yok veya listede 'Bekliyor (pending)' kayıt kalmamış.", solution: "Kampanya zaman penceresini ve yüklenen numara listesinde bekleyen kayıt sayısını kontrol edin." }
     ],
-    relatedPages: ["ai-temsilcileri", "dis-hat-tanimi", "omnichannel-voip-ve-diger-raporlar"],
+    relatedPages: ["ai-temsilcileri", "dis-hat-tanimi", "rapor-voip-kalite-mos"],
     relatedApis: ["GET /api/settings/dialer/campaigns", "POST /api/settings/dialer/campaigns", "POST /api/settings/dialer/campaigns/{campaign_id}/upload-list", "POST /api/settings/dialer/campaigns/{campaign_id}/control"]
   },
   {
@@ -183,7 +183,7 @@ export const CHAPTERS_CAGRI_YONLENDIRME = [
     troubleshooting: [
       { problem: "AI görüşmede randevu aldığını söyledi ama takvimde görünmüyor", cause: "AI senaryosunda randevu oluşturma aracı/talimatı aktif değil veya tenant eşleşmesi farklı.", solution: "AI Temsilcisi ayarlarında randevu aracının etkin olduğunu ve doğru aktif tenant'a baktığınızı doğrulayın." }
     ],
-    relatedPages: ["ai-temsilcileri", "ai-analitik-duygu-niyet-qa", "ortak-gelen-kutusu"],
+    relatedPages: ["ai-temsilcileri", "rapor-duygu-analizi", "ortak-gelen-kutusu"],
     relatedApis: ["GET /api/v1/appointments", "POST /api/v1/appointments"]
   }
 ];

@@ -84,7 +84,7 @@ Webhook Fields: messages`
     troubleshooting: [
       { problem: "SMB/NAS bağlantısı testte hata veriyor", cause: "Paylaşım klasöründe yazma izni yok veya firewall 445/TCP portunu engelliyor.", solution: "NAS kullanıcısının hedef paylaşıma Read+Write yetkisi olduğunu ve santralden 445/TCP erişilebildiğini doğrulayın." }
     ],
-    relatedPages: ["ses-kayitlari-ve-transkript", "sistem-panosu-ve-saglik", "ai-konfigurasyon-asistani"],
+    relatedPages: ["rapor-ses-kayitlari", "sistem-panosu-ve-saglik", "ai-konfigurasyon-asistani"],
     relatedApis: ["GET /api/version", "GET /api/system/overview"]
   },
   {
@@ -209,7 +209,7 @@ Webhook Fields: messages`
     troubleshooting: [
       { problem: "Canlı yakalamayı başlattım ama hiç paket görünmüyor", cause: "O esnada yeni SIP trafiği oluşmamış veya filtre kutusunda eski bir numara yazılı kalmış.", solution: "Arama filtresini temizleyin ve test amaçlı bir dahili veya dış arama gerçekleştirin." }
     ],
-    relatedPages: ["dis-hat-tanimi", "santral-entegrasyonu-ve-nat", "omnichannel-voip-ve-diger-raporlar"],
+    relatedPages: ["dis-hat-tanimi", "santral-entegrasyonu-ve-nat", "rapor-voip-kalite-mos"],
     relatedApis: ["GET /api/sip-debugger/calls", "GET /api/sip-debugger/calls/{call_id}/pcap", "POST /api/sip-debugger/diagnostics/ping", "POST /api/sip-debugger/diagnostics/traceroute"]
   },
   {

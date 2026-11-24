@@ -44,6 +44,36 @@ export const EDIT_GUIDES_PART5 = {
         ]
       },
       {
+        level: 3,
+        tabTitle: "Alt Sekme 1.1: Statik Rotalar (SIP / MPLS & Operatör SBC Yönlendirme Tablosu)",
+        badge: "Sunucu Ağ → Statik Rotalar",
+        screenshot: { src: "/screenshots/tabs/toggled/net-static-routes.jpg", caption: "Sunucu Ağ (Network) Yönetimi → Sekme 2: Statik Rotalar (SIP / MPLS) — Özel operatör SBC ve şube MPLS ağ geçidi tanımları", routeHint: "Sistem Ayarları → Sunucu Ağ Yönetimi → Statik Rotalar" },
+        description: "Operatör SIP SBC bloklarına, MPLS şube alt ağlarına veya ikinci ağ kartı üzerinden özel VLAN'lara kalıcı Linux Netplan statik rotası tanımlar.",
+        fields: [
+          { name: "Hedef Ağ (CIDR), Ağ Geçidi (Via), Çıkış Arayüzü (NIC), Metrik & Kalıcı Netplan Yazımı", type: "IPv4/CIDR + Gateway", defaultVal: "Reboot Kalıcı", required: true, effect: "Sunucu yeniden başlasa bile operatör SBC ve MPLS ses rotalarının kaybolmadan ayakta kalmasını sağlar." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Sekme 1.2: DNS Sunucuları, Sunucu Hostname & /etc/hosts Yönetimi",
+        badge: "Sunucu Ağ → DNS & Hosts",
+        screenshot: { src: "/screenshots/tabs/toggled/net-dns-hosts.jpg", caption: "Sunucu Ağ (Network) Yönetimi → Sekme 3: DNS Sunucuları, Hostname ve /etc/hosts Yerel Alan Adı Eşleştirmeleri", routeHint: "Sistem Ayarları → Sunucu Ağ Yönetimi → DNS & Hosts" },
+        description: "Birincil/ikincil DNS sunucularını, santral makine adını (hostname) ve kurum içi DNS'siz ERP/SBC sunucuları için `/etc/hosts` kayıtlarını yönetir.",
+        fields: [
+          { name: "DNS Sunucuları, Hostname & /etc/hosts Satırları", type: "8.8.8.8 / 1.1.1.1 + Yerel IP ↔ FQDN", defaultVal: "Anında Uygulanır", required: false, effect: "Operatör FQDN veya yerel Active Directory / CRM sunucu adlarının hatasız çözülmesini sağlar." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Sekme 1.3: Ağ Yedekleri & Konsol / SSH Acil Kurtarma Scripti",
+        badge: "Sunucu Ağ → Yedekler & Kurtarma",
+        screenshot: { src: "/screenshots/tabs/toggled/net-backups.jpg", caption: "Sunucu Ağ (Network) Yönetimi → Sekme 4: Otomatik Netplan Yedekleri ve Konsol/SSH Acil Kurtarma Scripti", routeHint: "Sistem Ayarları → Sunucu Ağ Yönetimi → Yedekler" },
+        description: "Her ağ değişikliği öncesi alınan Netplan YAML snapshot'larını tek tıkla geri yükleme ve fiziksel konsoldan tek satırda ağ kurtarma komutunu sunar.",
+        fields: [
+          { name: "Netplan Snapshot Geçmişi & Tek Tık Geri Yükle / Acil Kurtarma Komutu", type: "YAML Yedek + CLI Kurtarma", defaultVal: "60 sn Rollback Korumalı", required: false, effect: "Yanlış VLAN/IP yapılandırmasında web erişimi kesilse dahi hem 60 sn otomatik geri alma hem fiziksel konsol kurtarma scripti ile sıfır kesinti garantisi verir." }
+        ]
+      },
+      {
         tabTitle: "Alt Ekran 2: Nornia Connect (Sıfır-Port Bulut Köprüsü & WireGuard SIP Edge)",
         badge: "Santral & Ağ 3/9",
         screenshot: { src: "/screenshots/tabs/settings/03-nornia-connect.jpg", caption: "Sistem Ayarları → Nornia Connect — Kilitli FQDN, HTTPS/WSS tüneli, WireGuard SIP Edge ve TURN rölesi", routeHint: "Sistem Ayarları → Nornia Connect" },
@@ -95,6 +125,16 @@ export const EDIT_GUIDES_PART5 = {
         description: "Yealink, Fanvil, Grandstream, Cisco ve Snom telefonların kurumsal konfigürasyon şablonlarını düzenler.",
         fields: [
           { name: "Şablon Adı, Marka, Model & Konfigürasyon İçeriği", type: ".CFG / .XML + {{degisken}}", defaultVal: "Hazır Şablonlar", required: false, effect: "Dil, saat, NTP, zil sesi, şirket logosu ve BLF kurallarını model bazında özelleştirir." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Pencere 2.1: Özel Otoprovizyon Şablonu Kopyala / Düzenle Editörü (.CFG / .XML)",
+        badge: "Şablonlar → Kopyala / Düzenle",
+        screenshot: { src: "/screenshots/tabs/toggled/autoprov-template-edit.jpg", caption: "Otoprovizyon Şablonları → Şablon Kopyala / Özel Şablon Oluştur: Marka, model, değişken yer tutucuları ve ham .CFG/.XML kod editörü", routeHint: "Sistem Ayarları → Otoprovizyon Şablonları → Kopyala / Düzenle" },
+        description: "Yerleşik sistem şablonlarını bozmadan kopyalayıp kendi şirketinize özel logo, VLAN, LDAP rehber veya zil sesi satırları eklediğiniz şablon editörüdür.",
+        fields: [
+          { name: "Şablon Adı, Marka, Model & Ham .CFG/.XML İçeriği", type: "{{sip_user}}, {{sip_pass}}, {{sip_host}}, {{blf_block}}", defaultVal: "Sistem Şablonundan Klon", required: true, effect: "Kaydedilen özel şablon Oto Provizyon cihaz atama penceresinde seçilebilir hale gelir." }
         ]
       },
       {
@@ -304,6 +344,36 @@ export const EDIT_GUIDES_PART5 = {
         ]
       },
       {
+        level: 3,
+        tabTitle: "Alt Sekme 1.2: Telegram Bot Kanalı Yapılandırması (BotFather Token & Webhook)",
+        badge: "Kanallar → Telegram Bot",
+        screenshot: { src: "/screenshots/tabs/toggled/channels-telegram.jpg", caption: "Kanal Entegrasyonları → Telegram Bot sekmesi: Bot Token, otomatik Webhook kaydı ve yapay zeka yanıt ayarları", routeHint: "Sistem Ayarları → Kanal Entegrasyonları → Telegram Bot" },
+        description: "Telegram `@BotFather` üzerinden oluşturulan kurumsal botunuzu tek tıkla Ortak Gelen Kutusu ve AI Asistana bağlar.",
+        fields: [
+          { name: "Telegram Bot Token & Webhook Otomatik Kurulumu", type: "POST /api/webhooks/telegram", defaultVal: "HTTPS Webhook", required: false, effect: "Müşterilerin Telegram botunuza yazdığı mesajlar anında Ortak Gelen Kutusu'na düşer ve AI/Temsilci tarafından yanıtlanır." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Sekme 1.3: Instagram DM & Facebook Messenger (Meta Direct) Entegrasyonu",
+        badge: "Kanallar → Instagram & FB",
+        screenshot: { src: "/screenshots/tabs/toggled/channels-meta.jpg", caption: "Kanal Entegrasyonları → Instagram & FB sekmesi: Meta Sayfa Erişim Jetonu, Webhook Callback URL ve Verify Token", routeHint: "Sistem Ayarları → Kanal Entegrasyonları → Instagram & FB" },
+        description: "Kurumsal Instagram DM ve Facebook Messenger mesajlarını Meta Graph API v18.0 üzerinden doğrudan Nornia Ortak Gelen Kutusu'na aktarır.",
+        fields: [
+          { name: "Page Access Token, Instagram Business ID & Meta Webhook URL/Verify Token", type: "/api/webhooks/meta", defaultVal: "Graph API v18.0", required: false, effect: "Sosyal medya DM'lerini 7/24 AI Asistanla karşılayıp satış/destek temsilcilerine devretmenizi sağlar." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Sekme 1.4: Kurumsal E-Posta Kanalı (SMTP Gönderim & 30 sn IMAP Gelen Kutusu Dinleyici)",
+        badge: "Kanallar → E-Posta (SMTP/IMAP)",
+        screenshot: { src: "/screenshots/tabs/toggled/channels-email.jpg", caption: "Kanal Entegrasyonları → E-Posta (SMTP/IMAP) sekmesi: Giden SMTP, Gelen IMAP sunucu ayarları ve otomatik e-posta yanıtlama", routeHint: "Sistem Ayarları → Kanal Entegrasyonları → E-Posta" },
+        description: "info@ veya destek@ şirket e-posta kutularını 30 saniyelik arka plan IMAP dinleyicisi ile Ortak Gelen Kutusu'na bağlar ve SMTP üzerinden yanıt gönderir.",
+        fields: [
+          { name: "IMAP Sunucu/Port/SSL (Gelen), SMTP Sunucu/Port/TLS (Giden) & E-Posta Kimlik Bilgileri", type: "IMAP 993 + SMTP 587/465", defaultVal: "30 sn Otomatik Tarama", required: false, effect: "Okunmamış müşteri e-postalarını otomatik sohbet oturumuna çevirir; AI taslak/otomatik yanıt veya temsilci cevabı doğrudan müşteriye e-posta olarak iletilir." }
+        ]
+      },
+      {
         tabTitle: "Alt Ekran 2: Hazır CRM Entegrasyon Marketi (Zoho, HubSpot, Salesforce, Bitrix24)",
         badge: "Kanallar 2/6",
         screenshot: { src: "/screenshots/tabs/settings/26-hazir-crm.jpg", caption: "Sistem Ayarları → Hazır CRM Entegrasyonları — Tek tık CRM bağlayıcıları ve bağlantı testi", routeHint: "Sistem Ayarları → Hazır CRM Entegrasyonları" },
@@ -424,6 +494,17 @@ export const EDIT_GUIDES_PART5 = {
         ]
       },
       {
+        level: 3,
+        tabTitle: "Alt Görünüm 4.1: Harici Depolama (NAS / SMB / SFTP) & Dinamik Ses Kaydı Aktif Görünümü",
+        badge: "Kayıt & Saklama → NAS & Dinamik Açık",
+        screenshot: { src: "/screenshots/tabs/toggled/storage-external-smb-expanded.jpg", caption: "Kayıt & Saklama Sistemi → Harici Depolama (NAS/SMB/SFTP) ve Dinamik Ses Kaydı (Kelime Tetiklemeli) aktif görünümü", routeHint: "Sistem Ayarları → Kayıt & Saklama Sistemi (Aktif)" },
+        description: "Harici NAS/File Server aktarımı ve kelime tetiklemeli Dinamik Ses Kaydı anahtarları açıldığında görünen canlı çift disk kapasite paneli ve saklama modu seçenekleridir.",
+        fields: [
+          { name: "Canlı Çift Disk İzleme (Yerel SSD + Harici NAS/File Server) & 'Bekleyen Kayıtları Şimdi Aktar'", type: "Bağlı & Yazılabilir Durumu + Kalan Saat Tahmini", defaultVal: "Gerçek Zamanlı", required: false, effect: "Hem yerel SSD hem harici NAS doluluk oranını ve kalan tahmini kayıt saatini canlı gösterir." },
+          { name: "Harici Kayıt Saklama Çalışma Modu (Taşı / Move vs. Çift Yedekli / Mirror)", type: "NFS Mount / Windows SMB / SFTP", defaultVal: "Taşı veya Mirror", required: false, effect: "'Taşı' yerel diski anında boşaltarak yalnızca NAS'ta saklar; 'Çift Yedekli' hem yerel sunucuda hem harici sunucuda kopya tutar." }
+        ]
+      },
+      {
         tabTitle: "Alt Ekran 5: Sistem Versiyonu, Güncelleme Merkezi & Değişiklik Günlüğü",
         badge: "Bakım & Sistem 5/5",
         screenshot: { src: "/screenshots/tabs/settings/35-sistem-versiyonu.jpg", caption: "Sistem Ayarları → Sistem Versiyonu & Günlük — Yüklü sürüm, kopyala butonu ve tüm sürüm notları", routeHint: "Sistem Ayarları → Sistem Versiyonu & Günlük" },
@@ -498,6 +579,36 @@ export const EDIT_GUIDES_PART5 = {
         description: "Şirket merkez ofisi, şube sabit IP'leri, SIP operatör SBC'leri ve ERP sunucularını Fail2Ban yanlış engellemesine karşı kalıcı olarak koruma altına alan alt penceredir.",
         fields: [
           { name: "Güvenli IP Adresi veya CIDR Bloğu & Açıklama", type: "IPv4 / CIDR + Not (Örn. Merkez Ofis Statik IP / Operatör SBC)", defaultVal: "ignoreip + UFW Allow", required: true, effect: "Fail2Ban jail yapılandırmasındaki ignoreip listesine ve UFW izin kurallarına işlenerek yanlış şifre denemelerinde dahi ofisinizin kilitlenmesini %100 önler." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Sekme 2: Güvenli IP / Blok Listesi (Fail2Ban IgnoreIP & UFW Allow Tablosu)",
+        badge: "Güvenlik Kalkanı 2/4",
+        screenshot: { src: "/screenshots/tabs/toggled/security-tab-whitelist.jpg", caption: "Güvenlik Kalkanı → Sekme 2: Güvenli IP / Blok Listesi (Fail2Ban ignoreip & UFW Allow) yönetim tablosu", routeHint: "Güvenlik Kalkanı → Güvenli IP / Blok Listesi" },
+        description: "Tüm beyaz listeye alınmış ofis, şube ve SIP operatör IP bloklarını arama, düzenleme ve tek tıkla yönetici bağlantı IP'sini güvenli listeye ekleme ekranıdır.",
+        fields: [
+          { name: "Güvenli IP Arama, Düzenleme, Silme & 'Mevcut Yönetici IP'mi Ekle'", type: "IPv4 / CIDR Tablosu", defaultVal: "Fail2Ban + UFW Senkron", required: false, effect: "Listelenen her IP veya CIDR bloğu tüm güvenlik engellemelerinden muaf tutulur." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Sekme 3: Bölgesel Erişim (GeoIP — Ülke Bazlı SIP & Web Güvenlik Duvarı)",
+        badge: "Güvenlik Kalkanı 3/4",
+        screenshot: { src: "/screenshots/tabs/toggled/security-tab-geoip.jpg", caption: "Güvenlik Kalkanı → Sekme 3: Bölgesel Erişim (GeoIP) — İzin verilen ülkeler ve yabancı ülke SIP/Web engelleme", routeHint: "Güvenlik Kalkanı → Bölgesel Erişim (GeoIP)" },
+        description: "Yalnızca hizmet verdiğiniz ülkelerden (örn. sadece Türkiye `TR` veya TR+DE+GB) gelen SIP kayıt ve web bağlantılarına izin vererek yurt dışı kaynaklı otomatik tarama saldırılarını %99 oranında keser.",
+        fields: [
+          { name: "GeoIP Kalkanı Aktifliği & İzin Verilen Ülkeler Listesi", type: "ISO Ülke Kodları (TR, DE, US, GB...)", defaultVal: "TR", required: false, effect: "Seçili ülkeler dışındaki IP'lerden gelen SIP REGISTER/INVITE saldırıları daha Asterisk'e ulaşmadan reddedilir." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Sekme 4: Anti-DDoS / Hız & Çağrı Sınırlandırması (Toll-Fraud & Brute-Force Eşikleri)",
+        badge: "Güvenlik Kalkanı 4/4",
+        screenshot: { src: "/screenshots/tabs/toggled/security-tab-antiddos.jpg", caption: "Güvenlik Kalkanı → Sekme 4: Anti-DDoS / Hız & Çağrı Sınırlandırması — Eşzamanlı dış arama limiti, SIP/API hız eşikleri ve otomatik karantina", routeHint: "Güvenlik Kalkanı → Anti-DDoS / Hız & Çağrı Sınırlandırması" },
+        description: "Sistem genelindeki SIP paket hız limitlerini, abone başı varsayılan eşzamanlı dış arama sınırını ve otomatik Toll-Fraud karantina kurallarını yapılandırır.",
+        fields: [
+          { name: "SIP Hız Limiti (paket/sn), Hatalı Deneme Eşiği (Fail2Ban) & Varsayılan Eşzamanlı Dış Arama Limiti", type: "Anti-DDoS + Toll-Fraud Kalkanı", defaultVal: "5 Hata / 2 Eşzamanlı", required: false, effect: "Ele geçirilen bir dahili hesabın gece saatlerinde yurt dışı pahalı numaralara yüzlerce eşzamanlı arama açarak fatura şişirmesini anında karantinaya alarak durdurur." }
         ]
       }
     ]

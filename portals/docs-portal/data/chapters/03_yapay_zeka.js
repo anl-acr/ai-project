@@ -152,7 +152,7 @@ export const CHAPTERS_YAPAY_ZEKA = [
     troubleshooting: [
       { problem: "Web sitesi taraması boş içerik döndürüyor", cause: "Hedef site tamamen istemci taraflı (SPA/JavaScript) render ediliyor veya bot koruması (Cloudflare) arkasında.", solution: "İlgili sayfaların metnini PDF olarak kaydedip yükleyin veya Manuel SSS kartı olarak ekleyin." }
     ],
-    relatedPages: ["ai-temsilcileri", "ortak-gelen-kutusu", "ai-analitik-duygu-niyet-qa"],
+    relatedPages: ["ai-temsilcileri", "ortak-gelen-kutusu", "rapor-duygu-analizi"],
     relatedApis: ["GET /api/rag/sources", "POST /api/rag/crawl", "POST /api/rag/manual", "GET /api/rag/search"]
   },
   {
@@ -191,7 +191,7 @@ export const CHAPTERS_YAPAY_ZEKA = [
     troubleshooting: [
       { problem: "Eklediğim yeni kural aktif görüşmede tetiklenmiyor", cause: "Kural durumu 'Pasif' bırakılmış veya kaydedildikten sonra yeni çağrı beklenmemiş olabilir.", solution: "Kuralın sağındaki aktiflik anahtarının açık olduğunu doğrulayın; kurallar yeni başlayan çağrılarda anında devreye girer." }
     ],
-    relatedPages: ["ai-temsilcileri", "ai-analitik-duygu-niyet-qa", "canli-cagri-izleme"],
+    relatedPages: ["ai-temsilcileri", "rapor-duygu-analizi", "canli-cagri-izleme"],
     relatedApis: ["GET /api/v1/ai-agents", "GET /api/workspace/crisis-alerts"]
   }
 ];

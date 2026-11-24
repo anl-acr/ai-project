@@ -207,7 +207,7 @@ export default function DocsShell({ activeChapter = null, children }) {
             type="button"
             onClick={handleDownloadFullPdf}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-extrabold shadow-sm cursor-pointer transition"
-            title="Tüm 50 menüyü tek kurumsal PDF kitap olarak indir"
+            title={`Tüm ${MANUAL_CHAPTERS.length} menü ve raporu tek kurumsal PDF kitap olarak indir`}
           >
             <FileDown size={14} />
             <span className="hidden sm:inline">Tam Kılavuz PDF</span>
@@ -465,7 +465,7 @@ export default function DocsShell({ activeChapter = null, children }) {
                 autoFocus
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="50 kılavuz sayfasında ara (örn. RONA, *11, Netplan, VLAN, BLF, WhatsApp, MOS, KVKK)..."
+                placeholder={`${MANUAL_CHAPTERS.length} kılavuz sayfasında ara (örn. RONA, *11, Netplan, VLAN, BLF, WhatsApp, MOS, Profil, KVKK)...`}
                 className="flex-1 bg-transparent outline-none text-sm"
               />
               <button

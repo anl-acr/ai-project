@@ -12,7 +12,7 @@ export default function DocsIndexPage() {
         <title>Nornia Doküman — Detaylı Kurulum &amp; Kullanım Kılavuzu ({MANUAL_META.version})</title>
         <meta
           name="description"
-          content="Nornia Enterprise AI PBX 50 sayfalık menü bazlı kapsamlı kullanım kılavuzu: canlı ekran görüntüleri, tüm parametre tabloları, yapılandırma örnekleri ve modül bazlı PDF indirme."
+          content="Nornia Enterprise AI PBX 88 sayfalık menü ve rapor bazlı kapsamlı kullanım kılavuzu: 249 canlı ekran görüntüsü, tüm parametre/alt pencere tabloları, yapılandırma örnekleri ve modül bazlı PDF indirme."
         />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -58,7 +58,7 @@ export default function DocsIndexPage() {
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-500/30 hover:bg-indigo-500/45 border border-white/20 text-white text-xs font-extrabold transition"
             >
               <FileDown size={14} />
-              <span>Tüm 50 Sayfayı Tek PDF İndir</span>
+              <span>Tüm {MANUAL_CHAPTERS.length} Sayfayı Tek PDF İndir</span>
             </a>
             <a
               href="https://api.nornia.com.tr"

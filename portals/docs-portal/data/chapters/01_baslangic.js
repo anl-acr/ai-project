@@ -143,7 +143,57 @@ curl -s http://127.0.0.1:8000/api/settings/ras/status | python3 -m json.tool`
       { problem: "WebPhone bağlı görünüyor ama çağrıda tek yönlü ses var", cause: "Şirket güvenlik duvarı UDP RTP veya TURN portlarını engelliyor.", solution: "Sistem Ayarları → NAT ve Dış IP bölümünde Dış IP'yi doğrulayın ve Nornia Connect TURN rölesinin aktif olduğundan emin olun." },
       { problem: "Hot-Desk *75 ile giriş yaparken 'PIN hatalı' uyarısı veriyor", cause: "Kullanıcı kartında Hot-Desking aktif edilmemiş veya PIN boş bırakılmış.", solution: "Santral → Kullanıcılar → ilgili kullanıcı → Hot-Desking sekmesinden özelliği aktif edip 4-6 haneli PIN tanımlayın." }
     ],
-    relatedPages: ["temsilci-cagri-paneli", "kullanicilar", "oto-provizyon"],
+    relatedPages: ["temsilci-cagri-paneli", "kullanicilar", "oto-provizyon", "kisisel-profil-ve-ust-cubuk"],
     relatedApis: ["GET /api/hotdesk/sessions", "DELETE /api/hotdesk/sessions/{session_key}", "POST /api/v1/calls/originate"]
+  },
+  {
+    id: "kisisel-profil-ve-ust-cubuk",
+    number: "03",
+    groupId: "baslangic",
+    category: "Başlangıç & Kurulum",
+    title: "Üst Çubuk, Global Arama (Ctrl+K) & Kişisel Profil Ayarları (Avatar Menüsü)",
+    shortTitle: "Profil & Avatar Ayarları",
+    menuPath: "Sağ Üst Avatar Menüsü → Profil Ayarları (11 Kişisel Sekme)",
+    pbxRoute: "/ (Sağ Üst Avatar Menüsü)",
+    permissions: ["Tüm oturum açmış kullanıcılar (Kendi profil, donanım, kısayol, yönlendirme ve uygulama tercihlerini yönetir)"],
+    badge: "Avatar • 11 Kişisel Sekme",
+    readMinutes: 14,
+    summary:
+      "Nornia arayüzünün üst çubuğundaki Global Arama & Sesli Komut (Ctrl+K), dil/tema/bildirim kontrolleri, sağ üst Avatar açılır menüsündeki hızlı profil değiştirme (Müsait / Dışarıda / Toplantı / Diğer) ve her temsilcinin yöneticiye ihtiyaç duymadan kendi hesabını özelleştirebildiği 11 sekmeli 'Temsilci Profil Ayarları' penceresini eksiksiz açıklar.",
+    prerequisites: [
+      "Herhangi bir yetki rolüyle (Temsilci, Süpervizör veya Admin) Nornia web veya RUNA masaüstü uygulamasına giriş yapılmış olmalıdır.",
+      "Donanım ses testi ve AI Gürültü Engelleme için tarayıcı mikrofon izni verilmiş olmalıdır."
+    ],
+    screenshots: [
+      {
+        src: "/screenshots/tabs/profile/00-avatar-dropdown.jpg",
+        caption: "Sağ üst Avatar menüsü — Aktif Profil Seçimi (Müsait / Dışarıda / Toplantı / Diğer), Profil Ayarları, Uygulamalar & İndir ve Çıkış Yap",
+        routeHint: "Üst Bar → Sağ Üst Kullanıcı Avatarı"
+      }
+    ],
+    fieldTable: [
+      { field: "Global Arama & Sesli Komut (Ctrl+K / ⌘K)", type: "Anlık Komut Paleti + Mikrofon", defaultVal: "Ctrl+K", required: false, description: "Menü, ayar, kullanıcı, dahili numarası, rapor veya işlemi klavyeden ya da sesli dikte ile 1 saniyede açar." },
+      { field: "Hızlı Profil Seçici (Avatar Menüsü)", type: "Müsait / Dışarıda / Toplantı / Diğer", defaultVal: "Müsait", required: false, description: "Tek tıkla aktif profilinizi değiştirir; o profile tanımlı çalacak cihazları (Web/Mobil/Masa) ve yönlendirme kurallarını anında devreye alır." },
+      { field: "Profil Ayarları (11 Sekme)", type: "Kişisel Tercih Modalı", defaultVal: "Kullanıcı Bazlı", required: false, description: "Avatar & Tema, Başlangıç Ekranı, Profiller & Yönlendirme, Donanım (AI RNNoise), Klavye Kısayolları, Ortak Masa Telefonu, Güvenlik, Uygulamalar & İndir, Çağrı Paneli, Üst Bar ve Canlı İzleme Paneli sekmelerini içerir." },
+      { field: "Uygulamalar & İndir (PC / Mobil)", type: "Doğrudan Kısayol", defaultVal: "RUNA Desktop & Mobile", required: false, description: "Bilgisayar ve telefon uygulamalarını indirme, tek tıkla Magic Link ve QR kodla parolasız giriş ekranını doğrudan açar." },
+      { field: "Çıkış Yap (Güvenli Logout)", type: "Oturum + WebRTC Unregister", defaultVal: "Anlık", required: false, description: "Oturumu kapatırken /api/webrtc/unregister_notify ile WebPhone SIP kaydını da temizleyip kullanıcıyı çevrimdışı durumuna geçirir." }
+    ],
+    sections: [
+      {
+        heading: "1. Üst Çubuk (Topbar) Araçları & Global Arama (Ctrl+K)",
+        body: "Nornia'nın her ekranında sabit kalan üst çubuk; solda Nornia Akıllı Merkez kısayolu, ortada klavye (Ctrl+K / ⌘K) ve mikrofon destekli Global Arama kutusu, sağda ise TR/EN dil değiştirici, canlı bildirim zili, karanlık/aydınlık mod anahtarı, sürüm bilgisi ikonu ve kullanıcı avatar menüsünden oluşur. Sağ alt köşedeki yüzen 'Web Telefon (Dahili)' çipi hangi sayfada olursanız olun gelen çağrıyı tek tıkla yanıtlamanızı sağlar.",
+        steps: [
+          "Herhangi bir ekrandayken Ctrl+K (macOS'ta ⌘K) tuşuna basın veya üst arama kutusuna tıklayın.",
+          "Bir dahili numarası (örn. 1001), rapor adı (örn. MOS veya Puantaj) ya da ayar başlığı yazıp Enter'a basarak doğrudan o ekrana atlayın.",
+          "Sağ üstteki avatarınıza tıklayıp toplantıya girerken profilinizi 'Toplantı' moduna alın; çağrılarınız o profil için tanımladığınız sekretere veya sesli postaya otomatik yönlenir."
+        ]
+      }
+    ],
+    troubleshooting: [
+      { problem: "Donanım sekmesinde mikrofon veya kulaklık listesi boş görünüyor", cause: "Tarayıcı bu alan adı için mikrofon iznine henüz sahip değil.", solution: "Adres çubuğunun solundaki kilit ikonundan Mikrofon iznini açıp 'Aygıtları Tara' butonuna tıklayın." },
+      { problem: "Profili 'Dışarıda' yaptığım halde çağrılar cep telefonuma yönlenmiyor", cause: "'Dışarıda' profilinde Çağrı Yönlendirme kuralı veya GSM numarası henüz tanımlanmamış.", solution: "Avatar → Profil Ayarları → Profiller & Yönlendirme sekmesinden 'Dışarıda' profilini seçip yönlendirme hedefini girerek 'Ayarları Kaydet' butonuna basın." }
+    ],
+    relatedPages: ["temsilci-cagri-paneli", "masaustu-mobil-ve-webphone", "kullanicilar"],
+    relatedApis: ["GET /api/auth/me", "POST /api/webrtc/unregister_notify", "POST /api/agent/status"]
   }
 ];

@@ -81,6 +81,18 @@ export const EDIT_GUIDES_PART3 = {
         ]
       },
       {
+        level: 3,
+        tabTitle: "Alt Görünüm 1.1: Operatör /30 VLAN Policy Routing (5 Alan) & İç Santral Transit Trunk Açık Görünümü",
+        badge: "Dış Hat → /30 VLAN & Transit Açık",
+        screenshot: { src: "/screenshots/tabs/toggled/trunk-vlan-transit-expanded.jpg", caption: "Dış Hat Düzenle → Operatör /30 VLAN Policy Routing (5 alan) ve İç Santral / Transit Trunk Modu (SIP Gateway) aktif görünümü", routeHint: "Dış Hat Tanımı → Düzenle → Genel → Policy Routing Aktif" },
+        description: "Türk Telekom, Superonline veya Vodafone gibi operatörlerden aynı sunucuya birden fazla Metro Ethernet /30 VLAN ses hattı bağlandığında açılan 5 alanlı Linux Policy Routing yapılandırmasıdır.",
+        fields: [
+          { name: "1. Ağ Kartı / VLAN Arayüzü (Interface)* & 2. Santral Yerel IP / CIDR (/30)*", type: "Örn. ens192 / eth0.100 + 10.87.1.5/30", defaultVal: "Otomatik NIC", required: true, effect: "Operatör kurulum tablosunda bu hat için santrale verilen /30 IP adresini ilgili fiziksel veya VLAN alt arayüzüne otomatik ekler." },
+          { name: "3. Hat Gateway (GW) Adresi* & 4. Operatör SBC & Media Rota Blokları (Subnet)", type: "Örn. 10.87.1.4 + 10.99.1.0/24", defaultVal: "Linux Table 201+", required: true, effect: "Sunucunun ana Default Gateway'ini bozmadan bu /30 hattın tüm SIP ve RTP ses paketlerini kendi özel Linux yönlendirme tablosundan geçirir." },
+          { name: "5. Ek DID Eşleştirme Blokları (Opsiyonel) & İç Santral / Transit Trunk Modu", type: "Örn. 0212555, 90212555 + SIP Gateway Toggle", defaultVal: "Aynı SBC Çoklu Hat", required: false, effect: "Aynı operatör SBC IP'sinden gelen birden fazla /30 DID bloğunu kesin ayırt eder; Transit Trunk diğer PBX'lerle doğrudan dahili geçişi sağlar." }
+        ]
+      },
+      {
         tabTitle: "Sekme 2: Dakika Paketi (Aylık Kota, Fatura Sıfırlama Günü & Ücretlendirme Periyodu)",
         badge: "Dış Hat Düzenle 2/4",
         screenshot: { src: "/screenshots/tabs/trunks/02-dakika-paketi.jpg", caption: "Dış Hat Düzenle → Sekme 2: Aylık Dakika Paketi, Sıfırlama Günü ve Ücretlendirme Periyodu", routeHint: "Dış Hat Tanımı → Düzenle → Dakika Paketi" },

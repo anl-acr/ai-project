@@ -169,7 +169,7 @@ asterisk -rx "pjsip show identify"`
     troubleshooting: [
       { problem: "Katılımcılar odaya giriyor ama birbirini duyamıyor, sadece müzik çalıyor", cause: "'Moderatör Bekle' seçeneği açık ve henüz yönetici PIN'i ile kimse bağlanmamış.", solution: "Moderatör PIN ile odaya girin veya oda ayarından 'Moderatörü Bekle' seçeneğini kapatın." }
     ],
-    relatedPages: ["omnichannel-voip-ve-diger-raporlar", "gelen-arama-kurali"],
+    relatedPages: ["rapor-voip-kalite-mos", "gelen-arama-kurali"],
     relatedApis: ["GET /api/v1/conferences", "POST /api/v1/conferences"]
   },
   {
@@ -246,7 +246,7 @@ asterisk -rx "pjsip show identify"`
     troubleshooting: [
       { problem: "Kara listeye eklediğim numara tekrar ulaşabildi", cause: "Operatör numarayı farklı önek (örn. 90532... yerine +90532...) ile göndermiş olabilir.", solution: "Numarayı son 10 hane (5321234567) veya 05321234567 biçiminde kaydedin; CDR ekranından operatörün gönderdiği ham CallerID'yi kontrol edin." }
     ],
-    relatedPages: ["gelen-arama-kurali", "guvenlik-kalkani", "omnichannel-voip-ve-diger-raporlar"],
+    relatedPages: ["gelen-arama-kurali", "guvenlik-kalkani", "rapor-voip-kalite-mos"],
     relatedApis: ["GET /api/v1/blacklist", "POST /api/v1/blacklist"]
   },
   {
@@ -285,7 +285,7 @@ asterisk -rx "pjsip show identify"`
     troubleshooting: [
       { problem: "Zamanlanmış rapor maili gelmiyor", cause: "SMTP sunucu bilgileri eksik/hatalı veya mail spam klasörüne düşmüş.", solution: "Sistem Ayarları → E-Mail Bildirimleri ekranından SMTP test maili gönderip bağlantıyı doğrulayın; ardından raporda 'Şimdi Çalıştır'a basın." }
     ],
-    relatedPages: ["ozel-rapor-tasarimcisi", "kanallar-crm-ve-dis-api", "raporlar-pano-ve-cdr"],
+    relatedPages: ["ozel-rapor-tasarimcisi", "kanallar-crm-ve-dis-api", "rapor-cdr"],
     relatedApis: ["GET /api/settings/scheduled-reports", "POST /api/settings/scheduled-reports", "POST /api/settings/scheduled-reports/{schedule_id}/run-now"]
   }
 ];

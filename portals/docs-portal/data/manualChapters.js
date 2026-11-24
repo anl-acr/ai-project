@@ -26,7 +26,7 @@ export const MANUAL_META = {
   product: "Nornia Enterprise AI PBX",
   version: "v3.10.11",
   updatedAt: "24 Kasım 2026",
-  totalPages: 50,
+  totalPages: 88,
   fullPdfPath: "/pdfs/nornia-kullanim-kilavuzu-tam.pdf"
 };
 
@@ -34,7 +34,7 @@ export const MANUAL_GROUPS = [
   {
     id: "baslangic",
     title: "Başlangıç & Kurulum",
-    subtitle: "İlk kurulum sihirbazı, mimari ve WebPhone/cihaz bağlantıları",
+    subtitle: "İlk kurulum sihirbazı, WebPhone/cihaz bağlantıları ve 11 sekmeli Kişisel Profil / Avatar Ayarları",
     color: "indigo"
   },
   {
@@ -63,8 +63,8 @@ export const MANUAL_GROUPS = [
   },
   {
     id: "raporlar",
-    title: "Çağrı Raporları & Analiz",
-    subtitle: "Özel Rapor Tasarımcısı, CDR, Ses Kayıtları, AI Analitik/QA, Puantaj/WFM, SLA ve VoIP MOS",
+    title: "Çağrı Raporları & Analiz (44 Rapor)",
+    subtitle: "44 ayrı kurumsal rapor: Özel Rapor Tasarımcısı, CDR, Ses Kayıtları, AI Analitik/QA, Puantaj/WFM, SLA ve VoIP MOS",
     color: "rose"
   },
   {

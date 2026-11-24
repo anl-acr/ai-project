@@ -40,7 +40,7 @@ export const CHAPTERS_OPERASYON = [
     troubleshooting: [
       { problem: "Pano verileri 0 görünüyor veya yenilenmiyor", cause: "Tarayıcı sekmesi uzun süre uyku modunda kalmış veya Asterisk AMI bağlantısı kopmuş olabilir.", solution: "Sayfayı yenileyin; devam ederse Yönetim & Ayarlar → Sistem Panosu & Sağlık ekranından Asterisk AMI durumunu kontrol edin." }
     ],
-    relatedPages: ["canli-izleme-paneli", "canli-cagri-izleme", "raporlar-pano-ve-cdr"],
+    relatedPages: ["canli-izleme-paneli", "canli-cagri-izleme", "rapor-cdr"],
     relatedApis: ["GET /api/reports/wallboard", "GET /api/workspace/crisis-alerts", "GET /api/v1/system/capacity"]
   },
   {
@@ -84,7 +84,7 @@ export const CHAPTERS_OPERASYON = [
     troubleshooting: [
       { problem: "TV ekranında oturum bir süre sonra kapanıyor", cause: "Kullanıcı kartında 'Otomatik Oturum Kapatma (Idle Timeout)' aktif olabilir.", solution: "TV ekranı için sadece 'wallboard:access' yetkili özel bir kullanıcı oluşturun ve kullanıcı kartında otomatik oturum kapatmayı devre dışı bırakın." }
     ],
-    relatedPages: ["canli-cagri-izleme", "acd-kuyruk", "kuyruk-sla-anket-ve-fcr"],
+    relatedPages: ["canli-cagri-izleme", "acd-kuyruk", "rapor-kuyruk-sla"],
     relatedApis: ["GET /api/reports/wallboard", "GET /api/v1/calls/active", "GET /api/v1/queues"]
   },
   {
@@ -134,7 +134,7 @@ export const CHAPTERS_OPERASYON = [
     troubleshooting: [
       { problem: "Dinle / Whisper butonuna basınca kendi telefonum çalmıyor", cause: "Süpervizör kullanıcısına dahili numara atanmamış veya dahili SIP kayıtlı (registered) değil.", solution: "Kullanıcı kartında geçerli bir dahili numara tanımlı olduğunu ve WebPhone/IP telefonun yeşil 'Bağlı' olduğunu doğrulayın." }
     ],
-    relatedPages: ["canli-izleme-paneli", "temsilci-cagri-paneli", "temsilci-performans-mola-puantaj"],
+    relatedPages: ["canli-izleme-paneli", "temsilci-cagri-paneli", "rapor-mola-puantaj"],
     relatedApis: ["GET /api/v1/calls/active", "POST /api/v1/calls/monitor", "POST /api/v1/calls/{call_id}/transfer", "GET /api/supervisor/break-requests"]
   },
   {
@@ -226,7 +226,7 @@ export const CHAPTERS_OPERASYON = [
     troubleshooting: [
       { problem: "WhatsApp'ta 24 saatten eski sohbete serbest metin gönderilemiyor", cause: "Meta WhatsApp Business Cloud API 24 saatlik müşteri hizmet penceresi kuralı.", solution: "Mesaj penceresindeki 'Onaylı Şablon Gönder (HSM Template)' butonunu kullanarak Meta onaylı bir şablon ile sohbeti yeniden açın." }
     ],
-    relatedPages: ["kanallar-crm-ve-dis-api", "omnichannel-voip-ve-diger-raporlar", "rehber"],
+    relatedPages: ["kanallar-crm-ve-dis-api", "rapor-voip-kalite-mos", "rehber"],
     relatedApis: ["GET /api/omnichannel/chats", "POST /api/omnichannel/chats/{session_id}/send", "POST /api/omnichannel/whatsapp/broadcast", "POST /api/v1/omnichannel/whatsapp/send"]
   },
   {

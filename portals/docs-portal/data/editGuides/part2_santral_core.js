@@ -115,6 +115,17 @@ export const EDIT_GUIDES_PART2 = {
         ]
       },
       {
+        level: 3,
+        tabTitle: "Alt Görünüm 3.1: 3-Seviye Yönlendirme Kuralları Açık Hali (Her Zaman / Meşgul / Cevapsız & *70 Kodu)",
+        badge: "Profiller → Yönlendirme Açık",
+        screenshot: { src: "/screenshots/tabs/toggled/user-profiller-expanded.jpg", caption: "Kullanıcı Düzenle → Profiller & Yönlendirme: Her Zaman, Meşgul Durumda ve Zaman Aşımında (Cevapsız) yönlendirme kartları açık görünümü", routeHint: "Kullanıcılar → Düzenle → Profiller & Yönlendirme → Yönlendirmeler Aktif" },
+        description: "Yönlendirme anahtarları açıldığında ortaya çıkan 3 kademeli hedef seçim (Dahili Hat / Dış Numara / Kuyruk / Sesli Posta / Anons) ve 'Yönlendirmeleri Kapat' hızlı sıfırlama kontrolleridir.",
+        fields: [
+          { name: "1. Çalacak Cihazlar (4 Kutu), 2. Çalma Süresi (15s/30s/45s) & 3. Telefon Tuşlama Kodu (*70*1)", type: "Cihaz + Süre + Kısa Kod", defaultVal: "30s / *70*1", required: false, effect: "Masa telefonundan *70*1..*70*4 tuşlayarak profilinizi anında değiştirebilirsiniz." },
+          { name: "HER ZAMAN / MEŞGUL DURUMDA / ZAMAN AŞIMINDA (CEVAPSIZ) + 'Yönlendirmeleri Kapat'", type: "Tip + Hedef (Dahili / Dış Numara / Kuyruk / Voicemail)", defaultVal: "resolve_forwarding", required: false, effect: "Her Zaman açıkken cihaz çalmadan doğrudan hedefe gider; Meşgul ve Cevapsız kuralları sırayla Asterisk dialplan tarafından değerlendirilir." }
+        ]
+      },
+      {
         tabTitle: "Sekme 4: Özellikler (Ses Kaydı, Sesli Posta *97, Hot-Desking *75/*76 & Patron-Sekreter *74)",
         badge: "Kullanıcı Düzenle 4/11",
         screenshot: { src: "/screenshots/tabs/users/04-ozellikler.jpg", caption: "Kullanıcı Düzenle → Sekme 4: Ses Kayıt Politikası, Voicemail (*97), Hot-Desking (*75/*76) ve Patron-Sekreter (*74)", routeHint: "Kullanıcılar → Düzenle → Özellikler" },
@@ -127,6 +138,17 @@ export const EDIT_GUIDES_PART2 = {
         ]
       },
       {
+        level: 3,
+        tabTitle: "Alt Görünüm 4.1: Özellikler Açık Hali — Sesli Posta (*97), Ortak Masa Telefonu (Hot-Desking) & Beni Takip Et",
+        badge: "Özellikler → Aktif Görünüm",
+        screenshot: { src: "/screenshots/tabs/toggled/user-ozellikler-expanded.jpg", caption: "Kullanıcı Düzenle → Özellikler: Sesli Posta (Anons/PIN/E-Posta), Ortak Masa Telefonu (PIN Üret / Gece 00:00 Oto Çıkış) ve Beni Takip Et açık görünümü", routeHint: "Kullanıcılar → Düzenle → Özellikler (Tüm Kartlar Aktif)" },
+        description: "Varsayılan olarak kapalı duran Sesli Posta, Ortak Masa Telefonu (Hot-Desking) ve Beni Takip Et (Follow Me) kartları aktifleştirildiğinde açılan tüm detay alanlarıdır.",
+        fields: [
+          { name: "Sesli Posta Karşılama Anonsu, 4 Rakam Şifre & 'Bırakılan Sesli Postaları E-Posta İle Gönder'", type: "Anons Seçici + 4 Hane PIN + Email Toggle", defaultVal: "1234", required: false, effect: "Mesaj bırakıldığında ses dosyasını .WAV eki olarak kullanıcının e-posta adresine anında gönderir." },
+          { name: "Ortak Masa Telefonu PIN Şifresi ('Rastgele PIN Üret'), Gece 00:00 Oto Kapatma & Aktif Oturum", type: "4–6 Hane PIN + *75*Dahili*PIN / *76", defaultVal: "Gece 00:00 Açık", required: false, effect: "Telefonu yeniden başlatmadan anında dahili profili yükler; aktif oturum satırından hangi masada oturum açıldığı görülür." }
+        ]
+      },
+      {
         tabTitle: "Sekme 5: Güvenlik (2FA, Güvenilen Cihazlar, Otomatik Çıkış & Şifre Yenileme)",
         badge: "Kullanıcı Düzenle 5/11",
         screenshot: { src: "/screenshots/tabs/users/05-guvenlik.jpg", caption: "Kullanıcı Düzenle → Sekme 5: 2FA (Google Auth / E-Posta / WhatsApp), Oturum Zaman Aşımı ve Güvenlik Kilidi", routeHint: "Kullanıcılar → Düzenle → Güvenlik" },
@@ -135,6 +157,18 @@ export const EDIT_GUIDES_PART2 = {
           { name: "İki Faktörlü Doğrulama (2FA) & Çoklu Yöntem", type: "Google Authenticator TOTP / E-Posta OTP / WhatsApp OTP", defaultVal: "Opsiyonel", required: false, effect: "Kullanıcı girişinde ek doğrulama kodu ister; tekli veya çoklu yöntem kombinasyonu destekler." },
           { name: "Hareketsizlikte Otomatik Oturum Kapatma", type: "Kapalı / 1 Saat / 2 Saat / 3 Saat", defaultVal: "Kapalı", required: false, effect: "İşlem yapılmadığında tarayıcı oturumunu ve WebPhone kaydını otomatik sonlandırır." },
           { name: "Periyodik Şifre Yenileme & Dış Arama Karantinası", type: "1/3/6/12 Ay + Karantina", defaultVal: "Opsiyonel", required: false, effect: "Düzenli şifre değişimi zorunlu kılar ve şüpheli aboneyi dış aramalara kapatır." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Görünüm 5.1: İki Aşamalı Doğrulama (2FA) Aktif Görünümü — Tek / VE / VEYA Modu, 4 Yöntem & Canlı QR Eşleştirme",
+        badge: "Güvenlik → 2FA Aktif",
+        screenshot: { src: "/screenshots/tabs/toggled/user-guvenlik-2fa-expanded.jpg", caption: "Kullanıcı Düzenle → Güvenlik → İki Aşamalı Doğrulama (2FA) Aktif: Tek/VE/VEYA çalışma modu, 4 yöntem (E-Posta, WhatsApp, Google/Microsoft Auth) ve QR kurulumu", routeHint: "Kullanıcılar → Düzenle → Güvenlik → 2FA Aktif" },
+        description: "2FA anahtarı açıldığında ekrana gelen çoklu doğrulama politikası ve canlı TOTP QR eşleştirme sihirbazıdır.",
+        fields: [
+          { name: "Doğrulama Çalışma Modu (Tek / 2 Aşamalı VE / Esnek Yedekli VEYA)", type: "single / all / any", defaultVal: "Tek Yöntem (Standart)", required: true, effect: "VE Modu en yüksek güvenlik için iki farklı yöntemi peş peşe ister (örn. E-Posta + Google Auth); VEYA Modu telefon yanında yoksa yedek yöntemle girişe izin verir." },
+          { name: "4 Doğrulama Yöntemi (E-Posta / WhatsApp Giriş Kodu / Google Auth / Microsoft Auth)", type: "Çoklu Seçimli (+ Birlikte Kullan)", defaultVal: "Google Authenticator", required: true, effect: "WhatsApp Giriş Kodu seçildiğinde kullanıcı 5 dakika geçerli ücretsiz OTP kodunu WhatsApp üzerinden alır." },
+          { name: "Google/Microsoft Authenticator QR Kodu, Manuel Anahtar, 'Yeni QR Üret' & 'Test Et & Eşleştir'", type: "TOTP 30 sn", defaultVal: "İlk Girişte de Eşleştirilebilir", required: false, effect: "Yönetici 2FA'yı hemen burada test edip eşleştirebilir veya kullanıcının ilk girişinde kendi telefonundan okutmasını sağlayabilir." }
         ]
       },
       {
@@ -155,6 +189,17 @@ export const EDIT_GUIDES_PART2 = {
           { name: "Hızlı CRM Şablonu & Screen Pop URL", type: "Zoho / HubSpot / Salesforce / Bitrix24 / Özel URL", defaultVal: "https://crm.../ara?tel={phone}", required: false, effect: "{phone}, {did}, {ext} yer tutucularını canlı çağrı bilgisiyle doldurup CRM ekranını açar." },
           { name: "Otomatik Sekme Açılma Zamanı & Davranışı", type: "Çalarken / Cevaplandığında + Yeni/Aynı Sekme", defaultVal: "Çalarken", required: false, effect: "Temsilci telefonu açmadan müşterinin kimliğini görmesini sağlar." },
           { name: "CRM Müşteri Sorgu API URL, Metod & Auth Token", type: "GET/POST + Header/Bearer", defaultVal: "Canlı Testli", required: false, effect: "Çağrı çalarken arka planda CRM'den müşteri özetini çekip WebPhone kartına yansıtır." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Görünüm 7.1: CTI Otomatik Ekran Açık — 7 Dinamik URL Parametresi, '2. Sekmede Test Et' & Canlı CRM REST API Ön İzleme",
+        badge: "CTI → Aktif Görünüm",
+        screenshot: { src: "/screenshots/tabs/toggled/user-cti-expanded.jpg", caption: "Kullanıcı Düzenle → CTI Aktif: Rol Bazlı CTI Yetkisi, 7 dinamik parametre çipi, 2. Sekmede Test Et ve Canlı CRM REST API Ön İzleme", routeHint: "Kullanıcılar → Düzenle → CTI (Aktif)" },
+        description: "'CTI Otomatik Ekran Açık' ve 'Canlı CRM Müşteri Kartı Ön İzleme (REST API)' anahtarları açıldığında ortaya çıkan tüm entegrasyon alanlarıdır.",
+        fields: [
+          { name: "Rol Bazlı CTI Yetki Durumu & 7 Dinamik Parametre Ekleme Çipi", type: "{caller_clean} / {caller} / {last10} / {extension} / {call_id} / {queue} / {agent_name}", defaultVal: "Tek Tıkla URL'ye Ekler", required: false, effect: "Harici CRM/ERP adresine çağrı bilgilerini hatasız yerleştirir; '2. Sekmede Test Et' ile örnek bir numara üzerinden hemen doğrulanır." },
+          { name: "Web Telefon Üzerinde Canlı CRM Müşteri Kartı Ön İzleme (REST API)", type: "HTTP Metodu (GET/POST) + Sorgu API URL + Auth", defaultVal: "WebPhone İçi Özet Kart", required: false, effect: "2. sekme açılmasına ek olarak temsilcinin WebPhone ekranının içinde müşterinin adını, bakiyesini veya son siparişini canlı gösterir." }
         ]
       },
       {
