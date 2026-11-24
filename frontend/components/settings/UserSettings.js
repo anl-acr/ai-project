@@ -3564,8 +3564,8 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
               {visibleColumns.username && <div className="min-w-0 truncate" style={{ flex: '2 2 0%' }}>Kullanıcı Adı</div>}
               {visibleColumns.role && <div className="flex-1 min-w-0 truncate">Rol</div>}
               {visibleColumns.email && <div className="min-w-0 truncate" style={{ flex: '2 2 0%' }}>E-Posta Adresi</div>}
-              {visibleColumns.extension && <div className="min-w-0 truncate" style={{ flex: '2 2 0%' }}>Dahili Numarası</div>}
-              {visibleColumns.recording && <div className="flex-1 text-center min-w-0 truncate">Ses Kayıt</div>}
+              {visibleColumns.extension && <div className="min-w-0 truncate" style={{ flex: '2.6 2.6 0%' }}>Dahili Numarası</div>}
+              {visibleColumns.recording && <div className="flex-1 text-center min-w-[44px] truncate">Ses Kayıt</div>}
               {visibleColumns.outboundRule && <div className="min-w-0 truncate" style={{ flex: '2 2 0%' }}>Giden Kuralı</div>}
               {visibleColumns.pickupGroup && <div className="min-w-0 truncate" style={{ flex: '2 2 0%' }}>Çağrı Toplama Grubu</div>}
               {visibleColumns.location && <div className="min-w-0 truncate" style={{ flex: '2 2 0%' }}>Lokasyon</div>}
@@ -3760,7 +3760,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                   )}
 
                   {visibleColumns.extension && (
-                    <div className="min-w-0 text-[10px] text-slate-500 dark:text-slate-450 flex flex-col items-start justify-center gap-1.5" style={{ flex: '2 2 0%' }}>
+                    <div className="min-w-0 overflow-hidden text-[10px] text-slate-500 dark:text-slate-450 flex flex-col items-start justify-center gap-1.5 pr-1" style={{ flex: '2.6 2.6 0%' }}>
                       <div className="flex flex-wrap items-center gap-1.5">
                         <span className="flex items-center gap-1 text-slate-600 dark:text-slate-400 font-bold shrink-0">
                           <Phone size={10} /> Dahili:
@@ -3813,16 +3813,16 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                         }
                         if (activeFwds.length > 0) {
                           return (
-                            <div className="flex flex-wrap items-center gap-1">
+                            <div className="flex flex-wrap items-center gap-1 max-w-full min-w-0">
                               {activeFwds.map((fw) => (
                                 <div
                                   key={fw.key}
-                                  className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 text-[8px] font-bold shrink-0 border border-amber-200/50 dark:border-amber-800/50"
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 text-[9px] font-bold max-w-full min-w-0 border border-amber-200/60 dark:border-amber-800/50"
                                   title={`Yönlendirme: ${fw.label} -> ${fw.target || "Belirtilmedi"}`}
                                 >
-                                  <Forward size={10} />
-                                  <span>
-                                    {fw.label} {fw.target && <span className="opacity-75 font-medium">({fw.target})</span>}
+                                  <Forward size={10} className="shrink-0" />
+                                  <span className="truncate min-w-0">
+                                    {fw.label} {fw.target && <span className="opacity-80 font-medium">({fw.target})</span>}
                                   </span>
                                   <button
                                     type="button"
@@ -3831,7 +3831,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                       handleQuickCancelForwarding(u.extension, fw.key);
                                     }}
                                     title={`${fw.label} yönlendirmesini iptal et`}
-                                    className="ml-0.5 hover:text-rose-600 dark:hover:text-rose-400 transition-colors"
+                                    className="ml-0.5 shrink-0 hover:text-rose-600 dark:hover:text-rose-400 transition-colors cursor-pointer"
                                   >
                                     <X size={10} />
                                   </button>
@@ -3846,7 +3846,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                   )}
 
                   {visibleColumns.recording && (
-                    <div className="flex-1 flex justify-center min-w-0">
+                    <div className="flex-1 flex justify-center min-w-[44px]">
                       {u.recording_active ? (
                         <div className="flex items-center justify-center text-rose-500 bg-rose-50 dark:bg-rose-900/20 w-6 h-6 rounded-lg border border-rose-200 dark:border-rose-800/50" title="Ses Kaydı Açık">
                           <Mic size={12} />
