@@ -171,24 +171,24 @@ Webhook Fields: messages`
     title: "Sorun İnceleme (Web sngrep, Canlı SIP Akışı, PCAP & Ping/Traceroute)",
     shortTitle: "Sorun İnceleme (SIP/PCAP)",
     menuPath: "Yönetim & Ayarlar → Sorun İnceleme",
-    pbxRoute: "/?tab=sorun-inceleme",
+    pbxRoute: "/?tab=troubleshooting",
     permissions: ["troubleshooting:access"],
-    badge: "Web sngrep • Ladder Diyagram • .pcap İndir • Ping",
+    badge: "Ping • Traceroute • SIP Capture • Web sngrep",
     readMinutes: 10,
     summary:
-      "SSH açmadan doğrudan web arayüzünden canlı SIP sinyalizasyonunu (UDP/TCP 5060, TLS 5061, Cisco 5160, WebRTC WSS 8089) sngrep tarzı görsel merdiven (ladder) diyagramıyla incelemenizi, ham SIP/SDP başlıklarını okumanızı, tek tıkla Wireshark/sngrep uyumlu `.pcap` dosyası indirmenizi ve operatör sunucularına Ping / Traceroute yapmanızı sağlayan profesyonel VoIP tanılama aracıdır.",
+      "SSH açmadan doğrudan web arayüzünden operatör SBC sunucularına Ping (RTT, Jitter & Paket Kaybı) ve Traceroute (Ağ Rotası & Hop Analizi) çalıştırmanızı, SIP Capture Yakalama ile ham SIP/SDP paketlerini filtreleyip sunucuya `.pcap` olarak arşivlemenizi ve dahili Web sngrep merdiven (ladder) diyagramıyla çağrı sinyalizasyonunu satır satır incelemenizi sağlayan 4 sekmeli VoIP tanılama merkezidir.",
     screenshots: [
       {
-        src: "/screenshots/46-sip-debugger.jpg",
-        caption: "Sorun İnceleme (Web sngrep) — Canlı SIP çağrı listesi, görsel sinyal akış diyagramı, ham başlıklar ve .pcap indirme",
+        src: "/screenshots/tabs/troubleshooting/04-sngrep.jpg",
+        caption: "Sorun İnceleme — Web sngrep canlı SIP diyalogları, 3 sütunlu merdiven (ladder) akış diyagramı, ham SIP/SDP başlıkları ve tek tık .PCAP indirme",
         routeHint: "Yönetim & Ayarlar → Sorun İnceleme"
       }
     ],
     fieldTable: [
-      { field: "Canlı Yakalama (Başlat / Durdur / Temizle)", type: "SipTrapper Engine", defaultVal: "Port 5060/5061/8089", required: false, description: "SIP paketlerini Call-ID bazında çağrı oturumlarına gruplar; INVITE, 100 Trying, 180 Ringing, 200 OK, ACK, BYE ve 4xx/5xx hatalarını renk kodlu gösterir." },
-      { field: "Merdiven (Ladder) Akış Diyagramı", type: "Görsel Zaman Çizelgesi", defaultVal: "Seçili Çağrı", required: false, description: "Kaynak IP → Santral → Operatör SBC arasındaki her SIP mesajını ok yönü ve milisaniye farkıyla görselleştirir." },
-      { field: "Tek Tık .PCAP İndirme", type: "Wireshark / sngrep Binary", defaultVal: "/api/sip-debugger/calls/{call_id}/pcap", required: false, description: "Operatör destek ekibine veya VoIP mühendisine göndermek üzere standart Ethernet/IP/UDP başlıklı `.pcap` paket dosyası üretir." },
-      { field: "Ağ Tanılama (Ping & Traceroute)", type: "ICMP / Hop Analizi", defaultVal: "Kayıtlı Trunklar Hazır", required: false, description: "Tanımlı SIP Trunk sunucularına tek tıkla ping atar, RTT gecikmesini ve paket kaybını ölçer." }
+      { field: "Sekme 1: Ping (RTT, Jitter & Paket Kaybı)", type: "ICMP Kalite Testi", defaultVal: "Kayıtlı Trunklar Hazır", required: false, description: "Tanımlı SIP Trunk SBC'lerine, Nornia Connect Hub'a veya özel IP/alan adlarına 4/6/10 paketlik ping atar; paket kaybı, ortalama RTT, VoIP jitter (mdev) ve ham konsol çıktısını sunar." },
+      { field: "Sekme 2: Traceroute (Ağ Rotası & Hop Analizi)", type: "Ağ Geçidi (Hop) İzi", defaultVal: "Maks. 15 Hop", required: false, description: "Santral ile operatör veya uzak şube arasındaki her yönlendiriciyi (hop) gecikme değerleriyle listeler; ICMP filtreli (`* * *`) veya dar boğaz oluşturan noktaları tespit eder." },
+      { field: "Sekme 3: SIP Capture Yakalama & PCAP Arşivi", type: "Canlı Packet Sniffer", defaultVal: "Port 5060/5061/5160/8089", required: false, description: "Ham SIP paketlerini IP, port, metot (INVITE/REGISTER/OPTIONS/BYE/4xx-5xx) ve içerik bazında canlı filtreler; yakalanan akışı indirir veya sunucuya `.pcap` kaydı olarak arşivler." },
+      { field: "Sekme 4: sngrep (Ladder Diyagram & .PCAP)", type: "Call-ID Bazlı Diyalog", defaultVal: "İstemci ↔ PBX ↔ Operatör", required: false, description: "SIP mesajlarını çağrı oturumlarına gruplar; İstemci, Santral PBX ve Dış Hat arasında görsel ok diyagramı, ham SIP/SDP inceleyici ve tek tık Wireshark/sngrep `.pcap` indirme sunar." }
     ],
     sections: [
       {

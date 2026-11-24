@@ -20,7 +20,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const DOCS_ROOT = path.resolve(__dirname, "../../portals/docs-portal");
-const OUT_DIR = path.join(DOCS_ROOT, "out");
+const OUT_DIR = process.env.DOCS_OUT_DIR
+  ? path.resolve(process.env.DOCS_OUT_DIR)
+  : path.join(DOCS_ROOT, "out");
 const PRINT_DIR = path.join(OUT_DIR, "print");
 const PUBLIC_PDF_DIR = path.join(DOCS_ROOT, "public/pdfs");
 const OUT_PDF_DIR = path.join(OUT_DIR, "pdfs");
@@ -94,9 +96,21 @@ async function main() {
     process.exit(1);
   }
 
-  const slugs = discoverPrintSlugs();
+  const onlyArg = process.argv.find((a) => a.startsWith("--only="));
+  const onlySet = onlyArg
+    ? new Set(
+        onlyArg
+          .slice("--only=".length)
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+      )
+    : null;
+
+  const discoveredSlugs = discoverPrintSlugs();
+  const slugs = onlySet ? discoveredSlugs.filter((s) => onlySet.has(s)) : discoveredSlugs;
   if (slugs.length === 0) {
-    console.error("[HATA] out/print altında hiç sayfa bulunamadı.");
+    console.error("[HATA] out/print altında eşleşen sayfa bulunamadı.");
     process.exit(1);
   }
 
@@ -106,9 +120,11 @@ async function main() {
     process.exit(1);
   }
 
-  // Clean stale PDFs before generating fresh set
-  if (fs.existsSync(PUBLIC_PDF_DIR)) fs.rmSync(PUBLIC_PDF_DIR, { recursive: true, force: true });
-  if (fs.existsSync(OUT_PDF_DIR)) fs.rmSync(OUT_PDF_DIR, { recursive: true, force: true });
+  // Clean stale PDFs only when running full build (not --only partial rebuild)
+  if (!onlySet) {
+    if (fs.existsSync(PUBLIC_PDF_DIR)) fs.rmSync(PUBLIC_PDF_DIR, { recursive: true, force: true });
+    if (fs.existsSync(OUT_PDF_DIR)) fs.rmSync(OUT_PDF_DIR, { recursive: true, force: true });
+  }
   fs.mkdirSync(PUBLIC_PDF_DIR, { recursive: true });
   fs.mkdirSync(OUT_PDF_DIR, { recursive: true });
 
@@ -127,6 +143,7 @@ async function main() {
           const destPublic = path.join(PUBLIC_PDF_DIR, pdfName);
           const destOut = path.join(OUT_PDF_DIR, pdfName);
 
+          if (fs.existsSync(destPublic)) fs.rmSync(destPublic, { force: true });
           await execFileAsync(
             chromeBin,
             [
@@ -141,6 +158,9 @@ async function main() {
             ],
             { timeout: slug === "all" ? 90000 : 35000 }
           );
+          if (!fs.existsSync(destPublic) || fs.statSync(destPublic).size < 1024) {
+            throw new Error(`Chrome PDF çıktısı üretilemedi: ${destPublic}`);
+          }
           fs.copyFileSync(destPublic, destOut);
           doneCount++;
           const kb = Math.round(fs.statSync(destPublic).size / 1024);

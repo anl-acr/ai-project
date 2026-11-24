@@ -686,22 +686,66 @@ export const EDIT_GUIDES_PART5 = {
   "sorun-inceleme-sip-debugger": {
     editFormSections: [
       {
-        tabTitle: "Bölüm 1: Web sngrep Canlı SIP Diyalogları & Görsel Merdiven Akış Diyagramı (Ladder View)",
-        badge: "VoIP Teşhis 1/2",
-        description: "SSH'a bağlanıp `sngrep` çalıştırmadan doğrudan tarayıcı içinden UDP/TCP 5060, TLS 5061, PJSIP 5160 ve WebRTC WSS 8089 portlarındaki tüm SIP sinyalizasyonunu canlı izler.",
+        tabTitle: "Sekme 1: Ping (Gecikme RTT, VoIP Jitter & Paket Kaybı Analizi)",
+        badge: "Sorun İnceleme 1/4",
+        screenshot: {
+          src: "/screenshots/tabs/troubleshooting/01-ping.jpg",
+          caption: "Sorun İnceleme → Sekme 1: Ping — Hızlı SIP Trunk hedefleri, VoIP kalite özet kartları (Paket Kaybı, Ort. RTT, Jitter/mdev), ICMP yanıt dökümü ve ham konsol çıktısı",
+          routeHint: "Yönetim & Ayarlar → Sorun İnceleme → Ping"
+        },
+        description: "SIP Trunk operatör SBC sunucularına, Nornia Connect Hub'a, şube IP'lerine veya DNS sunucularına anlık ICMP testi yaparak ses kesintisi, robotik ses ve tek yönlü ses problemlerinin ağ kaynaklı olup olmadığını saniyeler içinde tespit eder.",
         fields: [
-          { name: "Canlı SIP Diyalogları Listesi & Call-ID / Numara / Durum Arama", type: "SipTrapper Motoru", defaultVal: "Gerçek Zamanlı", required: false, effect: "Arayan (From), aranan (To), SIP Method (INVITE/REGISTER/OPTIONS) ve son SIP yanıt koduna (200 OK, 401, 403, 404, 486, 503) göre arama yapar." },
-          { name: "SIP Akış Diyagramı (sngrep Ladder View)", type: "Kaynak IP ↔ Santral ↔ Operatör Okları", defaultVal: "Paket Kronolojisi", required: false, effect: "INVITE → 100 Trying → 180 Ringing → 200 OK → ACK → BYE akışını görsel zaman çizelgesiyle göstererek çağrının hangi noktada reddedildiğini anında ortaya çıkarır." },
-          { name: "Ham SIP Başlıkları & SDP Medya/Kodek İnceleyici", type: "Paket Tıklama Detayı", defaultVal: "Tam SIP Frame", required: false, effect: "Contact, Via, P-Asserted-Identity, User-Agent ve SDP medya IP/port/kodek (PCMA/G711/Opus) satırlarını satır satır inceler." }
+          { name: "Hızlı Hedefler (Otomatik Trunk & Sistem Listesi)", type: "Tek Tık Seçim", defaultVal: "Kayıtlı SIP Trunklar + DNS", required: false, effect: "Sistemde tanımlı tüm SIP operatör hostları (örn. Ikon Telekom, Netgsm), Nornia Connect Hub ve 8.8.8.8/1.1.1.1 hedefleri tek tıkla doldurulur." },
+          { name: "Hedef IP / Alan Adı, Paket Sayısı (4/6/10 Pkt) & Boyut (56B/512B)", type: "ICMP Parametreleri", defaultVal: "4 Pkt • 56B", required: true, effect: "512B paket boyutu seçilerek MTU parçalanması veya büyük RTP paketlerindeki olası ağ kayıpları gerçekçi biçimde test edilebilir." },
+          { name: "VoIP Kalite Özet Kartları (Paket Kaybı, Avg RTT, Jitter/mdev, Min/Max)", type: "4 KPI Kartı", defaultVal: "Otomatik Kalite Etiketi", required: false, effect: "%0 kayıp ve düşük jitter değerlerinde 'Mükemmel VoIP Kalitesi (HD)' rozetini gösterir; yüksek sapmada operatör/hat dar boğazını anında işaret eder." },
+          { name: "ICMP Paket Yanıt Dökümü & Ham Konsol Çıktısı (Kopyala)", type: "Görsel Çubuk + Terminal", defaultVal: "Her Paket İçin TTL & ms", required: false, effect: "Her ICMP yanıtının gecikmesini görsel çubukla karşılaştırır ve destek kaydına yapıştırmanız için ham Linux `ping` çıktısını tek tıkla kopyalar." }
         ]
       },
       {
-        tabTitle: "Bölüm 2: Wireshark / sngrep Uyumlu `.PCAP` İndirme & Ağ Teşhis Araçları",
-        badge: "VoIP Teşhis 2/2",
-        description: "Seçilen çağrının tüm SIP paketlerini anında standart ikili `.pcap` dosyasına dönüştürür ve operatör erişim sorunlarını teşhis eder.",
+        tabTitle: "Sekme 2: Traceroute (Ağ Rotası & Hop Sıçrama Analizi)",
+        badge: "Sorun İnceleme 2/4",
+        screenshot: {
+          src: "/screenshots/tabs/troubleshooting/02-traceroute.jpg",
+          caption: "Sorun İnceleme → Sekme 2: Traceroute — Ağ Geçidi (Hop) Rotası tablosu, düğüm IP/alan adı, gecikme ortalamaları ve ham konsol çıktısı",
+          routeHint: "Yönetim & Ayarlar → Sorun İnceleme → Traceroute"
+        },
+        description: "Santral sunucusundan hedef SIP operatörüne veya uzak şubeye giden tüm yönlendiricileri (router/hop) adım adım izler; gecikmenin veya paket düşüşünün tam olarak hangi ağ geçidinde (yerel firewall, ISP omurgası veya operatör peering) başladığını ortaya çıkarır.",
         fields: [
-          { name: "Tek Tık `.PCAP` İndir (GET /api/sip-debugger/calls/{call_id}/pcap)", type: "Standart Ethernet/IP/UDP PCAP", defaultVal: "Wireshark & sngrep Uyumlu", required: false, effect: "SIP operatör destek ekibi (Türk Telekom, Netgsm, Bulutfon, Ikon vb.) kayıt istediğinde tek tıkla profesyonel `.pcap` dosyası indirip iletebilirsiniz." },
-          { name: "Hedef Ping & Traceroute Teşhisi", type: "Gecikme (ms) & Paket Kaybı", defaultVal: "Anlık Test", required: false, effect: "Operatör SBC veya şube IP'sine paket kaybı, rota kopması ve gecikme kontrolü yapar." }
+          { name: "Hedef IP / Alan Adı, Maksimum Hop (10/15/20/30) & DNS Çözümle", type: "Rota Parametreleri", defaultVal: "15 Hop", required: true, effect: "'DNS Çözümle' işaretlendiğinde her sıçramanın yalnızca IP adresini değil ters DNS (PTR) düğüm adını da gösterir." },
+          { name: "Ağ Geçidi (Hop) Rotası Tablosu (#1..#N)", type: "Düğüm / IP + 3 Ölçüm + Ortalama", defaultVal: "Renk Kodlu Gecikme", required: false, effect: "Her hop için 3 ayrı milisaniye ölçümü ve ortalama gecikmeyi listeler; ICMP yanıtı vermeyen ara güvenlik duvarlarını `* * * (Yanıt Yok / ICMP Filtreli)` olarak işaretler." },
+          { name: "Ham Konsol Çıktısı (traceroute) & Kopyala", type: "Terminal Çıktısı", defaultVal: "Tek Tık Kopyala", required: false, effect: "İnternet servis sağlayıcısı (ISP) veya SIP operatör teknik ekibine rota arıza kaydı açarken doğrudan iletilebilir." }
+        ]
+      },
+      {
+        tabTitle: "Sekme 3: SIP Capture Yakalama (Canlı Paket Yakalama & PCAP Arşivleme)",
+        badge: "Sorun İnceleme 3/4",
+        screenshot: {
+          src: "/screenshots/tabs/troubleshooting/03-sip-capture.jpg",
+          caption: "Sorun İnceleme → Sekme 3: SIP Capture Yakalama — Canlı SIP paket akışı, IP/Port/Metot filtreleri, ham SIP & SDP inceleyici ve arşivlenmiş .PCAP kayıtları",
+          routeHint: "Yönetim & Ayarlar → Sorun İnceleme → SIP Capture Yakalama"
+        },
+        description: "UDP/TCP 5060, TLS 5061, Cisco 5160 ve WebRTC WSS 8089 portlarındaki tüm SIP paketlerini kronolojik ham akış halinde yakalar; gelişmiş filtrelerle daraltıp anında `.pcap` olarak indirmenizi veya sunucuda kalıcı arşiv oluşturmanızı sağlar.",
+        fields: [
+          { name: "Yakalamayı Başlat/Durdur, Tümünü .PCAP İndir & Temizle", type: "SipTrapper Tampon Kontrolü", defaultVal: "Canlı Tampon", required: false, effect: "Bellekte tutulan tüm yakalanmış paketleri tek seferde Wireshark uyumlu `.pcap` dosyası olarak indirir veya tamponu güvenle sıfırlar." },
+          { name: "Çok Boyutlu Filtreler (IP, Port, SIP Metot/Hata & Serbest Arama)", type: "IP • Port • INVITE/REGISTER/4xx-5xx", defaultVal: "Tümü", required: false, effect: "Yalnızca `4xx / 5xx / 6xx Hatalar` veya belirli bir dahili numara / User-Agent / SDP satırı içeren paketleri anında süzer." },
+          { name: "Kronolojik SIP Paket Akışı & Ham SIP/SDP Paket İnceleyici", type: "Tablo + Canlı Frame", defaultVal: "Satır Seçimli", required: false, effect: "Tablodan tıklanan herhangi bir paketin tam SIP başlıklarını (`Via`, `Contact`, `P-Asserted-Identity`, `User-Agent`) ve SDP kodek/medya satırlarını (`PCMA`, `RTP port`) gösterir." },
+          { name: "Sunucuya Arşivle & Arşivlenmiş PCAP Kayıtları Listesi", type: "Etiketli .PCAP Arşivi", defaultVal: "İndir / Sil", required: false, effect: "Örn. `ikon_trunk_486_analiz` etiketiyle o anki paket yakalamayı sunucu diskine `.pcap` olarak arşivler; daha sonra indirilebilir veya silinebilir." }
+        ]
+      },
+      {
+        tabTitle: "Sekme 4: sngrep (Çağrı Akış Diyagramı / Ladder View & Çağrı Bazlı .PCAP)",
+        badge: "Sorun İnceleme 4/4",
+        screenshot: {
+          src: "/screenshots/tabs/troubleshooting/04-sngrep.jpg",
+          caption: "Sorun İnceleme → Sekme 4: sngrep — Canlı SIP diyalogları listesi, 3 sütunlu merdiven (ladder) akış diyagramı, ham SIP başlıkları ve çağrı bazlı .PCAP indirici",
+          routeHint: "Yönetim & Ayarlar → Sorun İnceleme → sngrep"
+        },
+        description: "SSH'a bağlanıp terminalde `sngrep` çalıştırmadan doğrudan tarayıcı içinden Call-ID bazlı çağrı diyaloglarını, 3 sütunlu (İstemci ↔ Santral PBX ↔ Dış Hat) merdiven sinyalizasyon diyagramını ve tekil çağrı `.pcap` indirme işlemlerini yönetir.",
+        fields: [
+          { name: "Diyalog Tipi Filtresi (Tümü / INVITE / REGISTER / OPTIONS) & Canlı Takip", type: "WebSocket Canlı Akış", defaultVal: "Canlı Dinleme Aktif", required: false, effect: "Yeni gelen çağrıları WebSocket üzerinden <20ms gecikmeyle yakalar; 'Canlı Takip' açıkken en son başlayan INVITE diyaloğuna otomatik odaklanır." },
+          { name: "Canlı SIP Diyalogları Listesi & Çağrı Bazlı `.PCAP` Butonu", type: "Call-ID Gruplu Liste", defaultVal: "Renk Kodlu Son Durum", required: false, effect: "Her çağrının arayan/aranan bilgisini, paket sayısını ve son SIP kodunu (200 OK, 486 Busy Here, 403 Forbidden vb.) gösterir; her satırın kendi `.PCAP` indirme butonu vardır." },
+          { name: "3 Sütunlu SIP Akış Diyagramı (sngrep Ladder View)", type: "İstemci ↔ PBX ↔ Operatör", defaultVal: "Milisaniye Kronolojisi", required: false, effect: "INVITE → 100 Trying → 183/180 Ringing → 200 OK → ACK → BYE akışını yön oklarıyla çizerek çağrının hangi bacakta reddedildiğini veya zaman aşımına uğradığını netleştirir." },
+          { name: "Ham SIP Başlıkları İnceleyici & Metni Kopyala", type: "Seçili Okun Ham Paketi", defaultVal: "Tam SIP + SDP", required: false, effect: "Ladder diyagramında tıklanan herhangi bir mesajın ham SIP ve SDP gövdesini anında görüntüler ve tek tıkla panoya kopyalar." }
         ]
       }
     ]

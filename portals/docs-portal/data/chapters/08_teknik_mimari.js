@@ -208,7 +208,7 @@ systemctl restart asterisk nginx`
     ],
     screenshots: [
       {
-        src: "/screenshots/46-sip-debugger.jpg",
+        src: "/screenshots/tabs/troubleshooting/04-sngrep.jpg",
         caption: "Dahili Web sngrep / SIP Debugger — Canlı SIP INVITE / 200 OK / BYE akış diyagramı ve PCAP indirici",
         routeHint: "Yönetim & Ayarlar → Sorun İnceleme (SIP Debugger)"
       }
