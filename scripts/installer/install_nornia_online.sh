@@ -13,20 +13,21 @@
 #   • 'nornia' Yönetim Hesabı + Kısıtlı 'destek' Hesabı + TTY1 Canlı Konsol Panosu
 #   • İlk Web Kurulum Sihirbazı (/setup) hazır olarak açılır.
 #
-# Tek Komutla Kurulum (Genel Repo):
-#   curl -fsSL https://raw.githubusercontent.com/anl-acr/ai-project/main/scripts/installer/install_nornia_online.sh | sudo bash
+# Kurulum Modları (Özel/Private Kaynak Korumalı):
+#   1) Nornia Kurumsal Paket Sunucusu (Müşteri Kurulumları — GitHub Gerektirmez):
+#      sudo bash install_nornia_online.sh \
+#        --bundle-url https://panel.nornia.com.tr/releases/nornia-app-bundle.tar.gz \
+#        --asterisk-deb https://panel.nornia.com.tr/releases/nornia-asterisk_18.11.3_amd64.deb
 #
-# Özel Repo / Parametreli Kurulum Örnekleri:
-#   sudo bash install_nornia_online.sh \
-#     --repo https://github.com/anl-acr/ai-project.git \
-#     --branch main \
-#     --token ghp_xxxxxxxxxxxxxxxxxxxx \
-#     --asterisk-deb https://panel.nornia.com.tr/downloads/nornia-asterisk_18.11.3_amd64.deb
+#   2) Yetkili Nornia Teknik Ekibi (Private Git Repo):
+#      sudo bash install_nornia_online.sh --token ghp_xxxxxxxxxxxxxxxxxxxx
 #
 # Ortam Değişkenleri (Opsiyonel):
-#   NORNIA_REPO_URL         (varsayılan: https://github.com/anl-acr/ai-project.git)
+#   NORNIA_BUNDLE_URL       (önceden paketlenmiş nornia-app-bundle.tar.gz URL veya yerel dosya)
+#   NORNIA_BUNDLE_TOKEN     (bundle indirirken kullanılacak Bearer token / lisans anahtarı)
+#   NORNIA_REPO_URL         (özel Git depo URL'si — yalnızca yetkili ekip)
 #   NORNIA_BRANCH           (varsayılan: main)
-#   NORNIA_GIT_TOKEN        (özel GitHub repo ise Personal Access Token)
+#   NORNIA_GIT_TOKEN        (özel GitHub repo için Personal Access Token — yalnızca yetkili ekip)
 #   NORNIA_ASTERISK_DEB_URL (önceden derlenmiş .deb URL veya yerel dosya yolu — ~15 sn kurulum)
 #   NORNIA_SYSADMIN_USER    (varsayılan: nornia)
 #   NORNIA_SYSADMIN_PASS    (varsayılan: NorniaAdmin2027!*)
@@ -39,6 +40,8 @@ LOG_FILE="/var/log/nornia-online-install.log"
 mkdir -p "$(dirname "$LOG_FILE")"
 exec > >(tee -a "$LOG_FILE") 2>&1
 
+BUNDLE_URL="${NORNIA_BUNDLE_URL:-}"
+BUNDLE_TOKEN="${NORNIA_BUNDLE_TOKEN:-}"
 REPO_URL="${NORNIA_REPO_URL:-https://github.com/anl-acr/ai-project.git}"
 BRANCH="${NORNIA_BRANCH:-main}"
 GIT_TOKEN="${NORNIA_GIT_TOKEN:-}"
@@ -54,6 +57,14 @@ PROJECT_DIR="/opt/ai-project"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --bundle-url)
+      BUNDLE_URL="${2:-}"
+      shift 2
+      ;;
+    --bundle-token)
+      BUNDLE_TOKEN="${2:-}"
+      shift 2
+      ;;
     --repo)
       REPO_URL="${2:-}"
       shift 2
@@ -226,25 +237,47 @@ sudo -u postgres psql -p 5444 -tAc "SELECT 1 FROM pg_database WHERE datname='ai_
 sudo -u postgres psql -p 5444 -d ai_pbx -c "CREATE EXTENSION IF NOT EXISTS vector;" 2>/dev/null || true
 
 # ------------------------------------------------------------------------------
-# 4. Nornia Kaynak Kodunun İndirilmesi (/opt/ai-project)
+# 4. Nornia Uygulama Dosyalarının İndirilmesi (/opt/ai-project)
 # ------------------------------------------------------------------------------
-echo "[4/12] Nornia kaynak kodu /opt/ai-project dizinine indiriliyor..."
-CLONE_URL="$REPO_URL"
-if [[ -n "$GIT_TOKEN" && "$REPO_URL" == https://* ]]; then
-  CLONE_URL="https://x-access-token:${GIT_TOKEN}@${REPO_URL#https://}"
-fi
+echo "[4/12] Nornia uygulama dosyaları /opt/ai-project dizinine kuruluyor..."
+mkdir -p "$PROJECT_DIR"
 
-if [[ -d "${PROJECT_DIR}/.git" ]]; then
-  echo "  → Mevcut depo güncelleniyor (${BRANCH})..."
-  git -C "$PROJECT_DIR" fetch "$CLONE_URL" "$BRANCH"
-  git -C "$PROJECT_DIR" checkout "$BRANCH" 2>/dev/null || git -C "$PROJECT_DIR" checkout -b "$BRANCH" FETCH_HEAD
-  git -C "$PROJECT_DIR" reset --hard FETCH_HEAD
+if [[ -n "$BUNDLE_URL" ]]; then
+  BUNDLE_TMP="/tmp/nornia-app-bundle.tar.gz"
+  if [[ -f "$BUNDLE_URL" ]]; then
+    echo "  → Yerel kurumsal paket açılıyor: ${BUNDLE_URL}"
+    tar -xzf "$BUNDLE_URL" -C "$PROJECT_DIR"
+  else
+    echo "  → Nornia kurumsal paket indiriliyor..."
+    if [[ -n "$BUNDLE_TOKEN" ]]; then
+      curl -fsSL -H "Authorization: Bearer ${BUNDLE_TOKEN}" "$BUNDLE_URL" -o "$BUNDLE_TMP"
+    else
+      curl -fsSL "$BUNDLE_URL" -o "$BUNDLE_TMP"
+    fi
+    tar -xzf "$BUNDLE_TMP" -C "$PROJECT_DIR"
+    rm -f "$BUNDLE_TMP"
+  fi
 else
-  mkdir -p "$(dirname "$PROJECT_DIR")"
-  git clone --depth 1 --branch "$BRANCH" "$CLONE_URL" "$PROJECT_DIR"
-  # Token'ı .git/config içine açık bırakma
-  if [[ -n "$GIT_TOKEN" ]]; then
-    git -C "$PROJECT_DIR" remote set-url origin "$REPO_URL"
+  CLONE_URL="$REPO_URL"
+  if [[ -n "$GIT_TOKEN" && "$REPO_URL" == https://* ]]; then
+    CLONE_URL="https://x-access-token:${GIT_TOKEN}@${REPO_URL#https://}"
+  fi
+
+  if [[ -d "${PROJECT_DIR}/.git" ]]; then
+    echo "  → Mevcut depo güncelleniyor (${BRANCH})..."
+    git -C "$PROJECT_DIR" fetch "$CLONE_URL" "$BRANCH"
+    git -C "$PROJECT_DIR" checkout "$BRANCH" 2>/dev/null || git -C "$PROJECT_DIR" checkout -b "$BRANCH" FETCH_HEAD
+    git -C "$PROJECT_DIR" reset --hard FETCH_HEAD
+  else
+    if ! git clone --depth 1 --branch "$BRANCH" "$CLONE_URL" "$PROJECT_DIR"; then
+      echo "[HATA] Özel kaynak deposuna erişilemedi." >&2
+      echo "       Müşteri kurulumları için --bundle-url, yetkili ekip için --token <PAT> parametresi ile çalıştırın." >&2
+      exit 1
+    fi
+    # Token'ı .git/config içine açık bırakma
+    if [[ -n "$GIT_TOKEN" ]]; then
+      git -C "$PROJECT_DIR" remote set-url origin "$REPO_URL"
+    fi
   fi
 fi
 
