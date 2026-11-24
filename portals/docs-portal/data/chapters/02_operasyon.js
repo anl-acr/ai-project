@@ -138,53 +138,6 @@ export const CHAPTERS_OPERASYON = [
     relatedApis: ["GET /api/v1/calls/active", "POST /api/v1/calls/monitor", "POST /api/v1/calls/{call_id}/transfer", "GET /api/supervisor/break-requests"]
   },
   {
-    id: "temsilci-cagri-paneli",
-    number: "06",
-    groupId: "operasyon",
-    category: "Operasyon & İzleme",
-    title: "Temsilci Çağrı Paneli (Agent Workspace)",
-    shortTitle: "Temsilci Çağrı Paneli",
-    menuPath: "Operasyon & İzleme → Temsilci Çağrı Paneli",
-    pbxRoute: "/?tab=cagri-merkezi",
-    permissions: ["call_panel:access", "call_panel:tab_webphone", "call_panel:tab_history", "call_panel:tab_directory", "call_panel:cti_screen_pop", "call_panel:live_translation"],
-    badge: "Agent Masaüstü • 10 Sekme",
-    readMinutes: 11,
-    summary:
-      "Çağrı merkezi temsilcilerinin tüm mesai boyunca kullandığı tek ekranlı çalışma alanıdır: Dahili WebPhone, Temsilci Durumu/Mola Seçici, Müşteri 360° Kartı, CTI Screen Pop, AI Otomatik Çağrı Notu, Canlı Çift Yönlü Çeviri, Cevapsız Çağrı Sahiplenme, Rehber, Sesli Posta ve Masa Telefonu BLF yönetimi bu panelde birleşir.",
-    screenshots: [
-      {
-        src: "/screenshots/04-call-center.jpg",
-        caption: "Temsilci Çağrı Paneli — WebPhone, canlı istatistikler, mola kontrolü ve alt çalışma sekmeleri",
-        routeHint: "Operasyon & İzleme → Temsilci Çağrı Paneli"
-      }
-    ],
-    fieldTable: [
-      { field: "Pano Sekmesi (tab_dashboard)", type: "Günlük KPI", defaultVal: "Aktif", required: false, description: "Temsilcinin bugünkü gelen/giden/kaçan çağrı sayıları, toplam konuşma süresi ve mola türlerine göre (Yemek, İhtiyaç vb.) kullandığı dakikalar." },
-      { field: "Web Telefon (tab_webphone)", type: "SIP.js Softphone", defaultVal: "Aktif", required: false, description: "Numara çevirme, Sessize Al (Mute), Beklet (Hold), Kör/Danışmalı Transfer, 3'lü Konferans, KVKK Ses Kaydı Duraklatma (*9) ve Call Flip (*11)." },
-      { field: "Temsilciler (tab_agents)", type: "BLF / Presence", defaultVal: "Rol Bazlı", required: false, description: "Ekip arkadaşlarının anlık Müsait/Meşgul/Molada durumlarını gösterir; tek tıkla arama veya çağrı transferi yapılabilir." },
-      { field: "Kayıp Çağrı (tab_missed)", type: "Sahiplenme (Claim)", defaultVal: "Aktif", required: false, description: "Cevapsız kalan aramaları gösterir. Temsilci 'Üzerime Al (Claim)' diyerek çift aramayı önler ve tek tıkla geri arar." },
-      { field: "Müşteri 360° & CTI Screen Pop", type: "Otomatik Açılış", defaultVal: "Çağrı anında", required: false, description: "Çağrı geldiğinde müşterinin geçmiş aramaları, WhatsApp sohbetleri, VIP etiketleri açılır; CTI tanımlıysa dış CRM sekmesi otomatik açılır." },
-      { field: "AI Not & Sonuç Kodu (ACW)", type: "Wrap-up Formu", defaultVal: "Çağrı bitiminde", required: false, description: "Görüşme bitince AI tarafından önerilen özet not ve çağrı sonuç kodu (Disposition) tek tıkla kaydedilir." },
-      { field: "Canlı Çeviri & Tercüman", type: "TR ↔ Yabancı Dil", defaultVal: "Yetki Bazlı", required: false, description: "Yabancı dilde konuşan müşterinin sesini canlı Türkçe altyazıya çevirir ve temsilcinin yanıtını hedef dilde seslendirebilir." },
-      { field: "Masa Telefonum (tab_deskphone)", type: "BLF / Softkey", defaultVal: "Yetki Bazlı", required: false, description: "Temsilcinin masadaki fiziksel IP telefonunun BLF ve hızlı arama tuşlarını kendi ekranından yönetmesini sağlar." }
-    ],
-    sections: [
-      {
-        heading: "1. Temsilci Mola ve Kuyruk Durum Yönetimi",
-        body: "Üst çubuktaki durum seçiciden 'Müsait' veya tanımlı mola türlerinden birine (Yemek Molası, İhtiyaç Molası, Eğitim, Toplantı) geçebilirsiniz. Her mola geçişi PostgreSQL agent_break_logs tablosuna saniye hassasiyetinde yazılır ve kuyruktan geçici olarak (Pause) çıkarılırsınız; Müsait'e dönünce kuyruk çağrıları tekrar akmaya başlar."
-      },
-      {
-        heading: "2. KVKK / Kredi Kartı Ses Kaydı Duraklatma",
-        body: "Müşteri telefon üzerinden kredi kartı numarası veya T.C. kimlik/hassas veri paylaşırken temsilci WebPhone üzerindeki 'Kaydı Duraklat' butonuna (veya masa telefonundan *9'a) basarak Asterisk MixMonitor kaydını duraklatabilir; işlem bitince tekrar devam ettirebilir."
-      }
-    ],
-    troubleshooting: [
-      { problem: "Çağrı Panelinde bazı sekmeler (örn. Ses Kayıt Dinleme veya Temsilciler) görünmüyor", cause: "Kullanıcının rolünde ilgili granüler call_panel:* yetkisi kapalı.", solution: "Sistem Ayarları → Roller ekranından ilgili role call_panel:tab_* veya call_panel:listen_records yetkisini verin." }
-    ],
-    relatedPages: ["masaustu-mobil-ve-webphone", "ortak-gelen-kutusu", "roller-kvkk-ve-ldap"],
-    relatedApis: ["POST /api/v1/extensions/{extension}/status", "POST /api/v1/calls/{call_id}/recording-pause", "GET /api/workspace/customer-360", "POST /api/workspace/missed-claims"]
-  },
-  {
     id: "ortak-gelen-kutusu",
     number: "07",
     groupId: "operasyon",

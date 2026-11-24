@@ -34,7 +34,7 @@ export default function ManualChapterPage({ chapter }) {
         <link rel="alternate icon" href="/favicon.ico" sizes="32x32" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
       </Head>
-      <ChapterArticle chapter={chapter} />
+      <ChapterArticle key={chapter.id} chapter={chapter} />
     </DocsShell>
   );
 }

@@ -1,4 +1,5 @@
 import { CHAPTERS_BASLANGIC } from "./chapters/01_baslangic";
+import { CHAPTERS_TEMSILCI_PANELI } from "./chapters/01b_temsilci_cagri_paneli";
 import { CHAPTERS_OPERASYON } from "./chapters/02_operasyon";
 import { CHAPTERS_YAPAY_ZEKA } from "./chapters/03_yapay_zeka";
 import { CHAPTERS_SANTRAL_A } from "./chapters/04a_santral";
@@ -26,7 +27,7 @@ export const MANUAL_META = {
   product: "Nornia Enterprise AI PBX",
   version: "v3.10.11",
   updatedAt: "24 Kasım 2026",
-  totalPages: 88,
+  totalPages: 98,
   fullPdfPath: "/pdfs/nornia-kullanim-kilavuzu-tam.pdf"
 };
 
@@ -38,9 +39,15 @@ export const MANUAL_GROUPS = [
     color: "indigo"
   },
   {
+    id: "temsilci-paneli",
+    title: "Temsilci Çağrı Paneli (Kullanıcı Rehberi)",
+    subtitle: "Tüm son kullanıcı & temsilci rehberi: Oturum/Mola, 10 sekmenin tamamı ve gelen/aktif/transfer/konferans/çift hat/ACW çağrı ekranları",
+    color: "cyan"
+  },
+  {
     id: "operasyon",
     title: "Operasyon & İzleme",
-    subtitle: "AI Pano, Wallboard, Canlı Çağrı, Temsilci Paneli, Omnichannel ve API Bütçe",
+    subtitle: "AI Pano, Wallboard, Canlı Çağrı Müdahale, Ortak Gelen Kutusu (Omnichannel) ve API Bütçe",
     color: "emerald"
   },
   {
@@ -77,6 +84,7 @@ export const MANUAL_GROUPS = [
 
 const RAW_CHAPTERS = [
   ...CHAPTERS_BASLANGIC,
+  ...CHAPTERS_TEMSILCI_PANELI,
   ...CHAPTERS_OPERASYON,
   ...CHAPTERS_YAPAY_ZEKA,
   ...CHAPTERS_SANTRAL_A,

@@ -12,7 +12,7 @@ export default function DocsIndexPage() {
         <title>Nornia Doküman — Detaylı Kurulum &amp; Kullanım Kılavuzu ({MANUAL_META.version})</title>
         <meta
           name="description"
-          content="Nornia Enterprise AI PBX 88 sayfalık menü ve rapor bazlı kapsamlı kullanım kılavuzu: 249 canlı ekran görüntüsü, tüm parametre/alt pencere tabloları, yapılandırma örnekleri ve modül bazlı PDF indirme."
+          content="Nornia Enterprise AI PBX 98 sayfalık menü, Temsilci Çağrı Paneli ve rapor bazlı kapsamlı kullanım kılavuzu: 257+ canlı ekran görüntüsü, tüm aktif çağrı ekranları, parametre/alt pencere tabloları ve modül bazlı PDF indirme."
         />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -40,7 +40,7 @@ export default function DocsIndexPage() {
           </h1>
 
           <p className="text-xs sm:text-sm text-indigo-100/90 leading-relaxed max-w-3xl">
-            Nornia santral arayüzündeki 7 ana menü grubu ve {MANUAL_CHAPTERS.length} ayrı modülün tamamı için gerçek canlı ekran görüntüleri, her form alanının teknik açıklaması, rol yetki kodları (RBAC), adım adım uygulama örnekleri, sorun giderme matrisleri ve tek tıkla indirilebilir kurumsal A4 PDF kılavuzları.
+            Nornia santral arayüzündeki {MANUAL_GROUPS.length} ana menü grubu ve {MANUAL_CHAPTERS.length} ayrı modülün tamamı için gerçek canlı ekran görüntüleri (Temsilci Çağrı Paneli&apos;nin 10 sekmesi ve aktif görüşme/transfer/konferans/ACW ekranları dahil), her form alanının teknik açıklaması, rol yetki kodları (RBAC), adım adım uygulama örnekleri, sorun giderme matrisleri ve tek tıkla indirilebilir kurumsal A4 PDF kılavuzları.
           </p>
 
           <div className="flex flex-wrap gap-3 pt-1">
@@ -79,7 +79,7 @@ export default function DocsIndexPage() {
             <div>
               <div className="text-xs font-black">{MANUAL_CHAPTERS.length} Özel Menü Sayfası</div>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                Santral sol menüsüyle birebir aynı 7 grup altında her ekrana özel URL ve alan referans tablosu.
+                {MANUAL_GROUPS.length} grup altında tüm yönetici ekranları, 11 sayfalık Temsilci Rehberi ve 44 ayrı rapor.
               </p>
             </div>
           </div>
@@ -88,7 +88,7 @@ export default function DocsIndexPage() {
               <FileDown size={18} />
             </div>
             <div>
-              <div className="text-xs font-black">51 Hazır Kurumsal PDF</div>
+              <div className="text-xs font-black">{MANUAL_CHAPTERS.length + 1} Hazır Kurumsal PDF</div>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
                 İster sadece tek bir menünün PDF&apos;ini, ister tüm santralin tam kullanım kitabını anında indirin.
               </p>

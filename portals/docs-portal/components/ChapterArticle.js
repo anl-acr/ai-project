@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import {
   FileDown,
@@ -81,6 +81,15 @@ export default function ChapterArticle({ chapter, printMode = false }) {
     });
     return init;
   });
+
+  useEffect(() => {
+    const init = {};
+    (chapter.editFormSections || []).forEach((_, idx) => {
+      init[idx] = true;
+    });
+    setOpenEditTabs(init);
+    setZoomShot(null);
+  }, [chapter.id]);
 
   const toggleAllEditTabs = (expand) => {
     const next = {};
