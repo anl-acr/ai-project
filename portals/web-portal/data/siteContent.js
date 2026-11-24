@@ -20,6 +20,7 @@ export const HERO_METRICS = [
 ];
 
 export const COMPATIBILITY_BADGES = [
+  "AI Canlı Çağrı Çevirisi (6 Dil)",
   "Yealink",
   "Cisco IP",
   "Fanvil",
@@ -53,19 +54,36 @@ export const PLATFORM_TABS = [
     ],
   },
   {
+    id: "live-translate",
+    label: "AI Canlı Çağrı Çevirisi",
+    badge: "Simultane Tercüman • 6 Dil",
+    title: "Canlı Çağrı Sırasında Çift Yönlü Yapay Zeka Sesli Tercüme",
+    description:
+      "Yabancı dil bilmeyen temsilcileriniz bile İngilizce, Almanca, Rusça, Arapça, Fransızca ve İspanyolca konuşan müşterilerle anlık altyazı ve çift yönlü sesli dublajla akıcı görüşme yapsın.",
+    screenshot: "/screenshots/active-call-panel.jpg",
+    screenshotAlt: "Nornia Temsilci Çağrı Paneli içinde Canlı Konuşma & Çeviri simultane tercüman ekranı",
+    docUrl: "https://dokuman.nornia.com.tr/cagri-paneli-web-telefon-aktif-cagri/",
+    bullets: [
+      "6 dilde anlık çeviri: İngilizce (EN), Almanca (DE), Rusça (RU), Arapça (AR), Fransızca (FR) ve İspanyolca (ES) ↔ Türkçe",
+      "Çift yönlü Oto. Sesli Çeviri: Temsilci Türkçe konuşur, müşteri kendi dilinde doğal sesle dinler; müşteri konuşurken orijinal ses kısılır (Audio Ducking)",
+      "Yazarak Seslendir modu: Temsilcinin yazdığı Türkçe yanıt anında hedef dile çevrilip doğrudan aktif telefon hattına sesli okunur",
+      "3 ses çıkış modu (Sadece Müşteri / Müşteri + Ben / Sadece Ben) ve granüler rol yetkisi (live_translator)",
+    ],
+  },
+  {
     id: "agent-panel",
     label: "Temsilci Çağrı Paneli",
     badge: "Tarayıcı Tabanlı WebRTC İş İstasyonu",
     title: "Yüzlerce Temsilci İçin Kurulumsuz Çağrı Merkezi Ekranı",
     description:
-      "Masa telefonu, Runa Mobil veya dahili WebRTC Web Telefon tek ekranda birleşir. Temsilciler tüm çağrı kontrollerini, müşteri kartını ve mola sürelerini tek panelden yönetir.",
-    screenshot: "/screenshots/04-call-center.jpg",
-    screenshotAlt: "Nornia Temsilci Çağrı Paneli ve Web Telefon ekranı",
+      "Masa telefonu, Runa Mobil veya dahili WebRTC Web Telefon tek ekranda birleşir. Temsilciler tüm çağrı kontrollerini, AI canlı çeviriyi, 360° müşteri kartını ve mola sürelerini tek panelden yönetir.",
+    screenshot: "/screenshots/active-call-panel.jpg",
+    screenshotAlt: "Nornia canlı Temsilci Çağrı Paneli, Web Telefon ve aktif görüşme ekranı",
     docUrl: "https://dokuman.nornia.com.tr/temsilci-cagri-paneli/",
     bullets: [
-      "Aktif çağrıda 10 canlı kontrol: Kör/Danışmalı Aktarım, Bekletme, Konferans, Çağrı Parkı, Kayıt ve DTMF",
-      "Süpervizör canlı dinleme, fısıldama (whisper) ve müdahale (barge-in) yetkileri",
-      "Anlık CTI müşteri kartı açılışı, çağrı notları, sonuç kodları ve kayıp çağrı geri arama kuyruğu",
+      "Aktif çağrıda 10 canlı kontrol: Kör/Danışmalı Aktarım, Bekletme, Konferans, Çağrı Parkı, AI Not Çıkar ve DTMF",
+      "Dahili AI Canlı Konuşma & Çeviri paneli ile görüşme içi anlık transkript ve simultane tercüme",
+      "Anlık 360° CTI müşteri kartı açılışı, çağrı notları, sonuç kodları ve kayıp çağrı geri arama kuyruğu",
       "Gerçek zamanlı vardiya, mola puantajı ve temsilci performans sayaçları",
     ],
   },
