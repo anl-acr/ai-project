@@ -341,7 +341,7 @@ static.auto_provision.power_on = 1
 static.auto_provision.repeat.enable = 1
 static.auto_provision.repeat.minutes = 60
 static.security.trust_certificates = 0
-sip.notify_reboot_enable = 1
+sip.notify_reboot_enable = 0
 
 # --- SIP Hesap 1 ---
 account.1.enable = 1
@@ -394,6 +394,9 @@ features.direct_ip_call_enable = 0
 
 # --- Ekran Alti Softkeys (F1-F4) ---
 {{SOFTKEYS_BLOCK}}
+
+# --- Canli Cift Yonlu DND & Cagri Yonlendirme Senkronizasyonu ---
+{{SYNC_FEATURE_BLOCK}}
 
 # --- Uzak XML Rehber ---
 features.remote_phonebook.enable = 1
@@ -1642,6 +1645,9 @@ def generate_provisioning_config(
     expansion_modules: Optional[List[Dict[str, Any]]] = None,
     phone_prefs: Optional[Dict[str, Any]] = None,
     ext_name_map: Optional[Dict[str, str]] = None,
+    live_sync_state: Optional[Dict[str, Any]] = None,
+    phone_sync_base_url: str = "",
+    fwd_codes: Optional[Dict[str, str]] = None,
 ) -> Tuple[str, str, str]:
     """
     Generates multi-vendor provisioning content using `sip_username` (Kullanıcı > SIP > Kullanıcı Adı)
@@ -1698,6 +1704,20 @@ def generate_provisioning_config(
     # Effective language & auto-answer from phone_prefs
     eff_language = str(prefs.get("language") or language or "Turkish").strip() or "Turkish"
     eff_auto_answer = bool(prefs.get("auto_answer", auto_answer))
+
+    # Build Yealink bi-directional DND & Call Forwarding sync config lines (live state + feature codes + Action URLs)
+    from backend.services.deskphone_sync_service import build_yealink_sync_cfg_lines
+    eff_live_sync = dict(live_sync_state) if isinstance(live_sync_state, dict) else {}
+    if not eff_live_sync and prefs.get("dnd_default"):
+        eff_live_sync["dnd_enabled"] = True
+    yealink_sync_lines = build_yealink_sync_cfg_lines(
+        ext=ext_s,
+        sip_username=sip_u,
+        live_state=eff_live_sync if eff_live_sync else None,
+        sync_base_url=phone_sync_base_url,
+        fwd_codes=fwd_codes,
+    )
+    yealink_sync_block = "\n".join(yealink_sync_lines)
 
     # 1. If a custom/system XML/CFG template is explicitly assigned, interpolate ALL variables + live DSS/Expansion/Softkey blocks
     if isinstance(template_obj, dict) and str(template_obj.get("xml_content") or "").strip():
@@ -1858,10 +1878,14 @@ def generate_provisioning_config(
             "{DSS_KEYS_BLOCK}": "\n".join(dss_block_lines),
             "{EXPANSION_MODULES_BLOCK}": "\n".join(exp_block_lines),
             "{SOFTKEYS_BLOCK}": "\n".join(soft_block_lines),
+            "{SYNC_FEATURE_BLOCK}": yealink_sync_block if "yealink" in tpl_b_low else "",
         }
         rendered = raw_tpl
         for k, v in replacements.items():
             rendered = rendered.replace(k, str(v))
+        if "yealink" in tpl_b_low and "{SYNC_FEATURE_BLOCK}" not in raw_tpl:
+            rendered = rendered.replace("sip.notify_reboot_enable = 1", "sip.notify_reboot_enable = 0")
+            rendered = rendered.rstrip() + "\n" + yealink_sync_block + "\n"
         is_xml = rendered.lstrip().startswith("<")
         ext_suffix = "xml" if is_xml else "cfg"
         fname = f"{mac_hex or ('ext_' + ext_s)}.{ext_suffix}"
@@ -2275,7 +2299,6 @@ def generate_provisioning_config(
         f"features.intercom.allow = 1",
         f"features.intercom.mute = {1 if prefs['intercom_mute'] else 0}",
         f"features.headset_prior = {1 if prefs['headset_mode'] in ('ehs', 'usb', 'bluetooth') else 0}",
-        f"features.dnd.enable = {1 if prefs['dnd_default'] else 0}",
         f"phone_setting.missed_call_power_led_flash.enable = {1 if prefs['missed_call_led'] else 0}",
         f"phone_setting.mail_power_led_flash_enable = {1 if prefs['mwi_led'] else 0}",
         f"phone_setting.active_backlight_level = {prefs['backlight_active']}",
@@ -2285,15 +2308,15 @@ def generate_provisioning_config(
         f"local_time.time_format = {yl_time_fmt}",
         f"local_time.date_format = {yl_date_fmt}",
         "",
-        "# --- Dil, Saat Dilimi ve Uzaktan Reboot / Senkronizasyon (check-sync) ---",
+        "# --- Dil, Saat Dilimi ve Uzaktan Senkronizasyon (Zero-Reboot check-sync) ---",
         f"lang.gui = {lang_val}",
         f"lang.wui = {lang_val}",
         f"local_time.time_zone = {tz_val}",
         "local_time.time_zone_name = Turkey(Ankara)" if tz_val in ("+3", "3", "UTC+3") else f"local_time.time_zone_name = GMT{tz_val}",
         f"local_time.ntp_server1 = {ntp_val}",
         "local_time.summer_time = 0",
-        "sip.notify_reboot_enable = 1",
         f"features.direct_ip_call_enable = {0 if direct_ip_call_block else 1}",
+        *yealink_sync_lines,
         "",
         "# --- Programlanabilir Yan Tuslar / BLF / Hizli Arama (DSS Keys) ---",
     ]

@@ -2019,8 +2019,12 @@ export default function Home() {
 
       setCurrentUser((prev) => {
         if (!prev) return prev;
-        const prevSig = `${prev.active_profile || "available"}|${JSON.stringify(prev.profiles || [])}`;
-        const nextSig = `${nextActProf}|${JSON.stringify(nextProfiles)}`;
+        const nextFwdA = detail.forwarding_always || prev.forwarding_always;
+        const nextFwdB = detail.forwarding_busy || prev.forwarding_busy;
+        const nextFwdN = detail.forwarding_no_answer || prev.forwarding_no_answer;
+        const nextDpSync = detail.deskphone_sync || prev.call_panel_prefs?.deskphoneSync;
+        const prevSig = `${prev.active_profile || "available"}|${JSON.stringify(prev.profiles || [])}|${JSON.stringify(prev.forwarding_always || null)}|${JSON.stringify(prev.forwarding_busy || null)}|${JSON.stringify(prev.forwarding_no_answer || null)}|${JSON.stringify(prev.call_panel_prefs?.deskphoneSync || null)}`;
+        const nextSig = `${nextActProf}|${JSON.stringify(nextProfiles)}|${JSON.stringify(nextFwdA || null)}|${JSON.stringify(nextFwdB || null)}|${JSON.stringify(nextFwdN || null)}|${JSON.stringify(nextDpSync || null)}`;
         if (prevSig === nextSig) return prev;
         const synced = {
           ...prev,
@@ -2028,7 +2032,15 @@ export default function Home() {
           profiles: nextProfiles,
           ...(detail.forwarding_always ? { forwarding_always: detail.forwarding_always } : {}),
           ...(detail.forwarding_busy ? { forwarding_busy: detail.forwarding_busy } : {}),
-          ...(detail.forwarding_no_answer ? { forwarding_no_answer: detail.forwarding_no_answer } : {})
+          ...(detail.forwarding_no_answer ? { forwarding_no_answer: detail.forwarding_no_answer } : {}),
+          ...(detail.deskphone_sync
+            ? {
+                call_panel_prefs: {
+                  ...(prev.call_panel_prefs || {}),
+                  deskphoneSync: detail.deskphone_sync
+                }
+              }
+            : {})
         };
         try {
           const savedAuthLocal = localStorage.getItem("is_logged_in") === "true";
@@ -2142,6 +2154,59 @@ export default function Home() {
       } catch (e) {
         console.error("Quick profile switch error:", e);
       }
+    }
+  };
+
+  const handleQuickCancelForwarding = async (ruleType = "all") => {
+    const ext = String(currentUser?.extension || "").trim();
+    if (!ext) return;
+    try {
+      const protocol = typeof window !== "undefined" && window.location.protocol === "https:" ? "https:" : "http:";
+      const res = await fetch(`${protocol}//${backendHost}/api/subscriber/cancel_forwarding`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ extension: ext, rule_type: ruleType })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const upd = data?.updates || {};
+        if (upd.forwarding_always) {
+          setFwdAlwaysActive(false);
+          setFwdAlwaysTarget("");
+        }
+        if (upd.forwarding_busy) {
+          setFwdBusyActive(false);
+          setFwdBusyTarget("");
+        }
+        if (upd.forwarding_no_answer) {
+          setFwdNoAnswerActive(false);
+          setFwdNoAnswerTarget("");
+        }
+        setAgentProfiles((prev) =>
+          (prev || []).map((p) => {
+            if (p.id !== agentActiveProfile) return p;
+            return {
+              ...p,
+              ...(upd.forwarding_always ? { forwarding_always: upd.forwarding_always } : {}),
+              ...(upd.forwarding_busy ? { forwarding_busy: upd.forwarding_busy } : {}),
+              ...(upd.forwarding_no_answer ? { forwarding_no_answer: upd.forwarding_no_answer } : {})
+            };
+          })
+        );
+        setCurrentUser((prev) =>
+          prev
+            ? {
+                ...prev,
+                ...(upd.forwarding_always ? { forwarding_always: upd.forwarding_always } : {}),
+                ...(upd.forwarding_busy ? { forwarding_busy: upd.forwarding_busy } : {}),
+                ...(upd.forwarding_no_answer ? { forwarding_no_answer: upd.forwarding_no_answer } : {})
+              }
+            : prev
+        );
+        showNotification("Çağrı yönlendirme iptal edildi ve masa telefonuna senkronize edildi.", "success", "Yönlendirme İptal Edildi");
+      }
+    } catch (e) {
+      console.error("Quick cancel forwarding error:", e);
     }
   };
 
@@ -5637,7 +5702,44 @@ export default function Home() {
                       <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-rose-500 ring-2 ring-white dark:ring-slate-900 animate-pulse" />
                     )}
                   </button>
-                  <div ref={profileDropdownRef} className="relative shrink-0">
+                  <div ref={profileDropdownRef} className="relative shrink-0 flex items-center gap-1.5">
+                    {(() => {
+                      const activeFwdPill =
+                        (fwdAlwaysActive && fwdAlwaysTarget && { label: "Yönlendirme", target: fwdAlwaysTarget, type: "always" }) ||
+                        (fwdBusyActive && fwdBusyTarget && { label: "Meşgulde", target: fwdBusyTarget, type: "busy" }) ||
+                        (fwdNoAnswerActive && fwdNoAnswerTarget && { label: "Cevapsızda", target: fwdNoAnswerTarget, type: "no_answer" }) ||
+                        null;
+                      const isDeskDndPill = Boolean(currentUser?.call_panel_prefs?.deskphoneSync?.dnd_active || agentActiveProfile === "meeting");
+                      if (!activeFwdPill && !isDeskDndPill) return null;
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => setProfileDropdownOpen(true)}
+                          className={`hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-bold transition-all shadow-sm cursor-pointer ${
+                            activeFwdPill
+                              ? `${lightBg} ${text} ${borderLight} hover:opacity-90`
+                              : "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/30 hover:bg-red-500/15"
+                          }`}
+                          title={
+                            activeFwdPill
+                              ? `${activeFwdPill.label}: ${activeFwdPill.target} (Masa Telefonu ↔ Santral Senkron)`
+                              : "Rahatsız Etmeyin (DND) Aktif (Masa Telefonu ↔ Santral Senkron)"
+                          }
+                        >
+                          {activeFwdPill ? (
+                            <>
+                              <PhoneForwarded size={12} className="shrink-0" />
+                              <span className="font-mono max-w-[90px] truncate">{activeFwdPill.target}</span>
+                            </>
+                          ) : (
+                            <>
+                              <PhoneOff size={12} className="shrink-0" />
+                              <span>DND</span>
+                            </>
+                          )}
+                        </button>
+                      );
+                    })()}
                     <button
                       type="button"
                       onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
@@ -5780,6 +5882,67 @@ export default function Home() {
                           })}
                         </div>
                       </div>
+
+                      {/* Live Deskphone ↔ PBX Forwarding & DND Sync Status */}
+                      {(() => {
+                        const liveFwdRows = [
+                          fwdAlwaysActive && fwdAlwaysTarget ? { key: "always", label: "Her Zaman", target: fwdAlwaysTarget } : null,
+                          fwdBusyActive && fwdBusyTarget ? { key: "busy", label: "Meşgulde", target: fwdBusyTarget } : null,
+                          fwdNoAnswerActive && fwdNoAnswerTarget ? { key: "no_answer", label: "Cevapsızda", target: fwdNoAnswerTarget } : null
+                        ].filter(Boolean);
+                        const dpSyncObj = currentUser?.call_panel_prefs?.deskphoneSync || {};
+                        const isLiveDnd = Boolean(dpSyncObj.dnd_active || agentActiveProfile === "meeting");
+                        if (liveFwdRows.length === 0 && !isLiveDnd) return null;
+                        return (
+                          <div className="px-3 py-2.5 border-b border-slate-100 dark:border-slate-800/80 bg-slate-50/70 dark:bg-slate-950/40 space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                                Canlı Santral / Telefon Durumu
+                              </span>
+                              {dpSyncObj.last_sync_source && (
+                                <span className="text-[9px] font-semibold text-slate-400 dark:text-slate-500 truncate max-w-[110px]">
+                                  {dpSyncObj.last_sync_source}
+                                </span>
+                              )}
+                            </div>
+                            {isLiveDnd && (
+                              <div className="flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20">
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <PhoneOff size={12} className="text-red-500 shrink-0" />
+                                  <span className="text-[11px] font-bold text-red-600 dark:text-red-400 truncate">
+                                    Rahatsız Etmeyin (DND)
+                                  </span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleQuickProfileSwitch("available")}
+                                  className="text-[10px] font-bold text-red-600 dark:text-red-400 hover:underline shrink-0 cursor-pointer"
+                                >
+                                  Kapat
+                                </button>
+                              </div>
+                            )}
+                            {liveFwdRows.map((row) => (
+                              <div key={row.key} className={`flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg border ${lightBg} ${borderLight}`}>
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <PhoneForwarded size={12} className={`${text} shrink-0`} />
+                                  <span className="text-[11px] font-bold text-slate-800 dark:text-slate-100 truncate">
+                                    {row.label}: <span className={`font-mono ${text}`}>{row.target}</span>
+                                  </span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleQuickCancelForwarding(row.key)}
+                                  className="p-0.5 rounded hover:bg-slate-200/70 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 hover:text-red-500 transition-colors shrink-0 cursor-pointer"
+                                  title={`${row.label} yönlendirmesini iptal et`}
+                                >
+                                  <X size={12} />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })()}
 
                       {/* Menu Actions */}
                       <div className="p-1.5">

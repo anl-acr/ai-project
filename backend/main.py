@@ -11033,6 +11033,9 @@ async def webrtc_register_notify(request: Request, payload: dict, db: AsyncSessi
             resp_payload["forwarding_busy"] = matched_user_obj.get("forwarding_busy")
         if matched_user_obj.get("forwarding_no_answer"):
             resp_payload["forwarding_no_answer"] = matched_user_obj.get("forwarding_no_answer")
+        _rn_prefs = matched_user_obj.get("call_panel_prefs") if isinstance(matched_user_obj.get("call_panel_prefs"), dict) else {}
+        if isinstance(_rn_prefs.get("deskphoneSync"), dict):
+            resp_payload["deskphone_sync"] = _rn_prefs["deskphoneSync"]
     return resp_payload
 
 @app.post("/api/webrtc/unregister_notify")
@@ -12358,7 +12361,10 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
             merged_cpp["profileAvatar"] = payload.avatar
         user["call_panel_prefs"] = merged_cpp
 
-    if touched_profiles:
+    touched_forwarding = any(
+        v is not None for v in (payload.forwarding_always, payload.forwarding_busy, payload.forwarding_no_answer)
+    )
+    if touched_profiles or touched_forwarding:
         ensure_user_profiles(user)
         now_prof_ts = int(time.time() * 1000)
         user["profiles_updated_ts"] = now_prof_ts
@@ -12369,6 +12375,17 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
             "profiles": copy.deepcopy(user.get("profiles") or []),
             "updatedTs": now_prof_ts,
         }
+        # Align deskphoneSync metadata when profile or forwarding changes from Web UI
+        _prev_dp_meta = user["call_panel_prefs"].get("deskphoneSync") if isinstance(user["call_panel_prefs"].get("deskphoneSync"), dict) else {}
+        _dp_meta = dict(_prev_dp_meta)
+        if touched_profiles:
+            _act_p_id = str(user.get("active_profile") or "available").strip()
+            _act_p_obj = next((p for p in (user.get("profiles") or []) if isinstance(p, dict) and str(p.get("id")) == _act_p_id), None)
+            _act_p_devs = _act_p_obj.get("devices") if isinstance(_act_p_obj, dict) else None
+            _dp_meta["dnd_active"] = bool(_act_p_id in ("meeting", "dnd") or (isinstance(_act_p_devs, list) and len(_act_p_devs) == 0))
+        _dp_meta["last_sync_source"] = "Web Arayüzü"
+        _dp_meta["last_sync_at"] = (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
+        user["call_panel_prefs"]["deskphoneSync"] = _dp_meta
 
     if payload.wallboard_layout is not None:
         existing_wbl = user.get("wallboard_layout") if isinstance(user.get("wallboard_layout"), dict) else {}
@@ -12597,7 +12614,7 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
                 if payload.hotdesk_config is not None and isinstance(user.get("hotdesk_config"), dict):
                     target_db_u.hotdesk_config = copy.deepcopy(user["hotdesk_config"])
                     flag_modified(target_db_u, "hotdesk_config")
-                if payload.call_panel_prefs is not None or payload.avatar is not None or touched_2fa or touched_profiles or any(
+                if payload.call_panel_prefs is not None or payload.avatar is not None or touched_2fa or touched_profiles or touched_forwarding or any(
                     v is not None
                     for v in (
                         payload.auto_logout_enabled,
@@ -12667,6 +12684,13 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
     except Exception as e_db_sync:
         print(f"[Profile Update] DB sync notice: {e_db_sync}")
 
+    if touched_profiles or touched_forwarding:
+        try:
+            from backend.services.deskphone_sync_service import push_live_state_to_user_deskphones
+            push_live_state_to_user_deskphones(user, settings_db, reason_log="Web Profil / Yönlendirme Güncellemesi")
+        except Exception as e_dp:
+            print(f"[Profile Update DeskPhone Sync Warning]: {e_dp}")
+
     return {"status": "success", "user": user, "message": "Profil ve güvenlik ayarları başarıyla güncellendi."}
 
 @app.post("/api/users/{user_id}/active-profile")
@@ -12698,6 +12722,18 @@ async def switch_user_active_profile_endpoint(user_id: Union[int, str], payload:
             "active_profile": user.get("active_profile") or active_profile,
             "profiles": copy.deepcopy(user.get("profiles") or []),
             "updatedTs": now_sw_ts,
+        }
+        # Align deskphoneSync.dnd_active so switching profile in Web UI toggles Yealink DND seamlessly
+        _sw_prof_obj = next((p for p in (user.get("profiles") or []) if isinstance(p, dict) and str(p.get("id")) == active_profile), None)
+        _sw_prof_devs = _sw_prof_obj.get("devices") if isinstance(_sw_prof_obj, dict) else None
+        _sw_is_dnd = bool(active_profile in ("meeting", "dnd") or (isinstance(_sw_prof_devs, list) and len(_sw_prof_devs) == 0))
+        _prev_dp_sw = user["call_panel_prefs"].get("deskphoneSync") if isinstance(user["call_panel_prefs"].get("deskphoneSync"), dict) else {}
+        user["call_panel_prefs"]["deskphoneSync"] = {
+            **_prev_dp_sw,
+            "dnd_active": _sw_is_dnd,
+            "last_sync_source": "Web Arayüzü",
+            "last_sync_at": (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S"),
+            "last_event": f"profile_{active_profile}",
         }
         save_settings(settings_db)
 
@@ -12754,6 +12790,13 @@ async def switch_user_active_profile_endpoint(user_id: Union[int, str], payload:
             session.commit()
     except Exception as e_sw:
         print(f"[Switch Active Profile DB Sync Warning]: {e_sw}")
+
+    if user:
+        try:
+            from backend.services.deskphone_sync_service import push_live_state_to_user_deskphones
+            push_live_state_to_user_deskphones(user, settings_db, reason_log=f"Web Profil Değişikliği ({active_profile})")
+        except Exception as e_dp_sw:
+            print(f"[Switch Profile DeskPhone Sync Warning]: {e_dp_sw}")
 
     return {
         "status": "success",
@@ -16189,10 +16232,33 @@ async def _render_autoprovision_file_for_phone(
                         eff_transport = "TCP"
 
                 from backend.services.datetime_service import get_system_datetime_config as _get_sys_dt_cfg
+                from backend.services.deskphone_sync_service import extract_user_live_phone_sync_state as _extract_dp_sync_state
                 _sys_dt = _get_sys_dt_cfg(settings_db)
                 eff_prefs_merged = dict(eff_prefs or {})
                 eff_prefs_merged.setdefault("date_format", _sys_dt["date_format"])
                 eff_prefs_merged.setdefault("time_format", _sys_dt["time_format"])
+
+                # Build live DND & 3-level Call Forwarding state + authenticated Action URL endpoint
+                _live_user_for_sync = dict(u)
+                _disk_u_match = next(
+                    (
+                        du for du in (settings_db.get("users") or [])
+                        if isinstance(du, dict) and str(du.get("extension") or "").strip() == ext_s
+                    ),
+                    None,
+                )
+                if isinstance(_disk_u_match, dict):
+                    for _sk in ("forwarding_always", "forwarding_busy", "forwarding_no_answer", "active_profile", "profiles", "call_panel_prefs"):
+                        if not _live_user_for_sync.get(_sk) and _disk_u_match.get(_sk):
+                            _live_user_for_sync[_sk] = _disk_u_match.get(_sk)
+                _live_sync_state = _extract_dp_sync_state(_live_user_for_sync)
+                _raw_prov_base = str(prov_ep.get("active_prov_url") or "").strip().rstrip("/")
+                if _raw_prov_base.endswith("/lan"):
+                    _raw_prov_base = _raw_prov_base[:-4]
+                elif _raw_prov_base.endswith("/wan"):
+                    _raw_prov_base = _raw_prov_base[:-4]
+                _phone_sync_base_url = f"{_raw_prov_base}/phone-sync" if _raw_prov_base else ""
+                _fwd_codes_cfg = ((pbx_cfg.get("numbering_plan") or {}).get("call_forwarding") or {})
 
                 content_text, media_type, _ = generate_provisioning_config(
                     ext=ext_s,
@@ -16224,6 +16290,9 @@ async def _render_autoprovision_file_for_phone(
                     expansion_modules=eff_exp,
                     phone_prefs=eff_prefs_merged,
                     ext_name_map=ext_name_map,
+                    live_sync_state=_live_sync_state,
+                    phone_sync_base_url=_phone_sync_base_url,
+                    fwd_codes=_fwd_codes_cfg,
                 )
                 # Stamp live provisioning fetch timestamp so Desk Phone Studio progress bar & Autoprovision panel detect pull!
                 try:
@@ -16284,6 +16353,113 @@ async def autoprovision_wan_root_info(token: str, request: Request):
     if not tenant_id:
         raise HTTPException(status_code=403, detail="Geçersiz provizyon anahtarı.")
     return {"status": "ready", "mode": "wan", "message": "Nornia WAN Oto-Provizyon sunucusu aktif. Telefonlar otomatik olarak /<mac>.cfg veya /cfg<mac>.xml çeker."}
+
+
+@app.get("/api/prov/{token}/phone-sync")
+async def deskphone_action_url_sync_endpoint(
+    token: str,
+    request: Request,
+    ext: str = "",
+    su: str = "",
+    sig: str = "",
+    event: str = "",
+    target: str = "",
+    mac: str = "",
+    ip: str = "",
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    HMAC-SHA256 imzalı Yealink Action URL webhook alıcısı.
+    Masa telefonunun yerel menüsünden/tuşlarından DND veya Çağrı Yönlendirme değiştiğinde
+    santral durumunu anlık günceller ve kullanıcının diğer masa telefonlarına yeniden başlatmasız
+    (check-sync;reboot=false) senkronize eder.
+    """
+    from backend.services.autoprovision_service import resolve_tenant_by_provisioning_token
+    from backend.services.deskphone_sync_service import (
+        verify_phone_sync_token,
+        record_phone_origin_change,
+        push_live_state_to_user_deskphones,
+    )
+
+    tenant_id = resolve_tenant_by_provisioning_token(settings_db, token)
+    if not tenant_id:
+        raise HTTPException(status_code=403, detail="Geçersiz provizyon anahtarı.")
+
+    ext_clean = str(ext or "").strip()
+    su_clean = str(su or "").strip()
+    ev_clean = str(event or "").strip().lower()
+    if not ext_clean or not su_clean or not verify_phone_sync_token(ext_clean, su_clean, sig):
+        raise HTTPException(status_code=403, detail="Geçersiz cihaz senkronizasyon imzası.")
+
+    # Mark originating device immediately so concurrent updates never echo check-sync back to it
+    record_phone_origin_change(ext_clean, su_clean)
+    client_ip = extract_client_ip(request)
+    now_tr = (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[DeskPhone ActionURL] ext={ext_clean}, su={su_clean}, event={ev_clean}, target={target or '-'}, mac={mac or '-'}, ip={ip or client_ip}")
+
+    if ev_clean in ("dnd_on", "dnd_off"):
+        dnd_flag = ev_clean == "dnd_on"
+        ok_dnd = await _apply_deskphone_dnd_state(
+            ext_clean,
+            dnd_enabled=dnd_flag,
+            db=db,
+            source_label="Masa Telefonu (Yealink)",
+            origin_sip_username=su_clean,
+            event_name=ev_clean,
+        )
+        return {"status": "ok" if ok_dnd else "not_found", "ext": ext_clean, "event": ev_clean, "dnd_enabled": dnd_flag}
+
+    fwd_off_map = {
+        "fwd_always_off": ("forwarding_always", "Her Zaman Yönlendirme", False),
+        "fwd_busy_off": ("forwarding_busy", "Meşgulde Yönlendirme", False),
+        "fwd_no_answer_off": ("forwarding_no_answer", "Cevapsız Yönlendirme", True),
+    }
+    if ev_clean in fwd_off_map:
+        col_name, rule_lbl, is_na = fwd_off_map[ev_clean]
+        existing_timeout = 30
+        u_cur = await _load_merged_user_by_ext(ext_clean, db=db)
+        if u_cur and isinstance(u_cur.get("forwarding_no_answer"), dict) and u_cur["forwarding_no_answer"].get("timeout"):
+            try:
+                existing_timeout = int(u_cur["forwarding_no_answer"]["timeout"])
+            except Exception:
+                pass
+        deact_obj = {"active": False, "type": "internal", "target": ""}
+        if is_na:
+            deact_obj["timeout"] = existing_timeout
+        await _sync_user_forwarding_state(ext_clean, {col_name: deact_obj}, db, source_label="Masa Telefonu (Yealink)")
+        await _stamp_deskphone_sync_meta(ext_clean, db=db, source_label="Masa Telefonu", event_name=ev_clean, synced_at=now_tr)
+        add_system_log("CALL_FORWARD", "INFO", f"Dahili {ext_clean} masa telefonu ekranından {rule_lbl} kuralını kapattı (Action URL).")
+        u_fresh = await _load_merged_user_by_ext(ext_clean, db=db)
+        if u_fresh:
+            push_live_state_to_user_deskphones(u_fresh, settings_db, exclude_sip_username=su_clean, reason_log=f"Masa Telefonu {ev_clean}")
+        return {"status": "ok", "ext": ext_clean, "event": ev_clean}
+
+    fwd_on_map = {
+        "fwd_always_on": ("forwarding_always", "Her Zaman Yönlendirme", False),
+        "fwd_busy_on": ("forwarding_busy", "Meşgulde Yönlendirme", False),
+        "fwd_no_answer_on": ("forwarding_no_answer", "Cevapsız Yönlendirme", True),
+    }
+    if ev_clean in fwd_on_map:
+        col_name, rule_lbl, is_na = fwd_on_map[ev_clean]
+        clean_target = re.sub(r"[^\d+]", "", str(target or "").strip())
+        # Yealink firmwares that do not expand target in Action URL send empty target and immediately dial *21*<target>.
+        # Only update the rule directly if a valid non-loop target was supplied; otherwise just record sync metadata.
+        if len(clean_target) >= 2 and clean_target != ext_clean:
+            st_chk, _, _ = _evaluate_forwarding_chain_and_detect_loop(ext_str=ext_clean, candidate_target=clean_target)
+            if st_chk != "LOOP":
+                target_type = "internal" if (len(clean_target) < 6 and clean_target.isdigit()) else "external"
+                rule_obj = {"active": True, "type": target_type, "target": clean_target}
+                if is_na:
+                    rule_obj["timeout"] = 30
+                await _sync_user_forwarding_state(ext_clean, {col_name: rule_obj}, db, source_label="Masa Telefonu (Yealink)")
+                add_system_log("CALL_FORWARD", "INFO", f"Dahili {ext_clean} masa telefonu ekranından {rule_lbl} kuralını '{clean_target}' hedefine açtı (Action URL).")
+                u_fresh = await _load_merged_user_by_ext(ext_clean, db=db)
+                if u_fresh:
+                    push_live_state_to_user_deskphones(u_fresh, settings_db, exclude_sip_username=su_clean, reason_log=f"Masa Telefonu {ev_clean}")
+        await _stamp_deskphone_sync_meta(ext_clean, db=db, source_label="Masa Telefonu", event_name=ev_clean, synced_at=now_tr)
+        return {"status": "ok", "ext": ext_clean, "event": ev_clean}
+
+    return {"status": "ignored", "ext": ext_clean, "event": ev_clean}
 
 
 @app.get("/api/prov/{token}/lan/{filename}")
@@ -18245,6 +18421,24 @@ async def resolve_subscriber_forwarding(
                 print(f"[Boss/Secretary Filter] Boss {ext_str} intercepted (caller={caller or '-'}) -> Secretary {sec_target}")
                 return _finalize_fwd_response(sec_target, no_ans_timeout, "Yönetici-Sekreter Filtresi")
 
+        # Rule 1.4: MASA TELEFONU / DND (Rahatsız Etmeyin) SENKRONİZASYONU
+        if dialstatus == "BEFORE_DIAL":
+            _raw_prefs_dnd = user_dict.get("call_panel_prefs")
+            if isinstance(_raw_prefs_dnd, str):
+                try:
+                    _raw_prefs_dnd = json.loads(_raw_prefs_dnd)
+                except Exception:
+                    _raw_prefs_dnd = {}
+            _dp_sync_obj = _raw_prefs_dnd.get("deskphoneSync") if isinstance(_raw_prefs_dnd, dict) and isinstance(_raw_prefs_dnd.get("deskphoneSync"), dict) else {}
+            if bool(_dp_sync_obj.get("dnd_active", False)):
+                vm_dnd = "VOICEMAIL" if bool(user_dict.get("voicemail_active", False)) else None
+                dnd_target = f_busy or f_noans or vm_dnd or prof_target or "BUSY"
+                print(f"[Forwarding Resolver] Extension {ext_str} -> DND ACTIVE (Masa Telefonu / Web). Immediate action -> {dnd_target}")
+                if dnd_target == "BUSY":
+                    log_fwd_action("Rahatsız Etmeyin (DND)", "BUSY")
+                    return Response(content=f"ALLOW:BUSY:{no_ans_timeout}", media_type="text/plain")
+                return _finalize_fwd_response(dnd_target, no_ans_timeout, "Rahatsız Etmeyin (DND) Yönlendirmesi")
+
         # Rule 1.5: ACTIVE PROFILE WITH 0 RING DEVICES SELECTED (e.g. Toplantı profile)
         if dialstatus == "BEFORE_DIAL" and len(prof_devices) == 0:
             vm_imm = "VOICEMAIL" if bool(user_dict.get("voicemail_active", False)) else None
@@ -18443,6 +18637,7 @@ async def _sync_user_forwarding_state(
             pass
 
     # 2. Update in settings_db["users"] (memory + disk settings.json)
+    now_sync_ms = int(time.time() * 1000)
     all_users = settings_db.get("users", [])
     for u in all_users:
         if str(u.get("extension") or "").strip() == ext_clean:
@@ -18456,11 +18651,237 @@ async def _sync_user_forwarding_state(
                             if fk in updates and isinstance(updates[fk], dict):
                                 p[fk] = _normalize_profile_fwd_rule(updates[fk])
             ensure_user_profiles(u)
+            u["profiles_updated_ts"] = now_sync_ms
+            if not isinstance(u.get("call_panel_prefs"), dict):
+                u["call_panel_prefs"] = {}
+            u["call_panel_prefs"]["profilesMeta"] = {
+                "active_profile": u.get("active_profile") or "available",
+                "profiles": copy.deepcopy(u.get("profiles") or []),
+                "updatedTs": now_sync_ms,
+            }
             found_any = True
     if found_any:
         save_settings(settings_db)
 
     return found_any
+
+
+async def _stamp_deskphone_sync_meta(
+    ext_str: str,
+    db: Optional[AsyncSession] = None,
+    source_label: str = "Masa Telefonu",
+    event_name: str = "",
+    synced_at: Optional[str] = None,
+    dnd_active: Optional[bool] = None,
+    previous_profile: Optional[str] = None,
+) -> None:
+    """Persists call_panel_prefs.deskphoneSync metadata in both PostgreSQL SystemUser and settings_db['users']."""
+    from sqlalchemy.orm.attributes import flag_modified
+
+    ext_clean = str(ext_str or "").strip()
+    if not ext_clean:
+        return
+    ts_str = synced_at or (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
+    now_ms = int(time.time() * 1000)
+
+    def _merge_prefs(raw_prefs: Any, act_prof: str, profs_list: Any) -> Dict[str, Any]:
+        p = copy.deepcopy(raw_prefs) if isinstance(raw_prefs, dict) else {}
+        if isinstance(raw_prefs, str) and raw_prefs.strip().startswith("{"):
+            try:
+                p = json.loads(raw_prefs)
+            except Exception:
+                p = {}
+        dp = dict(p.get("deskphoneSync")) if isinstance(p.get("deskphoneSync"), dict) else {}
+        if dnd_active is not None:
+            dp["dnd_active"] = bool(dnd_active)
+        if previous_profile is not None:
+            dp["previous_profile"] = str(previous_profile)
+        dp["last_sync_source"] = source_label
+        dp["last_sync_at"] = ts_str
+        if event_name:
+            dp["last_event"] = event_name
+        p["deskphoneSync"] = dp
+        if isinstance(profs_list, list):
+            p["profilesMeta"] = {
+                "active_profile": act_prof or "available",
+                "profiles": copy.deepcopy(profs_list),
+                "updatedTs": now_ms,
+            }
+        return p
+
+    if db is not None:
+        try:
+            res = await db.execute(select(SystemUser).where(SystemUser.extension == ext_clean))
+            db_u = res.scalars().first()
+            if db_u:
+                db_u.call_panel_prefs = _merge_prefs(
+                    getattr(db_u, "call_panel_prefs", None),
+                    str(getattr(db_u, "active_profile", None) or "available"),
+                    getattr(db_u, "profiles", None),
+                )
+                try:
+                    flag_modified(db_u, "call_panel_prefs")
+                except Exception:
+                    pass
+                await db.commit()
+        except Exception as e_st:
+            print(f"[DeskPhone Sync Meta DB Warning]: {e_st}")
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+
+    touched = False
+    for u in settings_db.get("users", []) or []:
+        if isinstance(u, dict) and str(u.get("extension") or "").strip() == ext_clean:
+            u["call_panel_prefs"] = _merge_prefs(
+                u.get("call_panel_prefs"),
+                str(u.get("active_profile") or "available"),
+                u.get("profiles"),
+            )
+            u["profiles_updated_ts"] = now_ms
+            touched = True
+    if touched:
+        save_settings(settings_db)
+
+
+async def _apply_deskphone_dnd_state(
+    ext_str: str,
+    dnd_enabled: bool,
+    db: AsyncSession,
+    source_label: str = "Masa Telefonu",
+    origin_sip_username: str = "",
+    event_name: str = "",
+) -> bool:
+    """
+    Idempotently applies DND On/Off originated from a physical desk phone (*78/*79 or Action URL):
+      - Saves previous_profile when enabling DND and switches active_profile -> 'meeting'
+      - Restores previous_profile (default 'available') when disabling DND
+      - Updates PostgreSQL SystemUser, settings_db['users'], agent_presence & Asterisk queue pause
+      - Pushes zero-reboot check-sync to any *other* desk phones bound to the same extension
+    """
+    from backend.services.deskphone_sync_service import (
+        record_phone_origin_change,
+        push_live_state_to_user_deskphones,
+    )
+
+    ext_clean = str(ext_str or "").strip()
+    if not ext_clean:
+        return False
+
+    record_phone_origin_change(ext_clean, origin_sip_username)
+    user_dict = await _load_merged_user_by_ext(ext_clean, db=db)
+    if not user_dict:
+        return False
+
+    cur_prof = str(user_dict.get("active_profile") or "available").strip()
+    raw_prefs = user_dict.get("call_panel_prefs")
+    if isinstance(raw_prefs, str) and raw_prefs.strip().startswith("{"):
+        try:
+            raw_prefs = json.loads(raw_prefs)
+        except Exception:
+            raw_prefs = {}
+    dp_sync = raw_prefs.get("deskphoneSync") if isinstance(raw_prefs, dict) and isinstance(raw_prefs.get("deskphoneSync"), dict) else {}
+    cur_dnd = bool(dp_sync.get("dnd_active", False))
+    saved_prev = str(dp_sync.get("previous_profile") or "available").strip() or "available"
+    if saved_prev in ("meeting", "dnd"):
+        saved_prev = "available"
+
+    now_tr = (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
+
+    # Idempotency guard: if Action URL and *78/*79 both arrive within milliseconds, avoid duplicate logs/profile churn
+    if dnd_enabled and cur_dnd and cur_prof in ("meeting", "dnd"):
+        await _stamp_deskphone_sync_meta(
+            ext_clean, db=db, source_label=source_label, event_name=event_name or "dnd_on", synced_at=now_tr, dnd_active=True
+        )
+        return True
+    if (not dnd_enabled) and (not cur_dnd) and cur_prof not in ("meeting", "dnd"):
+        await _stamp_deskphone_sync_meta(
+            ext_clean, db=db, source_label=source_label, event_name=event_name or "dnd_off", synced_at=now_tr, dnd_active=False
+        )
+        return True
+
+    if dnd_enabled:
+        prev_to_save = cur_prof if cur_prof not in ("meeting", "dnd") else saved_prev
+        new_prof = "meeting"
+        await _sync_user_forwarding_state(ext_clean, {"active_profile": new_prof}, db, source_label=source_label)
+        await _stamp_deskphone_sync_meta(
+            ext_clean,
+            db=db,
+            source_label=source_label,
+            event_name=event_name or "dnd_on",
+            synced_at=now_tr,
+            dnd_active=True,
+            previous_profile=prev_to_save,
+        )
+        prof_log_label = "Toplantı (DND - Masa Telefonu)"
+    else:
+        new_prof = saved_prev or "available"
+        await _sync_user_forwarding_state(ext_clean, {"active_profile": new_prof}, db, source_label=source_label)
+        await _stamp_deskphone_sync_meta(
+            ext_clean,
+            db=db,
+            source_label=source_label,
+            event_name=event_name or "dnd_off",
+            synced_at=now_tr,
+            dnd_active=False,
+        )
+        prof_log_label = "Müsait (DND Kapalı - Masa Telefonu)" if new_prof == "available" else new_prof
+
+    # Audit log + agent presence + Asterisk queue pause
+    try:
+        uid_s = str(user_dict.get("id") or ext_clean)
+        db.add(
+            AgentBreakLog(
+                user_id=uid_s,
+                extension=ext_clean,
+                break_name=f"__ACTION__:profile_change:{prof_log_label}",
+                start_time=datetime.datetime.utcnow(),
+                end_time=datetime.datetime.utcnow(),
+                duration_seconds=0,
+            )
+        )
+        await db.commit()
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+
+    try:
+        from backend.services.agent_presence import update_agent_state, sync_asterisk_queue_pause
+        uid_s = str(user_dict.get("id") or ext_clean)
+        if dnd_enabled:
+            update_agent_state(
+                uid_s,
+                ext_clean,
+                status="break",
+                is_logged_in=True,
+                current_break={"id": "dnd", "name": "Rahatsız Etmeyin (Masa Telefonu)"},
+            )
+            await sync_asterisk_queue_pause(ext_clean, paused=True, reason="DND Active (Masa Telefonu)")
+        else:
+            update_agent_state(uid_s, ext_clean, status="available", is_logged_in=True, current_break=None)
+            await sync_asterisk_queue_pause(ext_clean, paused=False, reason="DND Off (Masa Telefonu)")
+    except Exception:
+        pass
+
+    add_system_log(
+        "DESKPHONE_DND",
+        "INFO",
+        f"Dahili {ext_clean} masa telefonundan ({source_label}) Rahatsız Etmeyin (DND) modunu {'AKTİF' if dnd_enabled else 'KAPALI'} yaptı (Profil: {new_prof}).",
+    )
+
+    u_fresh = await _load_merged_user_by_ext(ext_clean, db=db)
+    if u_fresh:
+        push_live_state_to_user_deskphones(
+            u_fresh,
+            settings_db,
+            exclude_sip_username=origin_sip_username or None,
+            reason_log=f"Masa Telefonu DND {'Açık' if dnd_enabled else 'Kapalı'}",
+        )
+    return True
+
 
 
 async def _load_merged_user_by_ext(ext_str: str, db: Optional[AsyncSession] = None) -> Optional[Dict[str, Any]]:
@@ -18639,6 +19060,22 @@ async def _switch_user_profile_by_digit(
             "INFO",
             f"Dahili {caller_ext} tuşlama kodu ({clean_d}) ile profilini '{prof_name}' ({new_prof_id}) olarak değiştirdi.",
         )
+        try:
+            from backend.services.deskphone_sync_service import push_live_state_to_user_deskphones
+            _prof_devs_70 = matched_prof.get("devices") if isinstance(matched_prof.get("devices"), list) else ["web_phone", "desk_phone"]
+            _is_dnd_70 = bool(new_prof_id in ("meeting", "dnd") or len(_prof_devs_70) == 0)
+            await _stamp_deskphone_sync_meta(
+                caller_ext,
+                db=db,
+                source_label="Masa Telefonu (*70)",
+                event_name=f"profile_{new_prof_id}",
+                dnd_active=_is_dnd_70,
+            )
+            _u_fresh_70 = await _load_merged_user_by_ext(caller_ext, db=db)
+            if _u_fresh_70:
+                push_live_state_to_user_deskphones(_u_fresh_70, settings_db, reason_log=f"Profil Tuşlama (*70 -> {new_prof_id})")
+        except Exception:
+            pass
     return ok
 
 
@@ -18830,6 +19267,28 @@ async def resolve_subscriber_feature_code(
             bs_res = await _toggle_boss_secretary_by_code(caller_ext, target_b, db)
             return Response(content=bs_res, media_type="text/plain")
 
+        # F. Desk Phone DND On (*78) & DND Off (*79) — Bi-Directional Yealink / SIP Sync
+        if raw_exten in ("*78", "*78#"):
+            ok_dnd = await _apply_deskphone_dnd_state(
+                caller_ext,
+                dnd_enabled=True,
+                db=db,
+                source_label=f"Masa Telefonu ({raw_exten})",
+                origin_sip_username=chan_peer or "",
+                event_name="dnd_on",
+            )
+            return Response(content=("ACTIVATED" if ok_dnd else "INVALID"), media_type="text/plain")
+        if raw_exten in ("*79", "*79#"):
+            ok_dnd = await _apply_deskphone_dnd_state(
+                caller_ext,
+                dnd_enabled=False,
+                db=db,
+                source_label=f"Masa Telefonu ({raw_exten})",
+                origin_sip_username=chan_peer or "",
+                event_name="dnd_off",
+            )
+            return Response(content=("CANCELLED" if ok_dnd else "INVALID"), media_type="text/plain")
+
         p_always = str(fwd_cfg.get("always") or "*21*").strip() or "*21*"
         p_busy = str(fwd_cfg.get("busy") or "*67*").strip() or "*67*"
         p_noans = str(fwd_cfg.get("no_answer") or "*61*").strip() or "*61*"
@@ -18860,6 +19319,11 @@ async def resolve_subscriber_feature_code(
 
         print(f"[Feature Code] Desk Phone Dialed: caller_ext={caller_ext}, dialed={raw_exten} (Plan: always={p_always}, busy={p_busy}, no_answer={p_noans}, cancel={p_cancel})")
 
+        from backend.services.deskphone_sync_service import (
+            record_phone_origin_change as _rec_dp_origin,
+            push_live_state_to_user_deskphones as _push_dp_live,
+        )
+
         # Fetch existing user forwarding settings to preserve timeout/targets when appropriate
         existing_noans_timeout = 30
         for u in settings_db.get("users", []):
@@ -18879,45 +19343,58 @@ async def resolve_subscriber_feature_code(
                 base["timeout"] = existing_noans_timeout
             return base
 
-        # 1. Check if dialed string matches Cancel Code (e.g. #21#, #21, *73, etc.)
+        # 1. Check if dialed string matches Cancel All Code (e.g. #21#, #21, *73, #002#)
         cancel_variants = {
             p_cancel,
             p_cancel.rstrip("#") if len(p_cancel.rstrip("#")) >= 2 else p_cancel,
             "#21#", "#21", "*73", "#002#", "#002"
         }
         if raw_exten in cancel_variants or (p_cancel and raw_exten.startswith(p_cancel)):
+            _rec_dp_origin(caller_ext, chan_peer or "")
             updates = {
                 "forwarding_always": _deactivated_rule(False),
                 "forwarding_busy": _deactivated_rule(False),
                 "forwarding_no_answer": _deactivated_rule(True),
             }
             await _sync_user_forwarding_state(caller_ext, updates, db, source_label="Masa Telefonu")
+            await _stamp_deskphone_sync_meta(caller_ext, db=db, source_label="Masa Telefonu", event_name="fwd_all_off")
+            u_sync = await _load_merged_user_by_ext(caller_ext, db=db)
+            if u_sync:
+                _push_dp_live(u_sync, settings_db, exclude_sip_username=chan_peer or None, reason_log=f"Masa Telefonu ({raw_exten})")
             add_system_log("CALL_FORWARD", "INFO", f"Dahili {caller_ext} masa telefonundan ({raw_exten}) tüm çağrı yönlendirmelerini iptal etti.")
             print(f"[Feature Code] Extension {caller_ext} -> ALL FORWARDING CANCELLED via {raw_exten}")
             return Response(content="CANCELLED", media_type="text/plain")
 
-        # Also check rule-specific cancel codes (e.g. dialing just *21* without target, or #67#, #61#)
-        for pfx, col_name, rule_label, is_na in [
-            (p_always, "forwarding_always", "Her Zaman Yönlendirme", False),
-            (p_busy, "forwarding_busy", "Meşgulde Yönlendirme", False),
-            (p_noans, "forwarding_no_answer", "Zaman Aşımında Yönlendirme", True),
+        # Also check rule-specific cancel codes (e.g. *21, *67, *61, #67#, #61#, *91, *93)
+        for pfx, col_name, rule_label, is_na, extra_cancels in [
+            (p_always, "forwarding_always", "Her Zaman Yönlendirme", False, {"*72", "*72#"}),
+            (p_busy, "forwarding_busy", "Meşgulde Yönlendirme", False, {"*91", "*91#"}),
+            (p_noans, "forwarding_no_answer", "Zaman Aşımında Yönlendirme", True, {"*93", "*93#"}),
         ]:
             core_digits = pfx.strip("*#")
-            rule_cancel_variants = {pfx, pfx.rstrip("*#")}
+            rule_cancel_variants = {pfx, pfx.rstrip("*#")} | extra_cancels
             if core_digits:
                 rule_cancel_variants.update({f"#{core_digits}#", f"#{core_digits}", f"*{core_digits}#"})
             if raw_exten in rule_cancel_variants:
+                _rec_dp_origin(caller_ext, chan_peer or "")
                 updates = {col_name: _deactivated_rule(is_na)}
                 await _sync_user_forwarding_state(caller_ext, updates, db, source_label="Masa Telefonu")
+                await _stamp_deskphone_sync_meta(caller_ext, db=db, source_label="Masa Telefonu", event_name=f"{col_name}_off")
+                u_sync = await _load_merged_user_by_ext(caller_ext, db=db)
+                if u_sync:
+                    _push_dp_live(u_sync, settings_db, exclude_sip_username=chan_peer or None, reason_log=f"Masa Telefonu ({raw_exten})")
                 add_system_log("CALL_FORWARD", "INFO", f"Dahili {caller_ext} masa telefonundan ({raw_exten}) {rule_label} kuralını iptal etti.")
                 print(f"[Feature Code] Extension {caller_ext} -> {col_name} CANCELLED via {raw_exten}")
                 return Response(content="CANCELLED", media_type="text/plain")
 
-        # 2. Check Activation Prefixes (Always, Busy, No Answer)
+        # 2. Check Activation Prefixes (Always, Busy, No Answer + BroadSoft/Yealink *72/*90/*92 aliases)
         prefix_rules = [
             (p_always, "forwarding_always", "Her Zaman", False),
             (p_busy, "forwarding_busy", "Meşgul Durumda", False),
             (p_noans, "forwarding_no_answer", "Zaman Aşımında (Cevapsız)", True),
+            ("*72*", "forwarding_always", "Her Zaman", False),
+            ("*90*", "forwarding_busy", "Meşgul Durumda", False),
+            ("*92*", "forwarding_no_answer", "Zaman Aşımında (Cevapsız)", True),
         ]
         # Sort by prefix length descending so longer prefix matches first
         prefix_rules.sort(key=lambda x: len(x[0]), reverse=True)
@@ -18958,8 +19435,13 @@ async def resolve_subscriber_feature_code(
         clean_rem = remainder.lstrip("*").rstrip("#*").strip()
         if not clean_rem:
             # Dialed prefix with no target -> treat as cancel for that rule
+            _rec_dp_origin(caller_ext, chan_peer or "")
             updates = {matched_col: _deactivated_rule(matched_is_na)}
             await _sync_user_forwarding_state(caller_ext, updates, db, source_label="Masa Telefonu")
+            await _stamp_deskphone_sync_meta(caller_ext, db=db, source_label="Masa Telefonu", event_name=f"{matched_col}_off")
+            u_sync = await _load_merged_user_by_ext(caller_ext, db=db)
+            if u_sync:
+                _push_dp_live(u_sync, settings_db, exclude_sip_username=chan_peer or None, reason_log=f"Masa Telefonu ({raw_exten})")
             return Response(content="CANCELLED", media_type="text/plain")
 
         custom_timeout = existing_noans_timeout
@@ -19022,7 +19504,12 @@ async def resolve_subscriber_feature_code(
         if matched_is_na:
             rule_obj["timeout"] = custom_timeout
 
+        _rec_dp_origin(caller_ext, chan_peer or "")
         await _sync_user_forwarding_state(caller_ext, {matched_col: rule_obj}, db, source_label="Masa Telefonu")
+        await _stamp_deskphone_sync_meta(caller_ext, db=db, source_label="Masa Telefonu", event_name=f"{matched_col}_on")
+        u_sync = await _load_merged_user_by_ext(caller_ext, db=db)
+        if u_sync:
+            _push_dp_live(u_sync, settings_db, exclude_sip_username=chan_peer or None, reason_log=f"Masa Telefonu ({raw_exten})")
         add_system_log(
             "CALL_FORWARD",
             "INFO",
@@ -19060,6 +19547,15 @@ async def cancel_subscriber_forwarding_endpoint(
     ok = await _sync_user_forwarding_state(ext_str, updates, db, source_label="Web Arayüzü")
     if not ok:
         raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı.")
+
+    await _stamp_deskphone_sync_meta(ext_str, db=db, source_label="Web Arayüzü", event_name=f"cancel_{rule_type}")
+    try:
+        from backend.services.deskphone_sync_service import push_live_state_to_user_deskphones
+        u_fresh = await _load_merged_user_by_ext(ext_str, db=db)
+        if u_fresh:
+            push_live_state_to_user_deskphones(u_fresh, settings_db, reason_log=f"Web Yönlendirme İptali ({rule_type})")
+    except Exception:
+        pass
 
     add_system_log("CALL_FORWARD", "INFO", f"Dahili {ext_str} için yönlendirme kuralı ({rule_type}) web arayüzünden iptal edildi.")
     return {"status": "success", "extension": ext_str, "cancelled": rule_type, "updates": updates}
@@ -40567,8 +41063,18 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                 _, data["trusted_devices"] = _extract_user_device_security({"trusted_devices": data.get("trusted_devices")})
             resolved_prof_ts = _norm_2fa_ts(data.get("profiles_updated_ts")) or int(time.time() * 1000)
             data["profiles_updated_ts"] = resolved_prof_ts
+            _prev_adm_prof = str((getattr(target_user, "active_profile", None) if target_user else None) or prev_disk.get("active_profile") or "available").strip()
+            _new_adm_prof = str(data.get("active_profile") or "available").strip()
+            _dp_sync_adm = copy.deepcopy(data["call_panel_prefs"].get("deskphoneSync")) if isinstance(data["call_panel_prefs"].get("deskphoneSync"), dict) else {}
+            if _new_adm_prof != _prev_adm_prof:
+                _adm_p_obj = next((p for p in (data.get("profiles") or []) if isinstance(p, dict) and str(p.get("id")) == _new_adm_prof), None)
+                _adm_p_devs = _adm_p_obj.get("devices") if isinstance(_adm_p_obj, dict) else None
+                _dp_sync_adm["dnd_active"] = bool(_new_adm_prof in ("meeting", "dnd") or (isinstance(_adm_p_devs, list) and len(_adm_p_devs) == 0))
+                _dp_sync_adm["last_sync_source"] = "Yönetici Paneli"
+                _dp_sync_adm["last_sync_at"] = (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
             data["call_panel_prefs"] = {
                 **data["call_panel_prefs"],
+                **({"deskphoneSync": _dp_sync_adm} if _dp_sync_adm else {}),
                 "profilesMeta": {
                     "active_profile": data.get("active_profile") or "available",
                     "profiles": copy.deepcopy(data.get("profiles") or []),
@@ -40854,7 +41360,39 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
             regenerate_queues_conf()
         except Exception as e_pjsip:
             print(f"[Save Users PJSIP Reload Warning]: {e_pjsip}")
-        
+
+        # Push zero-reboot check-sync to any user's desk phones whose DND or Call Forwarding state changed
+        try:
+            from backend.services.deskphone_sync_service import (
+                extract_user_live_phone_sync_state as _ext_dp_state,
+                push_live_state_to_user_deskphones as _push_dp_admin,
+            )
+            prev_by_ext_dp = {
+                str(u_old.get("extension") or "").strip(): u_old
+                for u_old in (current_users_list or [])
+                if isinstance(u_old, dict) and u_old.get("extension")
+            }
+            for u_new_dp in (new_users_out or []):
+                if not isinstance(u_new_dp, dict):
+                    continue
+                ext_dp = str(u_new_dp.get("extension") or "").strip()
+                if not ext_dp:
+                    continue
+                old_u_dp = prev_by_ext_dp.get(ext_dp)
+                if not old_u_dp:
+                    continue
+                st_old = _ext_dp_state(old_u_dp)
+                st_new = _ext_dp_state(u_new_dp)
+                if (
+                    st_old["dnd_enabled"] != st_new["dnd_enabled"]
+                    or st_old["fwd_always"] != st_new["fwd_always"]
+                    or st_old["fwd_busy"] != st_new["fwd_busy"]
+                    or st_old["fwd_no_answer"] != st_new["fwd_no_answer"]
+                ):
+                    _push_dp_admin(u_new_dp, settings_db, reason_log="Yönetici Kullanıcı / Yönlendirme Ayarları")
+        except Exception as e_dp_adm:
+            print(f"[Save Users DeskPhone Sync Warning]: {e_dp_adm}")
+
         return {"status": "success", "users": new_users_out}
     except HTTPException:
         raise

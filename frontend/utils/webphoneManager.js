@@ -1392,9 +1392,17 @@ class WebphoneManager {
             profiles: nextProfiles,
             ...(d.forwarding_always ? { forwarding_always: d.forwarding_always } : {}),
             ...(d.forwarding_busy ? { forwarding_busy: d.forwarding_busy } : {}),
-            ...(d.forwarding_no_answer ? { forwarding_no_answer: d.forwarding_no_answer } : {})
+            ...(d.forwarding_no_answer ? { forwarding_no_answer: d.forwarding_no_answer } : {}),
+            ...(d.deskphone_sync
+              ? {
+                  call_panel_prefs: {
+                    ...(this.state.currentUser?.call_panel_prefs || {}),
+                    deskphoneSync: d.deskphone_sync
+                  }
+                }
+              : {})
           };
-          const sig = `${nextActProf}|${d.profiles_updated_ts || 0}|${JSON.stringify(nextProfiles)}`;
+          const sig = `${nextActProf}|${d.profiles_updated_ts || 0}|${JSON.stringify(nextProfiles)}|${JSON.stringify(d.forwarding_always || null)}|${JSON.stringify(d.forwarding_busy || null)}|${JSON.stringify(d.forwarding_no_answer || null)}|${JSON.stringify(d.deskphone_sync || null)}`;
           if (this._lastSyncedProfileSignature !== sig) {
             this._lastSyncedProfileSignature = sig;
             if (typeof window !== "undefined") {
@@ -1406,7 +1414,8 @@ class WebphoneManager {
                     profiles_updated_ts: d.profiles_updated_ts || 0,
                     forwarding_always: d.forwarding_always,
                     forwarding_busy: d.forwarding_busy,
-                    forwarding_no_answer: d.forwarding_no_answer
+                    forwarding_no_answer: d.forwarding_no_answer,
+                    deskphone_sync: d.deskphone_sync
                   }
                 })
               );
