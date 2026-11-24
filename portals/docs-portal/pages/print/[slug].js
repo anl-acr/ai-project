@@ -91,7 +91,7 @@ export default function PrintManualPage({ isAll, chapters }) {
   const singleTocItems = singleChapter ? buildModuleTocItems(singleChapter) : [];
 
   const docTitle = isAll
-    ? `${MANUAL_META.product} — Tam Kullanım Kılavuzu (${MANUAL_META.version})`
+    ? `${MANUAL_META.product} — Tam Kullanım Kılavuzu`
     : `${MANUAL_META.product} — Bölüm ${singleChapter?.number}: ${singleChapter?.title}`;
 
   return (
@@ -148,11 +148,6 @@ export default function PrintManualPage({ isAll, chapters }) {
                 <div className="text-[11px] text-indigo-200 font-semibold">
                   Akıllı İletişim Platformu — Kurumsal Kullanım Kılavuzu
                 </div>
-              </div>
-            </div>
-            <div className="text-right text-[11px] font-mono text-indigo-200">
-              <div className="px-2.5 py-1 rounded-lg bg-white/10 border border-white/15 font-bold">
-                {MANUAL_META.version}
               </div>
             </div>
           </div>

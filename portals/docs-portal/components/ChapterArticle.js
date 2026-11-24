@@ -673,7 +673,7 @@ export default function ChapterArticle({ chapter, printMode = false }) {
       {printMode && (
         <div className="pt-4 border-t border-slate-200 text-[10px] text-slate-500 flex items-center justify-between">
           <span>
-            {MANUAL_META.product} ({MANUAL_META.version}) — Bölüm {chapter.number}: {chapter.title}
+            {MANUAL_META.product} — Bölüm {chapter.number}: {chapter.title}
           </span>
           <span>dokuman.nornia.com.tr/{chapter.id}/ • api.nornia.com.tr</span>
         </div>

@@ -26,7 +26,7 @@ export default function ManualChapterPage({ chapter }) {
     <DocsShell activeChapter={chapter}>
       <Head>
         <title>
-          {chapter.number}. {chapter.title} — Nornia Doküman ({MANUAL_META.version})
+          {chapter.number}. {chapter.title} — Nornia Doküman
         </title>
         <meta name="description" content={chapter.summary} />
         <meta name="viewport" content="width=device-width, initial-scale=1" />

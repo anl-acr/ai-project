@@ -9,7 +9,7 @@ export default function DocsIndexPage() {
   return (
     <DocsShell activeChapter={null}>
       <Head>
-        <title>Nornia Doküman — Detaylı Kurulum &amp; Kullanım Kılavuzu ({MANUAL_META.version})</title>
+        <title>Nornia Doküman — Detaylı Kurulum &amp; Kullanım Kılavuzu</title>
         <meta
           name="description"
           content="Nornia Enterprise AI PBX 98 sayfalık menü, Temsilci Çağrı Paneli ve rapor bazlı kapsamlı kullanım kılavuzu: 257+ canlı ekran görüntüsü, tüm aktif çağrı ekranları, parametre/alt pencere tabloları ve modül bazlı PDF indirme."
@@ -29,9 +29,7 @@ export default function DocsIndexPage() {
             </div>
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 border border-white/15 text-[11px] font-bold">
               <Sparkles size={13} className="text-amber-300" />
-              <span>
-                {MANUAL_META.product} • {MANUAL_META.version} • {MANUAL_CHAPTERS.length} Ayrı Menü Sayfası
-              </span>
+              <span>{MANUAL_META.product} • Kurumsal Kullanım Kılavuzu</span>
             </div>
           </div>
 
@@ -54,7 +52,7 @@ export default function DocsIndexPage() {
             </Link>
             <a
               href={MANUAL_META.fullPdfPath}
-              download={`nornia-kullanim-kilavuzu-${MANUAL_META.version}.pdf`}
+              download="nornia-kullanim-kilavuzu.pdf"
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-500/30 hover:bg-indigo-500/45 border border-white/20 text-white text-xs font-extrabold transition"
             >
               <FileDown size={14} />

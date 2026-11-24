@@ -67,7 +67,7 @@ export default function DocsShell({ activeChapter = null, children }) {
       if (headRes.ok && (headRes.headers.get("content-type") || "").includes("pdf")) {
         const a = document.createElement("a");
         a.href = MANUAL_META.fullPdfPath;
-        a.download = `nornia-kullanim-kilavuzu-${MANUAL_META.version}.pdf`;
+        a.download = "nornia-kullanim-kilavuzu.pdf";
         document.body.appendChild(a);
         a.click();
         a.remove();
@@ -168,9 +168,6 @@ export default function DocsShell({ activeChapter = null, children }) {
                 </span>
                 <span className="text-xs font-black text-slate-700 dark:text-slate-200">
                   Doküman
-                </span>
-                <span className="px-1.5 py-0.5 rounded-md bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 text-[10px] font-extrabold font-mono">
-                  {MANUAL_CHAPTERS.length} Menü • {MANUAL_META.version}
                 </span>
               </div>
               <p className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold hidden sm:block">
@@ -352,8 +349,7 @@ export default function DocsShell({ activeChapter = null, children }) {
             <div className="flex items-center gap-2">
               <img src="/favicon.svg" alt="Nornia" className="h-4 w-4 object-contain" />
               <span>
-                © {new Date().getFullYear()} {MANUAL_META.product} • Sürüm {MANUAL_META.version} • Son Güncelleme:{" "}
-                {MANUAL_META.updatedAt}
+                © {new Date().getFullYear()} {MANUAL_META.product}
               </span>
             </div>
             <div className="flex items-center gap-4">
