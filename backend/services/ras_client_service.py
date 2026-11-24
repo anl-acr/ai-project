@@ -870,6 +870,33 @@ async def _ras_tunnel_loop():
                                     apply_central_ssh_control(bool(msg["remote_ssh_enabled"]))
                             elif mtype == "RAS_SSH_CONTROL":
                                 apply_central_ssh_control(bool(msg.get("remote_ssh_enabled", True)))
+                            elif mtype in ("RAS_THREAT_BAN", "RAS_THREAT_UNBAN"):
+                                async def _apply_realtime_threat(push_msg):
+                                    try:
+                                        from backend.services.threat_intel_service import apply_global_threat_intel
+                                        from backend.main import (
+                                            settings_db as main_settings_db,
+                                            _execute_firewall_ban,
+                                            _execute_firewall_unban,
+                                            _is_trusted_or_local_ip,
+                                            save_settings as main_save_settings,
+                                        )
+                                        await asyncio.to_thread(
+                                            apply_global_threat_intel,
+                                            push_msg.get("items", []) if push_msg.get("type") == "RAS_THREAT_BAN" else [],
+                                            push_msg.get("ips", []) if push_msg.get("type") == "RAS_THREAT_UNBAN" else [],
+                                            main_settings_db,
+                                            _execute_firewall_ban,
+                                            _execute_firewall_unban,
+                                            _is_trusted_or_local_ip,
+                                            main_save_settings,
+                                            True,
+                                            7,
+                                            True,
+                                        )
+                                    except Exception as th_err:
+                                        print(f"[Nornia Connect] Realtime threat push apply warning: {th_err}")
+                                asyncio.create_task(_apply_realtime_threat(msg))
                             elif mtype == "RAS_LICENSE_SYNC":
                                 try:
                                     from backend.services.telemetry_worker import send_single_telemetry_heartbeat

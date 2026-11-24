@@ -89,6 +89,45 @@ async def push_ssh_control_to_pbx(
             pass
 
 
+async def broadcast_threat_intel_update(
+    action: str,
+    items: Optional[List[Dict[str, Any]]] = None,
+    ips: Optional[List[str]] = None,
+    exclude_hardware_id: Optional[str] = None,
+) -> int:
+    """Broadcasts a global threat IP ban/unban immediately to all connected PBX tunnels."""
+    msg_type = "RAS_THREAT_BAN" if action == "ban" else "RAS_THREAT_UNBAN"
+    payload: Dict[str, Any] = {
+        "type": msg_type,
+        "ts": time.time(),
+    }
+    if action == "ban":
+        if not items:
+            return 0
+        payload["items"] = items
+    else:
+        if not ips:
+            return 0
+        payload["ips"] = ips
+
+    excl = str(exclude_hardware_id or "").strip().upper()
+    sent_count = 0
+    # Deduplicate by session object (in case same session appears under multiple keys)
+    seen_sessions = set()
+    for hw_key, sess in list(ACTIVE_TUNNELS_BY_HWID.items()):
+        if not sess or id(sess) in seen_sessions:
+            continue
+        seen_sessions.add(id(sess))
+        if excl and str(hw_key or "").strip().upper() == excl:
+            continue
+        try:
+            await sess.send_json(payload)
+            sent_count += 1
+        except Exception:
+            pass
+    return sent_count
+
+
 _HUB_RESERVED_HOSTS = {"www", "connect", "panel", "api", "dokuman", "docs", "hub"}
 
 

@@ -35283,7 +35283,8 @@ def _execute_firewall_ban(
     jail: str = "asterisk",
     reason: str = "SIP Brute-Force / Yetkisiz Deneme",
     force_manual: bool = False,
-    save_now: bool = True
+    save_now: bool = True,
+    propagate_global: bool = True
 ) -> bool:
     import subprocess, datetime, re, ipaddress
     ip_clean = str(ip_str or "").strip()
@@ -35328,6 +35329,20 @@ def _execute_firewall_ban(
         print(f"[SIP IPS AUTO-BAN] Saldırgan IP Engellendi: {ip_clean} -> {reason}")
     if save_now:
         save_settings(settings_db)
+
+    # 5. Immediately notify Central Panel (Collective Threat Shield) in background thread
+    if propagate_global and str(jail or "").strip().lower() != "nornia-global-shield":
+        try:
+            from backend.services.threat_intel_service import report_local_ban_nonblocking
+            report_local_ban_nonblocking(
+                ip_str=ip_clean,
+                jail=jail,
+                reason=reason,
+                is_manual=bool(force_manual),
+                settings_dict=settings_db,
+            )
+        except Exception:
+            pass
     return True
 
 
@@ -36085,6 +36100,13 @@ def get_live_fail2ban_and_ufw_status(
         for t in (_security_live_cache.get("detected_threats") or [])[:200]
     ]
 
+    collective_shield_info = None
+    try:
+        from backend.services.threat_intel_service import get_collective_shield_status_summary
+        collective_shield_info = get_collective_shield_status_summary(settings_db)
+    except Exception:
+        collective_shield_info = {"enabled": True, "global_blocked_count": 0}
+
     return {
         "status": "success",
         "service_status": _security_live_cache.get("service_status") or "active",
@@ -36098,6 +36120,7 @@ def get_live_fail2ban_and_ufw_status(
         "whitelisted_ips": wl_entries,
         "detected_threats": detected_threats,
         "total_detected_threats": len(_security_live_cache.get("detected_threats") or []),
+        "collective_shield": collective_shield_info,
         "client_ip": client_ip
     }
 
@@ -36412,6 +36435,9 @@ async def get_advanced_security(user_info: dict = Depends(get_user_info)):
         "api_rate_limit": int(raw_adv.get("api_rate_limit", 100) or 100),
         "sip_rate_limit": int(raw_adv.get("sip_rate_limit", 50) or 50),
         "block_duration_minutes": int(raw_adv.get("block_duration_minutes", 1440) or 1440),
+        "collective_shield_enabled": bool(raw_adv.get("collective_shield_enabled", True)),
+        "collective_shield_report_enabled": bool(raw_adv.get("collective_shield_report_enabled", True)),
+        "collective_shield_apply_enabled": bool(raw_adv.get("collective_shield_apply_enabled", True)),
         **guard_cfg,
         "quarantined_subscribers_list": q_list,
     }
@@ -36422,6 +36448,9 @@ class AdvancedSecuritySchema(BaseModel):
     api_rate_limit: int = 100
     sip_rate_limit: int = 50
     block_duration_minutes: int = 1440
+    collective_shield_enabled: Optional[bool] = True
+    collective_shield_report_enabled: Optional[bool] = True
+    collective_shield_apply_enabled: Optional[bool] = True
     subscriber_outbound_guard_enabled: Optional[bool] = True
     default_max_concurrent_outbound: Optional[int] = 1
     burst_window_seconds: Optional[int] = 10

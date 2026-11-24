@@ -61,6 +61,14 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
   // Fail2Ban & Firewall States
   const [serviceStatus, setServiceStatus] = useState("active");
   const [ufwActive, setUfwActive] = useState(true);
+  const [collectiveShield, setCollectiveShield] = useState({
+    enabled: true,
+    report_enabled: true,
+    apply_enabled: true,
+    panel_enabled: true,
+    global_blocked_count: 0,
+    last_sync_at: null,
+  });
   const [blockedIps, setBlockedIps] = useState([]);
   const [totalBlockedCount, setTotalBlockedCount] = useState(0);
   const [filteredBlockedCount, setFilteredBlockedCount] = useState(0);
@@ -103,6 +111,9 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
     api_rate_limit: 100,
     sip_rate_limit: 50,
     block_duration_minutes: 1440,
+    collective_shield_enabled: true,
+    collective_shield_report_enabled: true,
+    collective_shield_apply_enabled: true,
     subscriber_outbound_guard_enabled: true,
     default_max_concurrent_outbound: 1,
     burst_window_seconds: 10,
@@ -195,6 +206,9 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
     if (Array.isArray(data.detected_threats)) setDetectedThreats(data.detected_threats);
     if (data.service_status) setServiceStatus(data.service_status);
     if (typeof data.ufw_active === "boolean") setUfwActive(data.ufw_active);
+    if (data.collective_shield && typeof data.collective_shield === "object") {
+      setCollectiveShield((prev) => ({ ...prev, ...data.collective_shield }));
+    }
     if (data.client_ip) setClientIp(data.client_ip);
   };
 
@@ -245,6 +259,9 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
           api_rate_limit: data.api_rate_limit ?? 100,
           sip_rate_limit: data.sip_rate_limit ?? 50,
           block_duration_minutes: data.block_duration_minutes ?? 1440,
+          collective_shield_enabled: data.collective_shield_enabled !== false,
+          collective_shield_report_enabled: data.collective_shield_report_enabled !== false,
+          collective_shield_apply_enabled: data.collective_shield_apply_enabled !== false,
           subscriber_outbound_guard_enabled: data.subscriber_outbound_guard_enabled !== false,
           default_max_concurrent_outbound: data.default_max_concurrent_outbound ?? 1,
           burst_window_seconds: data.burst_window_seconds ?? 10,
@@ -577,6 +594,20 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
             <span className="text-slate-600 dark:text-slate-300">
               UFW: {ufwActive ? "Aktif" : "Pasif"}
             </span>
+            <span className="text-slate-300 dark:text-slate-600">|</span>
+            <span
+              className={`inline-flex items-center gap-1 ${collectiveShield?.enabled ? text : "text-slate-400"}`}
+              title={
+                collectiveShield?.last_sync_at
+                  ? `Merkez Panel Kolektif Kalkan • Son senkron: ${collectiveShield.last_sync_at}`
+                  : "Nornia Kolektif Tehdit Kalkanı (Santraller arası ortak IP koruma ağı)"
+              }
+            >
+              <Globe size={12} />
+              <span>
+                Kolektif Kalkan: {collectiveShield?.enabled ? `Aktif (${collectiveShield?.global_blocked_count || 0})` : "Kapalı"}
+              </span>
+            </span>
           </div>
 
           {hasWritePermission && (
@@ -837,9 +868,16 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
                         <tr key={b.ip || i} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
                           <td className="py-3 px-4 text-xs font-bold text-rose-600 dark:text-rose-400 font-mono">{b.ip}</td>
                           <td className="py-3 px-4 text-xs text-slate-600 dark:text-slate-300 font-medium">
-                            <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 rounded text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">
-                              {b.jail || "asterisk"}
-                            </span>
+                            {String(b.jail || "").toLowerCase() === "nornia-global-shield" ? (
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold border ${lightBg} ${text} ${borderLight}`}>
+                                <Globe size={11} />
+                                <span>KOLEKTİF KALKAN</span>
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 rounded text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">
+                                {b.jail || "asterisk"}
+                              </span>
+                            )}
                           </td>
                           <td className="py-3 px-4 text-xs text-slate-600 dark:text-slate-300">
                             {formatSecurityReasonTr(b.reason)}
@@ -1149,6 +1187,74 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
                 </div>
               </div>
             )}
+
+            {/* Collective Threat Intelligence Card (Fleet-Wide Proactive IP Protection) */}
+            <fieldset className={`bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl p-6 shadow-sm space-y-4`}>
+              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
+                <div>
+                  <legend className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                    <Globe size={16} className={text} />
+                    <span>Nornia Kolektif Tehdit Kalkanı (Santraller Arası Ortak IP Koruma Ağı)</span>
+                  </legend>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                    Bir santralin engellediği saldırgan IP adreslerini anında Merkez Panel&apos;e bildirir ve diğer Nornia santrallerinden gelen doğrulanmış saldırgan IP&apos;lerini henüz santralinize saldırmadan proaktif olarak engeller. Yerel Beyaz Liste (ignoreip) ve kayıtlı SIP Trunk IP&apos;leri her zaman korunur.
+                  </p>
+                </div>
+
+                <label
+                  htmlFor="collective-shield-master-toggle"
+                  className="inline-flex items-center gap-2.5 cursor-pointer select-none shrink-0"
+                >
+                  <input
+                    id="collective-shield-master-toggle"
+                    name="collective_shield_enabled"
+                    type="checkbox"
+                    checked={Boolean(rateLimiting.collective_shield_enabled)}
+                    onChange={(e) => setRateLimiting({ ...rateLimiting, collective_shield_enabled: e.target.checked })}
+                    disabled={!hasWritePermission}
+                    className="sr-only peer"
+                  />
+                  <div className={`w-10 h-5 rounded-full transition-colors relative bg-slate-300 dark:bg-slate-700 peer-checked:${bg} peer-focus-visible:ring-2 ${ring} after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-4 after:h-4 after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-5`} />
+                  <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                    {rateLimiting.collective_shield_enabled ? "Aktif" : "Kapalı"}
+                  </span>
+                </label>
+              </div>
+
+              <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${!rateLimiting.collective_shield_enabled ? "opacity-50 pointer-events-none" : ""}`}>
+                <label className="flex items-start gap-3 p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(rateLimiting.collective_shield_report_enabled)}
+                    onChange={(e) => setRateLimiting({ ...rateLimiting, collective_shield_report_enabled: e.target.checked })}
+                    disabled={!hasWritePermission}
+                    className="mt-0.5 rounded"
+                  />
+                  <div>
+                    <div className="text-xs font-bold text-slate-800 dark:text-slate-100">Engellenen Saldırganları Panele Bildir</div>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                      Bu santralin Fail2Ban/UFW ile engellediği harici saldırgan IP&apos;leri anında Merkez Panel&apos;e raporlanır.
+                    </div>
+                  </div>
+                </label>
+
+                <label className="flex items-start gap-3 p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(rateLimiting.collective_shield_apply_enabled)}
+                    onChange={(e) => setRateLimiting({ ...rateLimiting, collective_shield_apply_enabled: e.target.checked })}
+                    disabled={!hasWritePermission}
+                    className="mt-0.5 rounded"
+                  />
+                  <div>
+                    <div className="text-xs font-bold text-slate-800 dark:text-slate-100">Diğer Santrallerin Engellerini Proaktif Uygula</div>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                      Merkez Panel&apos;den yayınlanan küresel saldırgan IP&apos;leri otomatik olarak bu santralde de engellenir (Aktif global engel: <strong>{collectiveShield?.global_blocked_count || 0}</strong>).
+                    </div>
+                  </div>
+                </label>
+              </div>
+            </fieldset>
 
             {/* Layer 1 & 2: Per-Subscriber Outbound Concurrency & CPS Flood Protection Card */}
             <fieldset className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-6 shadow-sm space-y-5">

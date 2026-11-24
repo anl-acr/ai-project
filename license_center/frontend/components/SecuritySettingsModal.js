@@ -54,6 +54,124 @@ export default function SecuritySettingsModal({ isOpen, onClose, currentUser, on
   const [sipEdgeStatus, setSipEdgeStatus] = useState(null);
   const [sipEdgeBusy, setSipEdgeBusy] = useState(false);
 
+  // Collective Threat Intelligence (Fleet-Wide IP Ban Sharing & Distribution)
+  const [threatIntel, setThreatIntel] = useState(null);
+  const [threatLoading, setThreatLoading] = useState(false);
+  const [threatBusy, setThreatBusy] = useState(false);
+  const [threatSearch, setThreatSearch] = useState("");
+  const [threatFeedback, setThreatFeedback] = useState(null);
+  const [showGlobalBanModal, setShowGlobalBanModal] = useState(false);
+  const [globalBanIp, setGlobalBanIp] = useState("");
+  const [globalBanReason, setGlobalBanReason] = useState("Merkez Panel Global Güvenlik Engeli");
+  const [globalBanPermanent, setGlobalBanPermanent] = useState(false);
+  const [globalUnbanTarget, setGlobalUnbanTarget] = useState(null);
+
+  const fetchThreatIntel = async (searchQ = threatSearch) => {
+    setThreatLoading(true);
+    try {
+      const qs = new URLSearchParams({ status: "active" });
+      if (searchQ && searchQ.trim()) qs.set("search", searchQ.trim());
+      const res = await fetch(`/api/v1/security/threat-intel?${qs.toString()}`);
+      if (res.ok) {
+        setThreatIntel(await res.json());
+      }
+    } catch (e) {
+      console.error("Failed to fetch collective threat intel:", e);
+    } finally {
+      setThreatLoading(false);
+    }
+  };
+
+  const handleUpdateThreatPolicy = async (patch) => {
+    setThreatBusy(true);
+    setThreatFeedback(null);
+    try {
+      const res = await fetch("/api/v1/security/threat-intel/policy", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-User-Name": currentUser?.username || "admin"
+        },
+        body: JSON.stringify(patch)
+      });
+      const d = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setThreatFeedback({
+          type: "ok",
+          text: `Kolektif Kalkan güncellendi: ${d.enabled ? "Aktif" : "Pasif"} (${d.ttl_days} gün geçerlilik).`
+        });
+        fetchThreatIntel();
+      } else {
+        setThreatFeedback({ type: "err", text: d.detail || "Kolektif Kalkan politikası güncellenemedi." });
+      }
+    } catch (e) {
+      setThreatFeedback({ type: "err", text: "Sunucuya bağlanılamadı." });
+    } finally {
+      setThreatBusy(false);
+    }
+  };
+
+  const handleGlobalBanSubmit = async (e) => {
+    e.preventDefault();
+    if (!globalBanIp.trim()) return;
+    setThreatBusy(true);
+    setThreatFeedback(null);
+    try {
+      const res = await fetch("/api/v1/security/threat-intel/ban", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-User-Name": currentUser?.username || "admin"
+        },
+        body: JSON.stringify({
+          ip: globalBanIp.trim(),
+          reason: globalBanReason.trim() || "Merkez Panel Global Güvenlik Engeli",
+          is_permanent: globalBanPermanent,
+          ttl_days: threatIntel?.ttl_days || 7
+        })
+      });
+      const d = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setShowGlobalBanModal(false);
+        setGlobalBanIp("");
+        setGlobalBanReason("Merkez Panel Global Güvenlik Engeli");
+        setGlobalBanPermanent(false);
+        setThreatFeedback({ type: "ok", text: d.message || "IP tüm santrallere global olarak iletildi." });
+        fetchThreatIntel();
+      } else {
+        setThreatFeedback({ type: "err", text: d.detail || "Global IP engeli eklenemedi." });
+      }
+    } catch (e) {
+      setThreatFeedback({ type: "err", text: "Sunucuya bağlanılamadı." });
+    } finally {
+      setThreatBusy(false);
+    }
+  };
+
+  const confirmGlobalUnbanIp = async () => {
+    if (!globalUnbanTarget?.ip) return;
+    setThreatBusy(true);
+    setThreatFeedback(null);
+    try {
+      const res = await fetch(`/api/v1/security/threat-intel/${encodeURIComponent(globalUnbanTarget.ip)}`, {
+        method: "DELETE",
+        headers: { "X-User-Name": currentUser?.username || "admin" }
+      });
+      const d = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setGlobalUnbanTarget(null);
+        setThreatFeedback({ type: "ok", text: d.message || "Global IP engeli tüm santrallerden kaldırıldı." });
+        fetchThreatIntel();
+      } else {
+        setThreatFeedback({ type: "err", text: d.detail || "Global IP engeli kaldırılamadı." });
+      }
+    } catch (e) {
+      setThreatFeedback({ type: "err", text: "Sunucuya bağlanılamadı." });
+    } finally {
+      setThreatBusy(false);
+    }
+  };
+
   const fetchSipEdgeStatus = async () => {
     try {
       const res = await fetch("/api/v1/security/sip-edge/status");
@@ -274,6 +392,7 @@ export default function SecuritySettingsModal({ isOpen, onClose, currentUser, on
       fetchBackupInfo();
       fetchFirewallStatus();
       fetchSipEdgeStatus();
+      fetchThreatIntel("");
     }
   }, [isOpen]);
 
@@ -1187,8 +1306,282 @@ export default function SecuritySettingsModal({ isOpen, onClose, currentUser, on
               </>
             )}
           </div>
+
+          {/* 6. Collective Threat Intelligence (Fleet-Wide IP Ban Sharing & Distribution) */}
+          <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950/70 border border-slate-200/80 dark:border-slate-800 space-y-3.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="font-extrabold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-2 flex-wrap">
+                  <Globe size={15} className="text-rose-500" />
+                  <span>6. Kolektif Tehdit Kalkanı (Santraller Arası Ortak IP Engelleme)</span>
+                  {threatIntel && (
+                    <span
+                      className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold border ${
+                        threatIntel.enabled
+                          ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/25"
+                          : "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/25"
+                      }`}
+                    >
+                      {threatIntel.enabled ? "Filo Koruması Aktif" : "Pasif"}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Herhangi bir santralde engellenen saldırgan IP&apos;leri otomatik olarak bu havuza toplanır ve <strong>anlık WebSocket + 60 sn Heartbeat</strong> ile diğer tüm santrallere proaktif olarak dağıtılır. Kayıtlı santral IP&apos;leri ve Beyaz Liste asla engellenmez.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <select
+                  aria-label="Global engel geçerlilik süresi"
+                  value={threatIntel?.ttl_days || 7}
+                  disabled={threatBusy}
+                  onChange={(e) => handleUpdateThreatPolicy({ ttl_days: Number(e.target.value) })}
+                  className="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-[11px] font-bold text-slate-700 dark:text-slate-200"
+                >
+                  <option value={3}>3 Gün Sakla</option>
+                  <option value={7}>7 Gün Sakla (Önerilen)</option>
+                  <option value={14}>14 Gün Sakla</option>
+                  <option value={30}>30 Gün Sakla</option>
+                  <option value={90}>90 Gün Sakla</option>
+                </select>
+                <button
+                  type="button"
+                  disabled={threatBusy}
+                  onClick={() => handleUpdateThreatPolicy({ enabled: !(threatIntel?.enabled ?? true) })}
+                  className={`px-3 py-1.5 rounded-xl text-[11px] font-extrabold border transition-colors cursor-pointer disabled:opacity-50 ${
+                    threatIntel?.enabled
+                      ? "bg-white dark:bg-slate-900 hover:bg-rose-600 text-rose-600 dark:text-rose-400 hover:text-white border-rose-200 dark:border-rose-800"
+                      : "bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-600"
+                  }`}
+                >
+                  {threatIntel?.enabled ? "Durdur" : "Aktif Et"}
+                </button>
+                <button
+                  type="button"
+                  disabled={threatLoading}
+                  onClick={() => fetchThreatIntel(threatSearch)}
+                  className="p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:text-indigo-600 cursor-pointer"
+                  title="Global Tehdit Listesini Yenile"
+                >
+                  <RefreshCw size={13} className={threatLoading ? "animate-spin" : ""} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowGlobalBanModal(true)}
+                  className="bg-rose-600 hover:bg-rose-500 text-white rounded-xl h-8 w-8 flex items-center justify-center shrink-0 shadow-sm transition-colors cursor-pointer"
+                  title="Tüm Santrallerde Global IP Engelle"
+                >
+                  <Plus size={16} />
+                </button>
+              </div>
+            </div>
+
+            {threatFeedback && (
+              <div
+                className={`p-2.5 rounded-xl border text-xs font-bold flex items-center gap-2 ${
+                  threatFeedback.type === "ok"
+                    ? "bg-emerald-500/10 border-emerald-500/25 text-emerald-700 dark:text-emerald-300"
+                    : "bg-rose-500/10 border-rose-500/25 text-rose-700 dark:text-rose-300"
+                }`}
+              >
+                {threatFeedback.type === "ok" ? <Check size={14} /> : <AlertTriangle size={14} />}
+                <span>{threatFeedback.text}</span>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+              <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800">
+                <div className="text-[10px] font-bold text-slate-400 uppercase">Aktif Global Engel</div>
+                <div className="font-mono font-extrabold text-rose-600 dark:text-rose-400 mt-0.5 text-sm">
+                  {Number(threatIntel?.active_count || 0).toLocaleString("tr-TR")}
+                </div>
+              </div>
+              <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800">
+                <div className="text-[10px] font-bold text-slate-400 uppercase">Bildiren Santral</div>
+                <div className="font-mono font-extrabold text-slate-800 dark:text-slate-100 mt-0.5 text-sm">
+                  {Number(threatIntel?.contributing_pbx_count || 0)}
+                </div>
+              </div>
+              <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800">
+                <div className="text-[10px] font-bold text-slate-400 uppercase">Anlık Bağlı Santral</div>
+                <div className="font-mono font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5 text-sm">
+                  {Number(threatIntel?.connected_pbx_count || 0)}
+                </div>
+              </div>
+              <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800">
+                <div className="text-[10px] font-bold text-slate-400 uppercase">Toplam Rapor</div>
+                <div className="font-mono font-extrabold text-slate-800 dark:text-slate-100 mt-0.5 text-sm">
+                  {Number(threatIntel?.total_reports || 0).toLocaleString("tr-TR")}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={threatSearch}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setThreatSearch(v);
+                  fetchThreatIntel(v);
+                }}
+                placeholder="Global tehdit havuzunda IP, kaynak santral veya sebep ara..."
+                className="flex-1 px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-white"
+              />
+            </div>
+
+            <div className="max-h-56 overflow-y-auto space-y-1.5 pr-1">
+              {!threatIntel || (threatIntel.items || []).length === 0 ? (
+                <div className="py-5 text-center text-xs text-slate-400 font-semibold border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
+                  Henüz paylaşılmış aktif global tehdit IP kaydı bulunmuyor.
+                </div>
+              ) : (
+                (threatIntel.items || []).map((item) => (
+                  <div
+                    key={item.ip}
+                    className="px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800 flex items-center justify-between gap-2 text-[11px]"
+                  >
+                    <div className="min-w-0 space-y-0.5">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-mono font-extrabold text-rose-600 dark:text-rose-400">{item.ip}</span>
+                        <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] font-bold text-slate-600 dark:text-slate-300">
+                          {item.first_reported_by || "Santral"}
+                        </span>
+                        {item.reporting_pbx_count > 1 && (
+                          <span className="px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 text-[10px] font-extrabold">
+                            {item.reporting_pbx_count} santral bildirdi
+                          </span>
+                        )}
+                        {item.is_permanent ? (
+                          <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-700 dark:text-amber-300 text-[10px] font-bold">
+                            Kalıcı
+                          </span>
+                        ) : (
+                          item.expires_at && (
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              Bitiş: {item.expires_at}
+                            </span>
+                          )
+                        )}
+                      </div>
+                      <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+                        {item.reason} • Son görülme: {item.last_seen_at}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={threatBusy}
+                      onClick={() => setGlobalUnbanTarget(item)}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer shrink-0"
+                      title="Tüm santrallerden global engeli kaldır"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
         </div>
       </div>
+
+      {/* GLOBAL COLLECTIVE SHIELD BAN MODAL */}
+      {showGlobalBanModal && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fadeIn">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 space-y-4 shadow-2xl text-slate-900 dark:text-slate-100">
+            <h4 className="text-sm font-extrabold flex items-center gap-2">
+              <Globe size={18} className="text-rose-600" />
+              <span>Tüm Santrallerde Global IP Engelle</span>
+            </h4>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              Bu IP adresi anında tüm bağlı santrallere iletilerek güvenlik duvarlarında (iptables / UFW / Fail2Ban) engellenecektir.
+            </p>
+            <form onSubmit={handleGlobalBanSubmit} className="space-y-3 text-xs font-semibold">
+              <div>
+                <label className="block text-slate-600 dark:text-slate-400 mb-1">Saldırgan Genel (Public) IP Adresi</label>
+                <input
+                  type="text"
+                  required
+                  value={globalBanIp}
+                  onChange={(e) => setGlobalBanIp(e.target.value)}
+                  placeholder="Örn: 185.220.101.45"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 font-mono text-slate-900 dark:text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-slate-600 dark:text-slate-400 mb-1">Engelleme Nedeni</label>
+                <input
+                  type="text"
+                  value={globalBanReason}
+                  onChange={(e) => setGlobalBanReason(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
+                />
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={globalBanPermanent}
+                  onChange={(e) => setGlobalBanPermanent(e.target.checked)}
+                  className="rounded accent-rose-600"
+                />
+                <span>Kalıcı Olarak Engelle (Süre sınırı olmadan)</span>
+              </label>
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowGlobalBanModal(false)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold cursor-pointer"
+                >
+                  Vazgeç
+                </button>
+                <button
+                  type="submit"
+                  disabled={threatBusy}
+                  className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-extrabold cursor-pointer disabled:opacity-50"
+                >
+                  {threatBusy ? "İletiliyor..." : "Tüm Santrallerde Engelle"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* CUSTOM DELETE CONFIRMATION MODAL FOR GLOBAL THREAT UNBAN */}
+      {globalUnbanTarget && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fadeIn">
+          <div className="w-full max-w-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-2xl space-y-5 text-center text-slate-900 dark:text-slate-100">
+            <div className="relative mx-auto flex items-center justify-center w-14 h-14 rounded-2xl bg-rose-500/10 text-rose-500 border border-rose-500/20">
+              <span className="absolute inset-0 rounded-2xl bg-rose-500/20 animate-ping" />
+              <AlertTriangle size={28} className="relative z-10" />
+            </div>
+            <div className="space-y-1.5">
+              <h4 className="text-base font-extrabold text-slate-900 dark:text-white">Global IP Engelini Kaldır?</h4>
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-semibold leading-relaxed">
+                <span className="font-mono font-bold text-slate-900 dark:text-white">{globalUnbanTarget.ip}</span> adresinin Kolektif Kalkan engeli tüm bağlı santrallerden kaldırılacaktır. Emin misiniz?
+              </p>
+            </div>
+            <div className="flex items-center justify-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setGlobalUnbanTarget(null)}
+                className="w-1/2 py-2.5 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                disabled={threatBusy}
+                onClick={confirmGlobalUnbanIp}
+                className="w-1/2 py-2.5 rounded-xl text-xs font-extrabold text-white bg-rose-600 hover:bg-rose-500 shadow-lg shadow-rose-600/30 cursor-pointer disabled:opacity-50"
+              >
+                Sil
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MANUEL IP BAN MODAL */}
       {showBanModal && (

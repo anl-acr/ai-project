@@ -52,7 +52,31 @@ class MasterSecurityPolicy(Base):
     smtp_password = Column(String, default="")
     smtp_from_email = Column(String, default="")
     smtp_use_tls = Column(Boolean, default=True)
+    collective_shield_enabled = Column(Boolean, default=True)
+    collective_shield_ttl_days = Column(Integer, default=7)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+
+class GlobalThreatIP(Base):
+    """Fleet-wide collective threat intelligence: attacker IPs banned by any PBX are shared with all PBXs."""
+    __tablename__ = "global_threat_ips"
+
+    id = Column(Integer, primary_key=True, index=True)
+    ip_address = Column(String, unique=True, index=True, nullable=False)
+    jail = Column(String, default="asterisk-pjsip")
+    reason = Column(String, default="SIP Brute-Force / Yetkisiz Deneme")
+    source = Column(String, default="pbx_auto")  # pbx_auto | pbx_manual | panel_manual
+    status = Column(String, default="active", index=True)  # active | revoked
+    hit_count = Column(Integer, default=1)
+    reporting_pbx_count = Column(Integer, default=1)
+    first_reported_by = Column(String, default="")
+    reporters_json = Column(Text, default="[]")  # [{hardware_id, tenant_code, company_name, reported_at}]
+    is_permanent = Column(Boolean, default=False)
+    first_seen_at = Column(DateTime, default=datetime.datetime.utcnow)
+    last_seen_at = Column(DateTime, default=datetime.datetime.utcnow)
+    expires_at = Column(DateTime, nullable=True)
+    revoked_at = Column(DateTime, nullable=True)
+    revoked_by = Column(String, nullable=True)
 
 
 class MasterAuditLog(Base):

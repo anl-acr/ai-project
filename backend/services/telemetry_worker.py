@@ -202,6 +202,24 @@ async def send_single_telemetry_heartbeat(override_tenants: list = None) -> bool
             except Exception:
                 pass
 
+        # Collect locally banned public IPs for Collective Threat Shield bi-directional sync
+        reported_banned_ips = []
+        try:
+            from backend.services.threat_intel_service import collect_local_banned_ips_for_heartbeat
+            ext_map = None
+            live_settings = current_settings
+            try:
+                from backend.main import _security_live_cache, settings_db as main_settings_db
+                if isinstance(_security_live_cache, dict):
+                    ext_map = _security_live_cache.get("external_blocked_map")
+                if isinstance(main_settings_db, dict) and main_settings_db.get("security_blocked_ips"):
+                    live_settings = main_settings_db
+            except Exception:
+                pass
+            reported_banned_ips = collect_local_banned_ips_for_heartbeat(live_settings, ext_map)
+        except Exception:
+            reported_banned_ips = []
+
         payload = {
             "hardware_id": hw_id,
             "system_serial_number": sys_serial,
@@ -217,6 +235,7 @@ async def send_single_telemetry_heartbeat(override_tenants: list = None) -> bool
             "ip_address": _CACHED_PUBLIC_IP,
             "public_ip": _CACHED_PUBLIC_IP,
             "tenants": tenant_pings,
+            "reported_banned_ips": reported_banned_ips,
             # Legacy fallback fields for backwards compatibility:
             "tenant_code": tenant_pings[0]["tenant_code"],
             "tenant_serial_number": tenant_pings[0]["serial_number"],
@@ -369,6 +388,34 @@ async def send_single_telemetry_heartbeat(override_tenants: list = None) -> bool
                             settings_db["tenants"] = tenants
                     except Exception:
                         pass
+
+                # Apply Fleet-Wide Collective Threat Intelligence (Global IP Bans & Revocations)
+                threat_intel = data.get("global_threat_intel")
+                if isinstance(threat_intel, dict):
+                    try:
+                        from backend.services.threat_intel_service import apply_global_threat_intel
+                        from backend.main import (
+                            settings_db as main_settings_db,
+                            _execute_firewall_ban,
+                            _execute_firewall_unban,
+                            _is_trusted_or_local_ip,
+                            save_settings as main_save_settings,
+                        )
+                        await asyncio.to_thread(
+                            apply_global_threat_intel,
+                            threat_intel.get("active_bans", []),
+                            threat_intel.get("revoked_ips", []),
+                            main_settings_db,
+                            _execute_firewall_ban,
+                            _execute_firewall_unban,
+                            _is_trusted_or_local_ip,
+                            main_save_settings,
+                            bool(threat_intel.get("enabled", True)),
+                            int(threat_intel.get("ttl_days") or 7),
+                            False,
+                        )
+                    except Exception as t_err:
+                        print(f"[Telemetry Worker] Global Threat Intel apply warning: {t_err}")
                 return True
     except Exception as exc:
         print(f"[Telemetry Worker] Heartbeat sync warning: {exc}")

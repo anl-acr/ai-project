@@ -11,6 +11,7 @@ import urllib.parse
 import datetime
 import asyncio
 import hashlib
+import ipaddress
 import json
 import sqlite3
 from email.mime.text import MIMEText
@@ -37,6 +38,7 @@ from license_center.backend.models import (
     MasterAuditLog,
     MasterBlockedIP,
     MasterSecurityPolicy,
+    GlobalThreatIP,
     MasterPackageTemplate,
     SystemRelease,
 )
@@ -201,6 +203,7 @@ _PUBLIC_V1_EXACT_PATHS = {
     "/api/v1/auth/verify-2fa",
     "/api/v1/auth/resend-email-2fa",
     "/api/v1/telemetry/heartbeat",
+    "/api/v1/security/threat-intel/report",
     "/api/v1/connect/check-subdomain",
     "/api/v1/ras/tunnel",
     "/api/v1/updates/check",
@@ -603,6 +606,7 @@ class HeartbeatSchema(BaseModel):
     ip_address: Optional[str] = None
     public_ip: Optional[str] = None
     tenants: Optional[List[TenantPingItem]] = []
+    reported_banned_ips: Optional[List[Dict[str, Any]]] = None
 
 class LoginSchema(BaseModel):
     username: str
@@ -3824,6 +3828,628 @@ async def generate_license(payload: LicenseGenerateSchema, request: Request, db:
     }
 
 # --------------------------------------------------------------------------
+# Collective Threat Intelligence (Fleet-Wide IP Ban Sharing & Distribution)
+# --------------------------------------------------------------------------
+def _validate_shareable_public_ip(ip_str: str) -> Optional[str]:
+    """
+    Validates that the given string is a single globally routable public IPv4/IPv6 address.
+    Blocks RFC1918 private networks, loopback, link-local, CGNAT (100.64.0.0/10),
+    multicast, reserved addresses, and broad CIDR ranges to prevent accidental mass lockouts.
+    """
+    raw = str(ip_str or "").strip()
+    if not raw:
+        return None
+    if "/" in raw:
+        parts = raw.split("/", 1)
+        if parts[1] not in ("32", "128"):
+            return None
+        raw = parts[0].strip()
+    try:
+        ip_obj = ipaddress.ip_address(raw)
+    except Exception:
+        return None
+    if (
+        ip_obj.is_private
+        or ip_obj.is_loopback
+        or ip_obj.is_link_local
+        or ip_obj.is_multicast
+        or ip_obj.is_reserved
+        or ip_obj.is_unspecified
+    ):
+        return None
+    # Explicit RFC 6598 CGNAT check (100.64.0.0/10)
+    if ip_obj.version == 4 and ip_obj in ipaddress.ip_network("100.64.0.0/10"):
+        return None
+    return str(ip_obj)
+
+
+async def _get_panel_protected_ip_sets(db: AsyncSession, policy: MasterSecurityPolicy):
+    """
+    Returns (exact_ips: set[str], cidr_nets: list[IPNetwork]) that must NEVER be accepted
+    or distributed as global attacker bans (Panel whitelist + all registered PBX server WAN/WG IPs).
+    """
+    exact_ips = set()
+    cidr_nets = []
+
+    # 1. Master Panel Whitelisted IPs
+    try:
+        wl_raw = json.loads(policy.whitelisted_ips_json or "[]")
+        if isinstance(wl_raw, list):
+            for entry in wl_raw:
+                s = str(entry or "").strip()
+                if not s:
+                    continue
+                if "/" in s:
+                    try:
+                        cidr_nets.append(ipaddress.ip_network(s, strict=False))
+                    except Exception:
+                        pass
+                else:
+                    exact_ips.add(s)
+    except Exception:
+        pass
+
+    # 2. All registered PBX servers' WAN IPs & WireGuard tunnel IPs (Santral A cannot ban Santral B!)
+    try:
+        res_pbx = await db.execute(select(ClientServer.ip_address, ClientServer.wg_tunnel_ip))
+        for p_ip, wg_ip in res_pbx.all():
+            if p_ip:
+                exact_ips.add(str(p_ip).strip())
+            if wg_ip:
+                exact_ips.add(str(wg_ip).strip())
+    except Exception:
+        pass
+
+    return exact_ips, cidr_nets
+
+
+def _is_ip_protected_by_panel(ip_clean: str, exact_ips: set, cidr_nets: list) -> bool:
+    if not ip_clean:
+        return True
+    if ip_clean in exact_ips:
+        return True
+    if cidr_nets:
+        try:
+            ip_obj = ipaddress.ip_address(ip_clean)
+            for net in cidr_nets:
+                if ip_obj.version == net.version and ip_obj in net:
+                    return True
+        except Exception:
+            pass
+    return False
+
+
+def _serialize_global_threat(row: GlobalThreatIP) -> Dict[str, Any]:
+    reporters = []
+    try:
+        parsed_r = json.loads(row.reporters_json or "[]")
+        if isinstance(parsed_r, list):
+            reporters = parsed_r
+    except Exception:
+        reporters = []
+    return {
+        "id": row.id,
+        "ip": row.ip_address,
+        "ip_address": row.ip_address,
+        "jail": row.jail or "asterisk-pjsip",
+        "reason": row.reason or "SIP Brute-Force / Yetkisiz Deneme",
+        "source": row.source or "pbx_auto",
+        "status": row.status or "active",
+        "hit_count": int(row.hit_count or 1),
+        "reporting_pbx_count": int(row.reporting_pbx_count or 1),
+        "first_reported_by": row.first_reported_by or "",
+        "reporters": reporters,
+        "is_permanent": bool(row.is_permanent),
+        "first_seen_at": row.first_seen_at.strftime("%Y-%m-%d %H:%M:%S") if row.first_seen_at else "",
+        "last_seen_at": row.last_seen_at.strftime("%Y-%m-%d %H:%M:%S") if row.last_seen_at else "",
+        "expires_at": row.expires_at.strftime("%Y-%m-%d %H:%M:%S") if row.expires_at else None,
+        "revoked_at": row.revoked_at.strftime("%Y-%m-%d %H:%M:%S") if row.revoked_at else None,
+        "revoked_by": row.revoked_by,
+    }
+
+
+async def _ingest_reported_threats(
+    db: AsyncSession,
+    bans: List[Dict[str, Any]],
+    reporter_hw_id: str,
+    reporter_tenant: str,
+    reporter_company: str,
+    policy: MasterSecurityPolicy,
+) -> List[Dict[str, Any]]:
+    """
+    Ingests attacker IP bans reported by an authenticated PBX into GlobalThreatIP.
+    Returns the list of newly activated threat items to immediately broadcast to other PBXs.
+    """
+    if not bans or not isinstance(bans, list):
+        return []
+    if getattr(policy, "collective_shield_enabled", True) is False:
+        return []
+
+    exact_protected, cidr_protected = await _get_panel_protected_ip_sets(db, policy)
+    ttl_days = max(1, min(90, int(getattr(policy, "collective_shield_ttl_days", 7) or 7)))
+    now_utc = datetime.datetime.utcnow()
+    new_expires = now_utc + datetime.timedelta(days=ttl_days)
+    hw_norm = str(reporter_hw_id or "HW-UNKNOWN").strip().upper()
+    reporter_label = (reporter_company or reporter_tenant or hw_norm).strip()[:120]
+
+    broadcast_items: List[Dict[str, Any]] = []
+    processed_ips = set()
+
+    for raw_item in bans[:100]:
+        if not isinstance(raw_item, dict):
+            continue
+        ip_clean = _validate_shareable_public_ip(raw_item.get("ip") or raw_item.get("ip_address") or "")
+        if not ip_clean or ip_clean in processed_ips:
+            continue
+        processed_ips.add(ip_clean)
+
+        # Skip if already came from global shield (loop prevention)
+        jail_raw = str(raw_item.get("jail") or "asterisk-pjsip").strip()[:64]
+        if jail_raw.lower() == "nornia-global-shield":
+            continue
+
+        # Never accept protected/whitelisted/PBX server IPs
+        if _is_ip_protected_by_panel(ip_clean, exact_protected, cidr_protected):
+            continue
+
+        reason_clean = str(raw_item.get("reason") or "SIP Brute-Force / Yetkisiz Deneme").strip()[:220]
+        is_manual = bool(raw_item.get("is_manual", False))
+        source_val = "pbx_manual" if is_manual else "pbx_auto"
+
+        res_ex = await db.execute(select(GlobalThreatIP).where(GlobalThreatIP.ip_address == ip_clean))
+        existing = res_ex.scalars().first()
+
+        if existing:
+            # Respect explicit recent manual revocation by Master Admin (24h grace window)
+            if existing.status == "revoked" and existing.revoked_at:
+                if (now_utc - existing.revoked_at).total_seconds() < 86400:
+                    continue
+
+            reporters = []
+            try:
+                reporters = json.loads(existing.reporters_json or "[]")
+                if not isinstance(reporters, list):
+                    reporters = []
+            except Exception:
+                reporters = []
+
+            already_reported_by_hw = any(
+                str(r.get("hardware_id") or "").upper() == hw_norm for r in reporters if isinstance(r, dict)
+            )
+            was_inactive = existing.status != "active" or (
+                not existing.is_permanent and existing.expires_at and existing.expires_at < now_utc
+            )
+
+            if not already_reported_by_hw:
+                reporters.append({
+                    "hardware_id": hw_norm,
+                    "tenant_code": reporter_tenant,
+                    "company_name": reporter_label,
+                    "reported_at": now_utc.strftime("%Y-%m-%d %H:%M:%S"),
+                })
+                existing.reporters_json = json.dumps(reporters[-50:], ensure_ascii=False)
+                existing.reporting_pbx_count = len(reporters)
+                existing.hit_count = int(existing.hit_count or 1) + 1
+                existing.last_seen_at = now_utc
+                if not existing.is_permanent:
+                    existing.expires_at = new_expires
+                if was_inactive:
+                    existing.status = "active"
+                    existing.revoked_at = None
+                    existing.revoked_by = None
+                broadcast_items.append(_serialize_global_threat(existing))
+            elif was_inactive:
+                existing.status = "active"
+                existing.revoked_at = None
+                existing.revoked_by = None
+                existing.last_seen_at = now_utc
+                if not existing.is_permanent:
+                    existing.expires_at = new_expires
+                existing.hit_count = int(existing.hit_count or 1) + 1
+                broadcast_items.append(_serialize_global_threat(existing))
+        else:
+            reporters_init = [{
+                "hardware_id": hw_norm,
+                "tenant_code": reporter_tenant,
+                "company_name": reporter_label,
+                "reported_at": now_utc.strftime("%Y-%m-%d %H:%M:%S"),
+            }]
+            row = GlobalThreatIP(
+                ip_address=ip_clean,
+                jail=jail_raw,
+                reason=reason_clean,
+                source=source_val,
+                status="active",
+                hit_count=1,
+                reporting_pbx_count=1,
+                first_reported_by=reporter_label,
+                reporters_json=json.dumps(reporters_init, ensure_ascii=False),
+                is_permanent=False,
+                first_seen_at=now_utc,
+                last_seen_at=now_utc,
+                expires_at=new_expires,
+            )
+            db.add(row)
+            await db.flush()
+            broadcast_items.append(_serialize_global_threat(row))
+
+    if broadcast_items:
+        await db.commit()
+    return broadcast_items
+
+
+async def _build_global_threat_sync_payload(db: AsyncSession, policy: MasterSecurityPolicy) -> Dict[str, Any]:
+    """Builds the fleet-wide active & recently revoked threat IP payload sent to PBXs on heartbeat."""
+    enabled = bool(getattr(policy, "collective_shield_enabled", True))
+    ttl_days = max(1, min(90, int(getattr(policy, "collective_shield_ttl_days", 7) or 7)))
+    if not enabled:
+        return {
+            "enabled": False,
+            "ttl_days": ttl_days,
+            "active_count": 0,
+            "active_bans": [],
+            "revoked_ips": [],
+        }
+
+    now_utc = datetime.datetime.utcnow()
+    exact_protected, cidr_protected = await _get_panel_protected_ip_sets(db, policy)
+
+    # Fetch active threats (not expired)
+    res_active = await db.execute(
+        select(GlobalThreatIP)
+        .where(GlobalThreatIP.status == "active")
+        .order_by(GlobalThreatIP.last_seen_at.desc())
+        .limit(500)
+    )
+    active_rows = res_active.scalars().all()
+    active_bans = []
+    expired_ips = []
+    for row in active_rows:
+        if not row.is_permanent and row.expires_at and row.expires_at < now_utc:
+            expired_ips.append(row.ip_address)
+            continue
+        if _is_ip_protected_by_panel(row.ip_address, exact_protected, cidr_protected):
+            expired_ips.append(row.ip_address)
+            continue
+        active_bans.append({
+            "ip": row.ip_address,
+            "jail": row.jail or "asterisk-pjsip",
+            "reason": row.reason or "SIP Brute-Force / Yetkisiz Deneme",
+            "source": row.source or "pbx_auto",
+            "hit_count": int(row.hit_count or 1),
+            "reporting_pbx_count": int(row.reporting_pbx_count or 1),
+            "first_reported_by": row.first_reported_by or "",
+            "last_seen_at": row.last_seen_at.strftime("%Y-%m-%d %H:%M:%S") if row.last_seen_at else "",
+            "expires_at": row.expires_at.strftime("%Y-%m-%d %H:%M:%S") if row.expires_at else None,
+        })
+
+    # Fetch recently revoked threats (last 14 days) so PBXs remove them from firewall
+    cutoff_rev = now_utc - datetime.timedelta(days=14)
+    res_rev = await db.execute(
+        select(GlobalThreatIP.ip_address)
+        .where((GlobalThreatIP.status == "revoked") & (GlobalThreatIP.revoked_at >= cutoff_rev))
+        .limit(300)
+    )
+    revoked_ips = list({r for r in res_rev.scalars().all() if r}.union(set(expired_ips)))
+
+    return {
+        "enabled": True,
+        "ttl_days": ttl_days,
+        "active_count": len(active_bans),
+        "active_bans": active_bans,
+        "revoked_ips": revoked_ips,
+    }
+
+
+class ThreatReportItemSchema(BaseModel):
+    ip: str
+    jail: Optional[str] = "asterisk-pjsip"
+    reason: Optional[str] = "SIP Brute-Force / Yetkisiz Deneme"
+    is_manual: Optional[bool] = False
+    banned_at: Optional[str] = None
+
+
+class ThreatReportBatchSchema(BaseModel):
+    hardware_id: str
+    system_serial_number: Optional[str] = None
+    tenant_code: Optional[str] = None
+    license_key: Optional[str] = None
+    bans: List[ThreatReportItemSchema] = []
+
+
+@app.post("/api/v1/security/threat-intel/report")
+async def report_pbx_threat_bans(
+    payload: ThreatReportBatchSchema,
+    request: Request,
+    db: AsyncSession = Depends(get_central_db),
+):
+    """
+    Instant PBX -> Panel attacker ban reporter.
+    Authenticated strictly against registered active ClientServer (hardware_id + serial/license check).
+    Immediately broadcasts newly reported attacker IPs to all other connected PBXs over WebSocket.
+    """
+    hw_id = str(payload.hardware_id or "").strip().upper()
+    if not hw_id or hw_id in ("HW-UNKNOWN", "UNBOUND", "BILINMIYOR"):
+        raise HTTPException(status_code=403, detail="Geçersiz veya kayıtsız donanım kimliği.")
+
+    res_c = await db.execute(
+        select(ClientServer).where(func.upper(ClientServer.hardware_id) == hw_id)
+    )
+    clients = res_c.scalars().all()
+    if not clients:
+        raise HTTPException(status_code=403, detail="Bu santral merkez panelde kayıtlı değil.")
+
+    # Verify caller matches registered hardware_id + (system_serial_number OR license_key OR active tunnel)
+    caller_sn = str(payload.system_serial_number or "").strip().upper()
+    caller_lic = str(payload.license_key or "").strip()
+    expected_sn = compute_system_serial_number(hw_id).upper()
+    from license_center.backend.connect_hub import ACTIVE_TUNNELS_BY_HWID, broadcast_threat_intel_update
+
+    active_clients = [c for c in clients if c.status != "suspended"]
+    if not active_clients:
+        raise HTTPException(status_code=403, detail="Askıya alınmış santral tehdit bildirimi gönderemez.")
+
+    verified = False
+    if hw_id in ACTIVE_TUNNELS_BY_HWID:
+        verified = True
+    elif caller_sn and (caller_sn == expected_sn or any((c.system_serial_number or "").strip().upper() == caller_sn for c in active_clients)):
+        verified = True
+    elif caller_lic and any((c.current_license_key or "").strip() == caller_lic for c in active_clients):
+        verified = True
+
+    if not verified:
+        raise HTTPException(status_code=403, detail="Santral kimlik doğrulaması başarısız.")
+
+    primary_client = active_clients[0]
+    policy = await get_or_create_security_policy(db)
+    raw_bans = [b.model_dump() if hasattr(b, "model_dump") else b.dict() for b in (payload.bans or [])]
+
+    newly_broadcast = await _ingest_reported_threats(
+        db=db,
+        bans=raw_bans,
+        reporter_hw_id=hw_id,
+        reporter_tenant=(payload.tenant_code or primary_client.tenant_code or "default").strip(),
+        reporter_company=(primary_client.company_name or primary_client.tenant_code or hw_id).strip(),
+        policy=policy,
+    )
+
+    pushed_pbx_count = 0
+    if newly_broadcast:
+        pushed_pbx_count = await broadcast_threat_intel_update(
+            action="ban",
+            items=newly_broadcast,
+            exclude_hardware_id=hw_id,
+        )
+
+    return {
+        "status": "ok",
+        "accepted_count": len(newly_broadcast),
+        "pushed_pbx_count": pushed_pbx_count,
+    }
+
+
+@app.get("/api/v1/security/threat-intel")
+async def list_global_threat_intel(
+    status: str = "active",
+    search: str = "",
+    db: AsyncSession = Depends(get_central_db),
+):
+    """Master Panel endpoint: returns fleet-wide collective threat shield statistics and IP list."""
+    policy = await get_or_create_security_policy(db)
+    now_utc = datetime.datetime.utcnow()
+    from license_center.backend.connect_hub import ACTIVE_TUNNELS_BY_HWID
+
+    res_all = await db.execute(select(GlobalThreatIP).order_by(GlobalThreatIP.last_seen_at.desc()).limit(1000))
+    all_rows = res_all.scalars().all()
+
+    active_items = []
+    revoked_items = []
+    total_hits = 0
+    unique_reporters = set()
+
+    for row in all_rows:
+        is_exp = (not row.is_permanent) and row.expires_at and row.expires_at < now_utc
+        item = _serialize_global_threat(row)
+        item["is_expired"] = bool(is_exp)
+        if row.status == "active" and not is_exp:
+            active_items.append(item)
+            total_hits += int(row.hit_count or 1)
+            for rep in item.get("reporters", []):
+                if isinstance(rep, dict) and rep.get("hardware_id"):
+                    unique_reporters.add(rep["hardware_id"])
+        else:
+            revoked_items.append(item)
+
+    if status == "revoked":
+        target_list = revoked_items
+    elif status == "all":
+        target_list = active_items + revoked_items
+    else:
+        target_list = active_items
+
+    q = str(search or "").strip().lower()
+    if q:
+        target_list = [
+            it for it in target_list
+            if q in it["ip"].lower()
+            or q in (it.get("reason") or "").lower()
+            or q in (it.get("first_reported_by") or "").lower()
+            or q in (it.get("jail") or "").lower()
+        ]
+
+    return {
+        "enabled": bool(getattr(policy, "collective_shield_enabled", True)),
+        "ttl_days": max(1, min(90, int(getattr(policy, "collective_shield_ttl_days", 7) or 7))),
+        "active_count": len(active_items),
+        "revoked_count": len(revoked_items),
+        "total_reports": total_hits,
+        "contributing_pbx_count": len(unique_reporters),
+        "connected_pbx_count": len(ACTIVE_TUNNELS_BY_HWID),
+        "items": target_list[:300],
+    }
+
+
+@app.post("/api/v1/security/threat-intel/ban")
+async def master_global_ban_ip(
+    request: Request,
+    payload: Dict[str, Any] = Body(...),
+    db: AsyncSession = Depends(get_central_db),
+):
+    """Master Admin manually bans an IP across ALL connected and heartbeating PBXs globally."""
+    s_info = getattr(request.state, "master_user", None) or {}
+    performed_by = s_info.get("u") or request.headers.get("X-User-Name", "admin")
+
+    ip_clean = _validate_shareable_public_ip(payload.get("ip") or payload.get("ip_address") or "")
+    if not ip_clean:
+        raise HTTPException(
+            status_code=400,
+            detail="Geçersiz veya özel/yerel IP adresi. Kolektif Kalkan yalnızca geçerli genel (public) IPv4/IPv6 adreslerini kabul eder.",
+        )
+
+    policy = await get_or_create_security_policy(db)
+    exact_protected, cidr_protected = await _get_panel_protected_ip_sets(db, policy)
+    if _is_ip_protected_by_panel(ip_clean, exact_protected, cidr_protected):
+        raise HTTPException(
+            status_code=400,
+            detail="Bu IP adresi Panel Beyaz Listesi'nde veya kayıtlı bir santral sunucusuna ait olduğu için global olarak engellenemez.",
+        )
+
+    reason = str(payload.get("reason") or "Merkez Panel Global Güvenlik Engeli").strip()[:220]
+    is_permanent = bool(payload.get("is_permanent", False))
+    ttl_days = max(1, min(365, int(payload.get("ttl_days") or getattr(policy, "collective_shield_ttl_days", 7) or 7)))
+    now_utc = datetime.datetime.utcnow()
+    expires_at = None if is_permanent else (now_utc + datetime.timedelta(days=ttl_days))
+
+    res_ex = await db.execute(select(GlobalThreatIP).where(GlobalThreatIP.ip_address == ip_clean))
+    row = res_ex.scalars().first()
+    if row:
+        row.status = "active"
+        row.reason = reason
+        row.source = "panel_manual"
+        row.jail = "panel-global-ban"
+        row.is_permanent = is_permanent
+        row.expires_at = expires_at
+        row.last_seen_at = now_utc
+        row.revoked_at = None
+        row.revoked_by = None
+        row.hit_count = int(row.hit_count or 1) + 1
+    else:
+        row = GlobalThreatIP(
+            ip_address=ip_clean,
+            jail="panel-global-ban",
+            reason=reason,
+            source="panel_manual",
+            status="active",
+            hit_count=1,
+            reporting_pbx_count=1,
+            first_reported_by=f"Merkez Panel ({performed_by})",
+            reporters_json=json.dumps([{
+                "hardware_id": "MASTER-PANEL",
+                "tenant_code": "master",
+                "company_name": f"Merkez Panel ({performed_by})",
+                "reported_at": now_utc.strftime("%Y-%m-%d %H:%M:%S"),
+            }], ensure_ascii=False),
+            is_permanent=is_permanent,
+            first_seen_at=now_utc,
+            last_seen_at=now_utc,
+            expires_at=expires_at,
+        )
+        db.add(row)
+    await db.commit()
+    await db.refresh(row)
+
+    serialized = _serialize_global_threat(row)
+    from license_center.backend.connect_hub import broadcast_threat_intel_update
+    pushed_pbx_count = await broadcast_threat_intel_update(action="ban", items=[serialized])
+
+    await log_master_action(
+        db,
+        performed_by,
+        "GLOBAL_THREAT_BAN",
+        f"Kolektif Kalkan Global IP Engeli: {ip_clean} (Sebep: {reason}, Anlık İletilen Santral: {pushed_pbx_count})",
+        extract_client_ip(request),
+    )
+    return {
+        "status": "success",
+        "message": f"{ip_clean} adresi global tehdit listesine eklendi ve {pushed_pbx_count} bağlı santrale anlık iletildi.",
+        "pushed_pbx_count": pushed_pbx_count,
+        "item": serialized,
+    }
+
+
+@app.delete("/api/v1/security/threat-intel/{ip:path}")
+async def master_global_unban_ip(
+    ip: str,
+    request: Request,
+    db: AsyncSession = Depends(get_central_db),
+):
+    """Master Admin revokes a global threat IP ban and broadcasts unban to ALL connected PBXs."""
+    s_info = getattr(request.state, "master_user", None) or {}
+    performed_by = s_info.get("u") or request.headers.get("X-User-Name", "admin")
+    ip_clean = str(ip or "").strip()
+
+    res_ex = await db.execute(select(GlobalThreatIP).where(GlobalThreatIP.ip_address == ip_clean))
+    row = res_ex.scalars().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Belirtilen IP adresi global tehdit listesinde bulunamadı.")
+
+    row.status = "revoked"
+    row.revoked_at = datetime.datetime.utcnow()
+    row.revoked_by = performed_by
+    await db.commit()
+
+    from license_center.backend.connect_hub import broadcast_threat_intel_update
+    pushed_pbx_count = await broadcast_threat_intel_update(action="unban", ips=[ip_clean])
+
+    await log_master_action(
+        db,
+        performed_by,
+        "GLOBAL_THREAT_UNBAN",
+        f"Kolektif Kalkan Global IP Engeli Kaldırıldı: {ip_clean} (Anlık İletilen Santral: {pushed_pbx_count})",
+        extract_client_ip(request),
+    )
+    return {
+        "status": "success",
+        "message": f"{ip_clean} adresi global engelden kaldırıldı ve {pushed_pbx_count} bağlı santrale iletildi.",
+        "pushed_pbx_count": pushed_pbx_count,
+    }
+
+
+@app.post("/api/v1/security/threat-intel/policy")
+async def update_global_threat_policy(
+    request: Request,
+    payload: Dict[str, Any] = Body(...),
+    db: AsyncSession = Depends(get_central_db),
+):
+    """Updates fleet-wide collective threat shield enable flag and default ban TTL days."""
+    s_info = getattr(request.state, "master_user", None) or {}
+    performed_by = s_info.get("u") or request.headers.get("X-User-Name", "admin")
+    policy = await get_or_create_security_policy(db)
+
+    if "enabled" in payload:
+        policy.collective_shield_enabled = bool(payload.get("enabled"))
+    if "ttl_days" in payload:
+        try:
+            policy.collective_shield_ttl_days = max(1, min(90, int(payload.get("ttl_days"))))
+        except Exception:
+            pass
+    await db.commit()
+
+    await log_master_action(
+        db,
+        performed_by,
+        "GLOBAL_THREAT_POLICY",
+        f"Kolektif Tehdit Kalkanı Güncellendi: Durum={'Aktif' if policy.collective_shield_enabled else 'Pasif'}, Süre={policy.collective_shield_ttl_days} gün",
+        extract_client_ip(request),
+    )
+    return {
+        "status": "success",
+        "enabled": bool(policy.collective_shield_enabled),
+        "ttl_days": int(policy.collective_shield_ttl_days or 7),
+    }
+
+
+# --------------------------------------------------------------------------
 # Telemetry Heartbeat Receiver (Pings from Client Servers)
 # --------------------------------------------------------------------------
 @app.post("/api/v1/telemetry/heartbeat")
@@ -4042,12 +4668,40 @@ async def receive_heartbeat(payload: HeartbeatSchema, request: Request, db: Asyn
 
     primary_resp = tenants_response[0] if tenants_response else {}
 
+    # Collective Threat Intelligence bi-directional sync (PBX -> Panel -> Fleet)
+    global_threat_intel = None
+    try:
+        sec_policy = await get_or_create_security_policy(db)
+        if payload.reported_banned_ips and not primary_resp.get("remote_kill_switch", False):
+            rep_company = ""
+            if tenant_items:
+                rep_company = (tenant_items[0].company_name or tenant_items[0].tenant_code or "").strip()
+            newly_reported = await _ingest_reported_threats(
+                db=db,
+                bans=payload.reported_banned_ips,
+                reporter_hw_id=hw_id,
+                reporter_tenant=(primary_resp.get("tenant_code") or "default"),
+                reporter_company=rep_company or hw_id,
+                policy=sec_policy,
+            )
+            if newly_reported:
+                from license_center.backend.connect_hub import broadcast_threat_intel_update
+                await broadcast_threat_intel_update(
+                    action="ban",
+                    items=newly_reported,
+                    exclude_hardware_id=hw_id,
+                )
+        global_threat_intel = await _build_global_threat_sync_payload(db, sec_policy)
+    except Exception as threat_exc:
+        print(f"[Heartbeat Threat Sync Warning] {threat_exc}")
+
     return {
         "status": "ok",
         "remote_kill_switch": primary_resp.get("remote_kill_switch", False),
         "latest_license_key": primary_resp.get("latest_license_key"),
         "license_expires_at": primary_resp.get("license_expires_at"),
         "tenants_response": tenants_response,
+        "global_threat_intel": global_threat_intel,
         "message": f"Heartbeat alındı ({len(tenants_response)} tenant güncellendi)."
     }
 

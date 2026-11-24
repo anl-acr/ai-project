@@ -78,7 +78,9 @@ async def init_central_db():
             "ALTER TABLE master_security_policy ADD COLUMN smtp_user VARCHAR DEFAULT '';",
             "ALTER TABLE master_security_policy ADD COLUMN smtp_password VARCHAR DEFAULT '';",
             "ALTER TABLE master_security_policy ADD COLUMN smtp_from_email VARCHAR DEFAULT '';",
-            "ALTER TABLE master_security_policy ADD COLUMN smtp_use_tls BOOLEAN DEFAULT 1;"
+            "ALTER TABLE master_security_policy ADD COLUMN smtp_use_tls BOOLEAN DEFAULT 1;",
+            "ALTER TABLE master_security_policy ADD COLUMN collective_shield_enabled BOOLEAN DEFAULT 1;",
+            "ALTER TABLE master_security_policy ADD COLUMN collective_shield_ttl_days INTEGER DEFAULT 7;"
         ]:
             try:
                 await conn.execute(text(ddl))
