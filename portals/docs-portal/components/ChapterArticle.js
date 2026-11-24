@@ -386,6 +386,13 @@ export default function ChapterArticle({ chapter, printMode = false }) {
                         </p>
                       )}
 
+                      {sub.screenshot && (
+                        <ScreenshotCard
+                          shot={sub.screenshot}
+                          onZoom={printMode ? null : (s) => setZoomShot(s)}
+                        />
+                      )}
+
                       {sub.fields && sub.fields.length > 0 && (
                         <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
                           <table className="w-full text-left text-xs border-collapse">
