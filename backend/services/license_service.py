@@ -72,7 +72,28 @@ def get_plan_limits(plan_tier: str = "professional") -> dict:
     tier = (plan_tier or "professional").strip().lower()
     return PLAN_LIMITS.get(tier, PLAN_LIMITS["professional"])
 
-def compute_license_signature(tenant_code: str, expiry_date_str: str, hw_id: str = "UNBOUND") -> str:
+def get_license_legacy_secrets() -> list:
+    """Optional read-only verification fallback secrets for zero-downtime key rotation (env or /etc/nornia/license.legacy.secret)."""
+    out = []
+    env_legacy = (os.getenv("NORNIA_LICENSE_LEGACY_SECRET") or "").strip()
+    if env_legacy:
+        for part in env_legacy.split(","):
+            s = part.strip()
+            if s and s not in out:
+                out.append(s)
+    for candidate in ("/etc/nornia/license.legacy.secret",):
+        try:
+            if os.path.exists(candidate):
+                for line in open(candidate, "r", encoding="utf-8").read().splitlines():
+                    s = line.strip()
+                    if s and not s.startswith("#") and s not in out:
+                        out.append(s)
+        except Exception:
+            pass
+    return out
+
+
+def compute_license_signature(tenant_code: str, expiry_date_str: str, hw_id: str = "UNBOUND", secret_override: str = None) -> str:
     """
     Computes an 8-character uppercase HMAC-SHA256 signature mapping tenant code, expiry date (YYYY-MM-DD), and hardware ID.
     """
@@ -80,8 +101,9 @@ def compute_license_signature(tenant_code: str, expiry_date_str: str, hw_id: str
     clean_date = expiry_date_str.strip()
     clean_hw = hw_id.strip().upper().replace("-", "").replace("HW", "")
     msg = f"{clean_code}:{clean_date}:{clean_hw}"
+    secret_val = secret_override if secret_override is not None else get_license_master_secret()
     signature = hmac.new(
-        get_license_master_secret().encode("utf-8"),
+        secret_val.encode("utf-8"),
         msg.encode("utf-8"),
         hashlib.sha256
     ).hexdigest()[:8].upper()
@@ -172,12 +194,17 @@ def verify_license_key(tenant_code: str, license_key: str) -> dict:
                 "reason": f"Lisans bu donanıma (sunucuya) ait değildir. Sunucu kopyalanmış veya taşınmış olabilir. (Lisanslı Donanım: {hw_part}, Mevcut Sunucu: {current_clean_hw})"
             }
 
-    # HMAC Signature Verification (Check both embedded key_tenant_code and passed tenant_code)
-    sig_1 = compute_license_signature(key_tenant_code, expiry_date_str, hw_part)
-    sig_2 = compute_license_signature(tenant_code, expiry_date_str, hw_part)
+    # HMAC Signature Verification (Check both embedded key_tenant_code and passed tenant_code, plus optional rotation legacy secret)
+    valid_sigs = {
+        compute_license_signature(key_tenant_code, expiry_date_str, hw_part),
+        compute_license_signature(tenant_code, expiry_date_str, hw_part),
+    }
+    for leg_sec in get_license_legacy_secrets():
+        valid_sigs.add(compute_license_signature(key_tenant_code, expiry_date_str, hw_part, secret_override=leg_sec))
+        valid_sigs.add(compute_license_signature(tenant_code, expiry_date_str, hw_part, secret_override=leg_sec))
 
-    if sig_part.upper() not in [sig_1, sig_2]:
-        return {"valid": False, "expires_at": expiry_date_str, "reason": "Lisans imza doğrulaması başarısız (Lisans Anahtarı Geçersiz veya Değiştirilmiş)."}
+    if sig_part.upper() not in valid_sigs:
+        return {"valid": False, "expires_at": expiry_date_str, "reason": "Lisans imza doğrulaması başarısız (Sunucudaki /etc/nornia/license.secret anahtarı Panel ile eşleşmiyor veya lisans anahtarı değiştirilmiş)."}
 
     # Expiry Check (Evaluated in Turkey UTC+3 local time so expiry date is valid through 23:59:59 TR)
     try:
@@ -324,7 +351,7 @@ def evaluate_tenant_effective_license(tenant: dict) -> dict:
         "hard_expired": True,
         "in_grace_period": False,
         "is_unlimited": False,
-        "days_left": 0,
+        "days_left": 0 if verification.get("expired_only") else days_left,
         "grace_days_left": 0 if grace_str else None,
         "expires_at": eff_exp_str or verification.get("expires_at"),
         "license_grace_until": grace_str,

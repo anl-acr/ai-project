@@ -223,9 +223,16 @@ export default function LicenseModal({ isOpen, onClose, backendHost, onLicenseUp
             )}
 
             {isExpired && (
-              <p className="mt-2.5 text-[11.5px] leading-relaxed text-rose-700 dark:text-rose-300 border-t border-rose-200/60 dark:border-rose-900/40 pt-2 font-medium">
-                ⚠️ Lisans süresi dolduğu için Web Paneli, dışarıdan gelen çağrılar, Omnichannel (WhatsApp/Sosyal Medya/E-Posta), Yapay Zeka sesli asistan, Auto-Dialer ve normal aramalar durdurulmuştur. Masa telefonları aktif olup yalnızca sistemde tanımlı acil durum numaralarını ({emNumbersText}) arayabilir. Devam etmek için yeni Lisans Anahtarı giriniz.
-              </p>
+              <div className="mt-2.5 text-[11.5px] leading-relaxed text-rose-700 dark:text-rose-300 border-t border-rose-200/60 dark:border-rose-900/40 pt-2 font-medium space-y-1.5">
+                {licenseStatus?.reason && (
+                  <p className="font-bold text-rose-800 dark:text-rose-200">
+                    Sebep: {licenseStatus.reason}
+                  </p>
+                )}
+                <p>
+                  ⚠️ Lisans doğrulaması aktif olmadığı için Web Paneli, dışarıdan gelen çağrılar, Omnichannel (WhatsApp/Sosyal Medya/E-Posta), Yapay Zeka sesli asistan, Auto-Dialer ve normal aramalar durdurulmuştur. Masa telefonları aktif olup yalnızca sistemde tanımlı acil durum numaralarını ({emNumbersText}) arayabilir. Devam etmek için geçerli Lisans Anahtarı giriniz.
+                </p>
+              </div>
             )}
           </div>
 

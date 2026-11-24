@@ -4639,6 +4639,30 @@ async def receive_heartbeat(payload: HeartbeatSchema, request: Request, db: Asyn
 
         remote_kill_switch = (client.status == "suspended") or (client.status == "expired" and not grace_active)
 
+        # Auto re-sign active/demo license key if Panel's signing secret rotated (zero-downtime rotation)
+        if (
+            not remote_kill_switch
+            and client.status in ("active", "demo")
+            and client.current_license_key
+            and client.license_expires_at
+            and hw_id
+            and hw_id not in ("HW-UNKNOWN", "UNBOUND", "Bilinmiyor")
+        ):
+            try:
+                v_cur = verify_signed_license_key(t_code, client.current_license_key, hw_id)
+                if not v_cur.get("valid") and "imza" in str(v_cur.get("reason") or "").lower():
+                    resigned_key = generate_signed_license_key(
+                        t_code,
+                        client.license_expires_at,
+                        hw_id,
+                        parsed_quotas if isinstance(parsed_quotas, dict) else None,
+                    )
+                    client.current_license_key = resigned_key
+                    await db.commit()
+                    print(f"[Heartbeat Auto-Resign] '{t_code}' ({hw_id}) lisansı güncel Panel gizli anahtarıyla yeniden imzalandı.")
+            except Exception as rs_err:
+                print(f"[Heartbeat Auto-Resign Warning] {rs_err}")
+
         tenants_response.append({
             "tenant_code": t_code,
             "serial_number": client.tenant_serial_number,
