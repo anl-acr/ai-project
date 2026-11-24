@@ -258,6 +258,7 @@ def build_system_default_templates() -> List[Dict[str, Any]]:
     <P330>1</P330>
     <P331>{{PHONEBOOK_URL_NO_SCHEME}}</P331>
     <P332>60</P332>
+{{SYNC_FEATURE_BLOCK}}
 {{DSS_KEYS_BLOCK}}
 {{EXPANSION_MODULES_BLOCK}}
   </config>
@@ -289,11 +290,13 @@ SIP1 Rport           :1
 SIP1 Subscribe Expire:1800
 SIP1 MWI Num         :{{VOICEMAIL_CODE}}
 SIP1 Ring Type       :{{RINGTONE}}
+{{FANVIL_SIP_SYNC_BLOCK}}
 
 <PHONE CONFIG MODULE>
 Time Display 24H     :{{TIME_FORMAT_24_BIT}}
 Backlight Level      :{{BACKLIGHT_ACTIVE}}
 Language             :{{LANGUAGE}}
+{{FANVIL_PHONE_SYNC_BLOCK}}
 
 <DSSKEY CONFIG MODULE>
 {{DSS_KEYS_BLOCK}}
@@ -1707,19 +1710,50 @@ def generate_provisioning_config(
     eff_language = str(prefs.get("language") or language or "Turkish").strip() or "Turkish"
     eff_auto_answer = bool(prefs.get("auto_answer", auto_answer))
 
-    # Build Yealink bi-directional DND & Call Forwarding sync config lines (live state + feature codes + Action URLs)
-    from backend.services.deskphone_sync_service import build_yealink_sync_cfg_lines
+    # Build vendor bi-directional DND & Call Forwarding sync config blocks (Yealink, Grandstream, Fanvil)
+    from backend.services.deskphone_sync_service import (
+        build_yealink_sync_cfg_lines,
+        build_grandstream_sync_xml_lines,
+        format_grandstream_live_lcd_label,
+        build_fanvil_sync_sip_lines,
+        build_fanvil_sync_phone_lines,
+    )
     eff_live_sync = dict(live_sync_state) if isinstance(live_sync_state, dict) else {}
     if not eff_live_sync and prefs.get("dnd_default"):
         eff_live_sync["dnd_enabled"] = True
+    eff_live_arg = eff_live_sync if eff_live_sync else None
+
     yealink_sync_lines = build_yealink_sync_cfg_lines(
         ext=ext_s,
         sip_username=sip_u,
-        live_state=eff_live_sync if eff_live_sync else None,
+        live_state=eff_live_arg,
         sync_base_url=phone_sync_base_url,
         fwd_codes=fwd_codes,
     )
     yealink_sync_block = "\n".join(yealink_sync_lines)
+
+    grandstream_sync_lines = build_grandstream_sync_xml_lines(
+        ext=ext_s,
+        sip_username=sip_u,
+        live_state=eff_live_arg,
+        sync_base_url=phone_sync_base_url,
+        fwd_codes=fwd_codes,
+    )
+    grandstream_sync_block = "\n".join(grandstream_sync_lines)
+    gs_live_label = format_grandstream_live_lcd_label(line_label, eff_live_arg)
+
+    fanvil_sip_sync_lines = build_fanvil_sync_sip_lines(
+        live_state=eff_live_arg,
+        fwd_codes=fwd_codes,
+    )
+    fanvil_sip_sync_block = "\n".join(fanvil_sip_sync_lines)
+    fanvil_phone_sync_lines = build_fanvil_sync_phone_lines(
+        ext=ext_s,
+        sip_username=sip_u,
+        live_state=eff_live_arg,
+        sync_base_url=phone_sync_base_url,
+    )
+    fanvil_phone_sync_block = "\n".join(fanvil_phone_sync_lines)
 
     # 1. If a custom/system XML/CFG template is explicitly assigned, interpolate ALL variables + live DSS/Expansion/Softkey blocks
     if isinstance(template_obj, dict) and str(template_obj.get("xml_content") or "").strip():
@@ -1856,7 +1890,7 @@ def generate_provisioning_config(
             "{PASSWORD}": sip_password,
             "{DISPLAY_NAME}": disp_name,
             "{FULL_NAME}": disp_name,
-            "{LABEL}": line_label,
+            "{LABEL}": html.escape(gs_live_label) if "grandstream" in tpl_b_low else line_label,
             "{SIP_SERVER}": pbx_host,
             "{PBX_HOST}": pbx_host,
             "{SIP_PORT}": str(sip_port),
@@ -1880,7 +1914,13 @@ def generate_provisioning_config(
             "{DSS_KEYS_BLOCK}": "\n".join(dss_block_lines),
             "{EXPANSION_MODULES_BLOCK}": "\n".join(exp_block_lines),
             "{SOFTKEYS_BLOCK}": "\n".join(soft_block_lines),
-            "{SYNC_FEATURE_BLOCK}": yealink_sync_block if "yealink" in tpl_b_low else "",
+            "{SYNC_FEATURE_BLOCK}": (
+                yealink_sync_block
+                if "yealink" in tpl_b_low
+                else (grandstream_sync_block if "grandstream" in tpl_b_low else "")
+            ),
+            "{FANVIL_SIP_SYNC_BLOCK}": fanvil_sip_sync_block if "fanvil" in tpl_b_low else "",
+            "{FANVIL_PHONE_SYNC_BLOCK}": fanvil_phone_sync_block if "fanvil" in tpl_b_low else "",
         }
         rendered = raw_tpl
         for k, v in replacements.items():
@@ -1888,6 +1928,15 @@ def generate_provisioning_config(
         if "yealink" in tpl_b_low and "{SYNC_FEATURE_BLOCK}" not in raw_tpl:
             rendered = rendered.replace("sip.notify_reboot_enable = 1", "sip.notify_reboot_enable = 0")
             rendered = rendered.rstrip() + "\n" + yealink_sync_block + "\n"
+        elif "grandstream" in tpl_b_low and "{SYNC_FEATURE_BLOCK}" not in raw_tpl and "</config>" in rendered:
+            rendered = rendered.replace("</config>", grandstream_sync_block + "\n  </config>", 1)
+        elif "fanvil" in tpl_b_low:
+            if "{FANVIL_SIP_SYNC_BLOCK}" not in raw_tpl and "<SIP CONFIG MODULE>" in rendered:
+                if "<PHONE CONFIG MODULE>" in rendered:
+                    rendered = rendered.replace("<PHONE CONFIG MODULE>", fanvil_sip_sync_block + "\n\n<PHONE CONFIG MODULE>", 1)
+            if "{FANVIL_PHONE_SYNC_BLOCK}" not in raw_tpl and "<PHONE CONFIG MODULE>" in rendered:
+                if "<DSSKEY CONFIG MODULE>" in rendered:
+                    rendered = rendered.replace("<DSSKEY CONFIG MODULE>", fanvil_phone_sync_block + "\n\n<DSSKEY CONFIG MODULE>", 1)
         is_xml = rendered.lstrip().startswith("<")
         ext_suffix = "xml" if is_xml else "cfg"
         fname = f"{mac_hex or ('ext_' + ext_s)}.{ext_suffix}"
@@ -1988,7 +2037,7 @@ def generate_provisioning_config(
   <mac>{html.escape(mac_hex)}</mac>
   <config version="1">
 {gs_prov_lines}    <P271>1</P271>
-    <P270>{html.escape(line_label)}</P270>
+    <P270>{html.escape(gs_live_label)}</P270>
     <P47>{html.escape(pbx_host)}:{sip_port}</P47>
     <P35>{html.escape(sip_u)}</P35>
     <P36>{html.escape(sip_u)}</P36>
@@ -2010,6 +2059,7 @@ def generate_provisioning_config(
     <P330>1</P330>
     <P331>{html.escape(pb_base.replace('http://', '').replace('https://', ''))}/{html.escape(ext_s or 'all')}</P331>
     <P332>60</P332>
+{grandstream_sync_block}
 {mpk_block}
   </config>
 </gs_provision>
@@ -2046,12 +2096,12 @@ def generate_provisioning_config(
             "SIP1 MWI Num         :*97",
             f"SIP1 Auto Answer     :{1 if eff_auto_answer else 0}",
             f"SIP1 Ring Type       :{prefs['ringtone']}",
+            *fanvil_sip_sync_lines,
             "",
             "<PHONE CONFIG MODULE>",
             f"Call Waiting         :{1 if prefs['call_waiting'] else 0}",
             f"Call Waiting Tone    :{1 if prefs['call_waiting_tone'] else 0}",
             f"Intercom Mute        :{1 if prefs['intercom_mute'] else 0}",
-            f"Default DND          :{1 if prefs['dnd_default'] else 0}",
             f"Time Display 24H     :{1 if prefs['time_format'] == '24' else 0}",
             f"Backlight Level      :{prefs['backlight_active']}",
             f"Backlight Idle       :{prefs['backlight_inactive']}",
@@ -2064,6 +2114,7 @@ def generate_provisioning_config(
             f"Missed Call LED      :{1 if prefs['missed_call_led'] else 0}",
             f"MWI LED              :{1 if prefs['mwi_led'] else 0}",
             f"Language             :{eff_language}",
+            *fanvil_phone_sync_lines,
             "",
             "<DSSKEY CONFIG MODULE>",
         ]

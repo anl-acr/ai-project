@@ -16424,6 +16424,27 @@ async def deskphone_action_url_sync_endpoint(
         )
         return {"status": "ok" if ok_dnd else "not_found", "ext": ext_clean, "event": ev_clean, "dnd_enabled": dnd_flag}
 
+    if ev_clean == "fwd_all_off":
+        existing_timeout = 30
+        u_cur = await _load_merged_user_by_ext(ext_clean, db=db)
+        if u_cur and isinstance(u_cur.get("forwarding_no_answer"), dict) and u_cur["forwarding_no_answer"].get("timeout"):
+            try:
+                existing_timeout = int(u_cur["forwarding_no_answer"]["timeout"])
+            except Exception:
+                pass
+        updates_all = {
+            "forwarding_always": {"active": False, "type": "internal", "target": ""},
+            "forwarding_busy": {"active": False, "type": "internal", "target": ""},
+            "forwarding_no_answer": {"active": False, "type": "internal", "target": "", "timeout": existing_timeout},
+        }
+        await _sync_user_forwarding_state(ext_clean, updates_all, db, source_label="Masa Telefonu")
+        await _stamp_deskphone_sync_meta(ext_clean, db=db, source_label="Masa Telefonu", event_name=ev_clean, synced_at=now_tr)
+        add_system_log("CALL_FORWARD", "INFO", f"Dahili {ext_clean} masa telefonu ekranından tüm yönlendirmeleri kapattı (Action URL).")
+        u_fresh = await _load_merged_user_by_ext(ext_clean, db=db)
+        if u_fresh:
+            push_live_state_to_user_deskphones(u_fresh, settings_db, exclude_sip_username=su_clean, reason_log=f"Masa Telefonu {ev_clean}", respect_echo_guard=True)
+        return {"status": "ok", "ext": ext_clean, "event": ev_clean}
+
     fwd_off_map = {
         "fwd_always_off": ("forwarding_always", "Her Zaman Yönlendirme", False),
         "fwd_busy_off": ("forwarding_busy", "Meşgulde Yönlendirme", False),

@@ -25,6 +25,7 @@ Yön 2 — Nornia Santral → Masa Telefonu:
 import datetime
 import hashlib
 import hmac
+import html
 import json
 import threading
 import time
@@ -312,6 +313,185 @@ def build_yealink_sync_cfg_lines(
             f"action_url.busy_fwd_off = {base_ep}&event=fwd_busy_off&mac=$mac&ip=$ip",
             f"action_url.no_answer_fwd_on = {base_ep}&event=fwd_no_answer_on&mac=$mac&ip=$ip",
             f"action_url.no_answer_fwd_off = {base_ep}&event=fwd_no_answer_off&mac=$mac&ip=$ip",
+        ])
+
+    return lines
+
+
+def build_grandstream_sync_xml_lines(
+    ext: str,
+    sip_username: str,
+    live_state: Optional[Dict[str, Any]] = None,
+    sync_base_url: str = "",
+    fwd_codes: Optional[Dict[str, str]] = None,
+) -> List[str]:
+    """
+    Builds Grandstream GXP21xx / GRP26xx XML (<config version="1">) P-code lines for
+    bi-directional DND & 3-level Call Forwarding sync:
+      - Zero-reboot SIP NOTIFY check-sync (`P194=1`, `P240=1`) + Local Call Features (`P191=1`)
+      - Account 1 Feature Access Codes (`P2344`/`P2345` DND, `P26013`/`P26014` Always,
+        `P26009`/`P26010` Busy, `P26011`/`P26012` No Answer, `P139` timeout)
+      - Authenticated Action URLs (`P8316`..`P8319` + `P22164`..`P22169`)
+    """
+    st = live_state if isinstance(live_state, dict) else extract_user_live_phone_sync_state(None)
+    codes = fwd_codes if isinstance(fwd_codes, dict) else {}
+
+    p_always = str(codes.get("always") or "*21*").strip() or "*21*"
+    p_busy = str(codes.get("busy") or "*67*").strip() or "*67*"
+    p_noans = str(codes.get("no_answer") or "*61*").strip() or "*61*"
+    p_always_off = _derive_rule_cancel_code(p_always, "*21")
+    p_busy_off = _derive_rule_cancel_code(p_busy, "*67")
+    p_noans_off = _derive_rule_cancel_code(p_noans, "*61")
+
+    f_noa = st.get("fwd_no_answer") or {}
+    noa_timeout = max(5, min(120, int(f_noa.get("timeout") or 30)))
+
+    lines = [
+        "    <!-- Nornia Cift Yonlu DND & Cagri Yonlendirme Senkronizasyonu (Grandstream <-> Santral) -->",
+        "    <P191>1</P191>",
+        f"    <P139>{noa_timeout}</P139>",
+        "    <P2344>*78</P2344>",
+        "    <P2345>*79</P2345>",
+        f"    <P26013>{html.escape(p_always)}</P26013>",
+        f"    <P26014>{html.escape(p_always_off)}</P26014>",
+        f"    <P26009>{html.escape(p_busy)}</P26009>",
+        f"    <P26010>{html.escape(p_busy_off)}</P26010>",
+        f"    <P26011>{html.escape(p_noans)}</P26011>",
+        f"    <P26012>{html.escape(p_noans_off)}</P26012>",
+    ]
+
+    clean_base = str(sync_base_url or "").strip().rstrip("/")
+    if clean_base and ext and sip_username:
+        sig_tok = compute_phone_sync_token(ext, sip_username)
+        qs_common = urllib.parse.urlencode({"ext": str(ext).strip(), "su": str(sip_username).strip(), "sig": sig_tok})
+        base_ep = f"{clean_base}?{qs_common}"
+
+        def _gs_url(ev: str) -> str:
+            return html.escape(f"{base_ep}&event={ev}&mac=$mac&ip=$phone_ip", quote=False)
+
+        lines.extend([
+            "    <!-- Anlik Action URL Senkronizasyonu (Grandstream -> Nornia Santral) -->",
+            f"    <P8316>{_gs_url('dnd_on')}</P8316>",
+            f"    <P8317>{_gs_url('dnd_off')}</P8317>",
+            f"    <P8318>{_gs_url('fwd_always_on')}</P8318>",
+            f"    <P8319>{_gs_url('fwd_all_off')}</P8319>",
+            f"    <P22164>{_gs_url('fwd_always_on')}</P22164>",
+            f"    <P22165>{_gs_url('fwd_always_off')}</P22165>",
+            f"    <P22166>{_gs_url('fwd_busy_on')}</P22166>",
+            f"    <P22167>{_gs_url('fwd_busy_off')}</P22167>",
+            f"    <P22168>{_gs_url('fwd_no_answer_on')}</P22168>",
+            f"    <P22169>{_gs_url('fwd_no_answer_off')}</P22169>",
+        ])
+
+    return lines
+
+
+def format_grandstream_live_lcd_label(base_label: str, live_state: Optional[Dict[str, Any]]) -> str:
+    """Appends compact live DND / Always-Forward status onto Grandstream Account 1 LCD label when active."""
+    lbl = str(base_label or "").strip()
+    if not isinstance(live_state, dict):
+        return lbl
+    f_alw = live_state.get("fwd_always") or {}
+    if f_alw.get("active") and f_alw.get("target"):
+        return f"{lbl} -> {f_alw['target']}"
+    if live_state.get("dnd_enabled"):
+        return f"{lbl} [DND]"
+    return lbl
+
+
+def build_fanvil_sync_sip_lines(
+    live_state: Optional[Dict[str, Any]] = None,
+    fwd_codes: Optional[Dict[str, str]] = None,
+) -> List[str]:
+    """
+    Builds Fanvil X/V-Series `<SIP CONFIG MODULE>` Line 1 DND & 3-level Call Forwarding
+    lines (live state + feature code synchronization).
+    """
+    st = live_state if isinstance(live_state, dict) else extract_user_live_phone_sync_state(None)
+    codes = fwd_codes if isinstance(fwd_codes, dict) else {}
+
+    p_always = str(codes.get("always") or "*21*").strip() or "*21*"
+    p_busy = str(codes.get("busy") or "*67*").strip() or "*67*"
+    p_noans = str(codes.get("no_answer") or "*61*").strip() or "*61*"
+    p_always_off = _derive_rule_cancel_code(p_always, "*21")
+    p_busy_off = _derive_rule_cancel_code(p_busy, "*67")
+    p_noans_off = _derive_rule_cancel_code(p_noans, "*61")
+
+    f_alw = st.get("fwd_always") or {}
+    f_bsy = st.get("fwd_busy") or {}
+    f_noa = st.get("fwd_no_answer") or {}
+
+    dnd_bit = 1 if st.get("dnd_enabled") else 0
+    alw_bit = 1 if (f_alw.get("active") and f_alw.get("target")) else 0
+    bsy_bit = 1 if (f_bsy.get("active") and f_bsy.get("target")) else 0
+    noa_bit = 1 if (f_noa.get("active") and f_noa.get("target")) else 0
+    noa_timeout = max(5, min(120, int(f_noa.get("timeout") or 30)))
+
+    alw_target = str(f_alw.get("target") or "").strip() if alw_bit else ""
+    bsy_target = str(f_bsy.get("target") or "").strip() if bsy_bit else ""
+    noa_target = str(f_noa.get("target") or "").strip() if noa_bit else ""
+
+    # Legacy Fanvil single-type FWD indicator (0=Off, 1=Always, 2=Busy, 3=NoAnswer)
+    legacy_fwd_type = 1 if alw_bit else (2 if bsy_bit else (3 if noa_bit else 0))
+    legacy_fwd_num = alw_target or bsy_target or noa_target
+
+    return [
+        "# --- Nornia Cift Yonlu DND & Cagri Yonlendirme (Fanvil SIP1 <-> Santral) ---",
+        f"SIP1 Enable DND      :{dnd_bit}",
+        "SIP1 DND On Code     :*78",
+        "SIP1 DND Off Code    :*79",
+        "SIP1 Fwd Service     :1",
+        f"SIP1 Fwd Always      :{alw_bit}",
+        f"SIP1 Fwd Always Num  :{alw_target}",
+        f"SIP1 Fwd Always On   :{p_always}",
+        f"SIP1 Fwd Always Off  :{p_always_off}",
+        f"SIP1 Fwd Busy        :{bsy_bit}",
+        f"SIP1 Fwd Busy Num    :{bsy_target}",
+        f"SIP1 Fwd Busy On     :{p_busy}",
+        f"SIP1 Fwd Busy Off    :{p_busy_off}",
+        f"SIP1 Fwd No Answer   :{noa_bit}",
+        f"SIP1 Fwd No Ans Num  :{noa_target}",
+        f"SIP1 Fwd Timer       :{noa_timeout}",
+        f"SIP1 Fwd No Ans On   :{p_noans}",
+        f"SIP1 Fwd No Ans Off  :{p_noans_off}",
+        f"SIP1 FWD Type        :{legacy_fwd_type}",
+        f"SIP1 FWD Number      :{legacy_fwd_num}",
+    ]
+
+
+def build_fanvil_sync_phone_lines(
+    ext: str,
+    sip_username: str,
+    live_state: Optional[Dict[str, Any]] = None,
+    sync_base_url: str = "",
+) -> List[str]:
+    """
+    Builds Fanvil X/V-Series `<PHONE CONFIG MODULE>` DND mode + authenticated Action URL
+    hooks for instant Fanvil -> Nornia PBX telemetry.
+    """
+    st = live_state if isinstance(live_state, dict) else extract_user_live_phone_sync_state(None)
+    dnd_bit = 1 if st.get("dnd_enabled") else 0
+
+    lines = [
+        "DND Mode             :0",
+        f"Default DND          :{dnd_bit}",
+    ]
+
+    clean_base = str(sync_base_url or "").strip().rstrip("/")
+    if clean_base and ext and sip_username:
+        sig_tok = compute_phone_sync_token(ext, sip_username)
+        qs_common = urllib.parse.urlencode({"ext": str(ext).strip(), "su": str(sip_username).strip(), "sig": sig_tok})
+        base_ep = f"{clean_base}?{qs_common}"
+        lines.extend([
+            "# --- Anlik Action URL Senkronizasyonu (Fanvil -> Nornia Santral) ---",
+            f"DND On Url           :{base_ep}&event=dnd_on&mac=$mac&ip=$ip",
+            f"DND Off Url          :{base_ep}&event=dnd_off&mac=$mac&ip=$ip",
+            f"Always FWD On Url    :{base_ep}&event=fwd_always_on&mac=$mac&ip=$ip",
+            f"Always FWD Off Url   :{base_ep}&event=fwd_always_off&mac=$mac&ip=$ip",
+            f"Busy FWD On Url      :{base_ep}&event=fwd_busy_on&mac=$mac&ip=$ip",
+            f"Busy FWD Off Url     :{base_ep}&event=fwd_busy_off&mac=$mac&ip=$ip",
+            f"No Answer FWD On Url :{base_ep}&event=fwd_no_answer_on&mac=$mac&ip=$ip",
+            f"No Answer FWD Off Url:{base_ep}&event=fwd_no_answer_off&mac=$mac&ip=$ip",
         ])
 
     return lines
