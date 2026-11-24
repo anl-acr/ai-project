@@ -25,6 +25,9 @@ import {
   X,
   Building2,
   Check,
+  Lock,
+  Monitor,
+  Radio,
 } from "lucide-react";
 import HeroProductPreview from "../components/HeroProductPreview";
 import DemoRequestForm from "../components/DemoRequestForm";
@@ -33,6 +36,9 @@ import {
   HERO_METRICS,
   COMPATIBILITY_BADGES,
   PLATFORM_TABS,
+  CLIENT_APPS,
+  TUNNEL_FLOW_STEPS,
+  TUNNEL_PILLARS,
   ARCHITECTURE_CARDS,
   SECTOR_SOLUTIONS,
   DEPLOYMENT_PLANS,
@@ -41,10 +47,10 @@ import {
 
 const NAV_LINKS = [
   { label: "Platform", href: "#platform" },
-  { label: "Mimari", href: "#mimari" },
+  { label: "Uygulamalar", href: "#uygulamalar" },
+  { label: "Sıfır-Port Tünel", href: "#tunel" },
   { label: "Çözümler", href: "#cozumler" },
-  { label: "Kurulum Modelleri", href: "#modeller" },
-  { label: "SSS", href: "#sss" },
+  { label: "Modeller", href: "#modeller" },
   { label: "Doküman", href: SITE_CONFIG.docsUrl, external: true },
   { label: "API", href: SITE_CONFIG.apiUrl, external: true },
 ];
@@ -449,6 +455,236 @@ export default function NorniaHomePage() {
                       loading="lazy"
                       className="block w-full h-auto object-cover"
                     />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* ============================================================
+              SECTION 3B — RUNA MOBİL & RUNA MASAÜSTÜ UYGULAMALARI
+             ============================================================ */}
+          <section
+            id="uygulamalar"
+            className="border-t border-slate-200/80 bg-slate-50/70 py-20 sm:py-24"
+          >
+            <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                <div className="max-w-3xl">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1 text-xs font-semibold text-indigo-700 border border-slate-200">
+                    <Smartphone className="h-3.5 w-3.5" aria-hidden="true" />
+                    Runa Mobil &amp; Masaüstü Uygulamaları
+                  </span>
+                  <h2 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl">
+                    Ofiste, Evde ve Sahada Tek Kurumsal Dahili Deneyimi
+                  </h2>
+                  <p className="mt-3 text-base text-slate-600">
+                    Tarayıcı Web Telefonuna ek olarak yerel iOS, Android, macOS ve Windows
+                    uygulamalarıyla her cihazda HD ses kalitesi ve kesintisiz çağrı akışı.
+                  </p>
+                </div>
+                <a
+                  href="https://dokuman.nornia.com.tr/masaustu-mobil-ve-webphone/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-xs font-semibold text-slate-800 hover:bg-slate-50 transition"
+                >
+                  <BookOpen className="h-4 w-4 text-indigo-600" aria-hidden="true" />
+                  Uygulama Kurulum Kılavuzu
+                </a>
+              </div>
+
+              <div className="mt-10 grid grid-cols-1 gap-8 lg:grid-cols-2">
+                {CLIENT_APPS.map((app) => (
+                  <article
+                    key={app.id}
+                    className="flex flex-col overflow-hidden rounded-3xl border border-slate-200/90 bg-white shadow-card hover:border-indigo-200 transition"
+                  >
+                    {/* Crisp Product Showcase Visual */}
+                    <div className="border-b border-slate-100 bg-slate-50">
+                      <img
+                        src={app.image}
+                        alt={app.imageAlt}
+                        loading="lazy"
+                        className="block w-full h-auto object-cover"
+                      />
+                    </div>
+
+                    {/* Content & Features */}
+                    <div className="flex flex-1 flex-col justify-between p-6 sm:p-8">
+                      <div>
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700 ring-1 ring-inset ring-indigo-100">
+                          {app.id === "runa-mobile" ? (
+                            <Smartphone className="h-3.5 w-3.5" aria-hidden="true" />
+                          ) : (
+                            <Monitor className="h-3.5 w-3.5" aria-hidden="true" />
+                          )}
+                          {app.badge}
+                        </span>
+
+                        <h3 className="mt-4 text-xl font-extrabold tracking-tight text-slate-950">
+                          {app.title}
+                        </h3>
+                        <p className="mt-2 text-sm leading-relaxed text-slate-600">
+                          {app.summary}
+                        </p>
+
+                        <ul className="mt-6 space-y-4">
+                          {app.highlights.map((hl) => (
+                            <li key={hl.title} className="flex items-start gap-3">
+                              <CheckCircle2
+                                className="h-4 w-4 shrink-0 text-emerald-600 mt-1"
+                                aria-hidden="true"
+                              />
+                              <div>
+                                <div className="text-sm font-bold text-slate-900">
+                                  {hl.title}
+                                </div>
+                                <p className="mt-0.5 text-xs sm:text-sm leading-relaxed text-slate-600">
+                                  {hl.desc}
+                                </p>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      <div className="mt-7 pt-5 border-t border-slate-100 flex items-center justify-between gap-3">
+                        <a
+                          href="#demo"
+                          className="inline-flex items-center gap-1.5 text-sm font-semibold text-indigo-700 hover:text-indigo-950"
+                        >
+                          Canlı Test Et
+                          <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                        </a>
+                        <a
+                          href={app.docUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-indigo-700"
+                        >
+                          Detaylı İncele
+                          <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                        </a>
+                      </div>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </div>
+          </section>
+
+          {/* ============================================================
+              SECTION 3C — NORNIA CONNECT (SIFIR-PORT GÜVENLİ TÜNEL MİMARİSİ)
+             ============================================================ */}
+          <section
+            id="tunel"
+            className="border-t border-slate-200/80 bg-white py-20 sm:py-24"
+          >
+            <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+              <div className="max-w-3xl">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-200">
+                  <Lock className="h-3.5 w-3.5" aria-hidden="true" />
+                  Nornia Connect — Sıfır-Port Bulut Köprüsü
+                </span>
+                <h2 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl">
+                  Firewall&apos;da Tek Port Açmadan Güvenli Tünel ile Dünyaya Bağlanın
+                </h2>
+                <p className="mt-3 text-base leading-relaxed text-slate-600">
+                  Klasik IP santrallerde uzaktan erişim için statik IP, karmaşık NAT/port
+                  yönlendirmeleri ve açık SIP portları gerekir. Nornia Connect, kurum içi
+                  santralinizden dışarı doğru kurulan şifreli tünelle tüm bu riskleri ve
+                  kurulum zahmetini ortadan kaldırır.
+                </p>
+              </div>
+
+              {/* 4-Step Visual Architecture Flow Bar */}
+              <div className="mt-10 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                {TUNNEL_FLOW_STEPS.map((node, idx) => (
+                  <div
+                    key={node.step}
+                    className="relative rounded-2xl border border-slate-200 bg-slate-50/80 p-5"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-950 font-mono text-xs font-bold text-white">
+                        {node.step}
+                      </span>
+                      {idx < TUNNEL_FLOW_STEPS.length - 1 && (
+                        <ArrowRight
+                          className="hidden lg:block h-4 w-4 text-indigo-400"
+                          aria-hidden="true"
+                        />
+                      )}
+                    </div>
+                    <h3 className="mt-3.5 text-sm font-extrabold text-slate-950">
+                      {node.title}
+                    </h3>
+                    <div className="mt-0.5 font-mono text-[11px] font-semibold text-indigo-700">
+                      {node.subtitle}
+                    </div>
+                    <p className="mt-2 text-xs leading-relaxed text-slate-600">
+                      {node.detail}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Split: 4 Technical Pillars + Real Nornia Connect Screenshot */}
+              <div className="mt-10 grid grid-cols-1 items-center gap-8 lg:grid-cols-12">
+                <div className="lg:col-span-5 space-y-4">
+                  {TUNNEL_PILLARS.map((pillar) => (
+                    <div
+                      key={pillar.title}
+                      className="rounded-2xl border border-slate-200/90 bg-slate-50/50 p-4 sm:p-5"
+                    >
+                      <h3 className="flex items-center gap-2 text-sm font-bold text-slate-950">
+                        <ShieldCheck
+                          className="h-4 w-4 shrink-0 text-emerald-600"
+                          aria-hidden="true"
+                        />
+                        {pillar.title}
+                      </h3>
+                      <p className="mt-1.5 text-xs sm:text-sm leading-relaxed text-slate-600">
+                        {pillar.desc}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="lg:col-span-7">
+                  <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-card">
+                    <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-4 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <Radio className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />
+                        <span className="text-xs font-semibold text-slate-800">
+                          Nornia Connect — Sıfır-Port Bulut Köprüsü
+                        </span>
+                      </div>
+                      <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-200">
+                        WireGuard + WSS + TURN Aktif
+                      </span>
+                    </div>
+                    <img
+                      src="/screenshots/nornia-connect-tunnel.jpg"
+                      alt="Nornia Connect Sıfır-Port Bulut Köprüsü, WireGuard SIP Edge ve WebRTC TURN Ses Rölesi ayar ekranı"
+                      loading="lazy"
+                      className="block w-full h-auto"
+                    />
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 px-1 text-xs text-slate-500">
+                    <span>
+                      On-Premise santralinizde tek anahtarla etkinleştirilir — ek donanım
+                      gerekmez.
+                    </span>
+                    <a
+                      href="https://dokuman.nornia.com.tr/sunucu-ag-ve-nornia-connect/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 font-semibold text-indigo-700 hover:text-indigo-900"
+                    >
+                      Tünel Dokümantasyonu
+                      <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                    </a>
                   </div>
                 </div>
               </div>
@@ -920,8 +1156,13 @@ export default function NorniaHomePage() {
                     </a>
                   </li>
                   <li>
-                    <a href="#mimari" className="hover:text-indigo-700">
+                    <a href="#uygulamalar" className="hover:text-indigo-700">
                       Runa Mobil &amp; Masaüstü
+                    </a>
+                  </li>
+                  <li>
+                    <a href="#tunel" className="hover:text-indigo-700">
+                      Nornia Connect Sıfır-Port Tünel
                     </a>
                   </li>
                   <li>

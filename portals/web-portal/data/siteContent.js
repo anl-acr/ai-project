@@ -157,6 +157,103 @@ export const PLATFORM_TABS = [
   },
 ];
 
+export const CLIENT_APPS = [
+  {
+    id: "runa-mobile",
+    badge: "iOS & Android",
+    title: "Runa Mobil — Ofis Dahiliniz Her An Cebinizde",
+    summary:
+      "Kurumsal numaranızla ofis dışında, sahada veya seyahatte kesintisiz HD sesli görüşme yapın; kişisel GSM numaranızı paylaşmadan müşterilerinizle iletişimde kalın.",
+    image: "/screenshots/runa-mobile.jpg",
+    imageAlt: "Runa Mobil iOS ve Android kurumsal softphone uygulaması, QR kurulum, Call Flip ve PushKit özellikleri",
+    docUrl: "https://dokuman.nornia.com.tr/masaustu-mobil-ve-webphone/",
+    highlights: [
+      {
+        title: "QR ile 3 Saniyede Şifresiz Kurulum",
+        desc: "SIP sunucu adresi, port veya şifre yazmadan kullanıcı ekranındaki QR kodu okutup anında oturum açın.",
+      },
+      {
+        title: "Call Flip (Görüşmeyi Kesmeden Cihaz Değiştir)",
+        desc: "Masa telefonundaki veya bilgisayardaki aktif görüşmeyi kapatmadan tek dokunuşla cebe, ofise dönünce tekrar masaya aktarın.",
+      },
+      {
+        title: "PushKit & FCM Anlık Uyandırma",
+        desc: "Uygulama arka planda veya tamamen kapalıyken bile pil tüketmeden gelen çağrıları anında çaldırır; ortak rehber ve sesli posta her an elinizdedir.",
+      },
+    ],
+  },
+  {
+    id: "runa-desktop",
+    badge: "macOS & Windows (.dmg / .exe)",
+    title: "Runa Masaüstü — Tarayıcıdan Bağımsız Temsilci Uygulaması",
+    summary:
+      "Çağrı merkezi temsilcileri ve yoğun telefon trafiği yöneten ekipler için Apple Silicon, macOS Intel ve Windows uyumlu yerel masaüstü istemcisi.",
+    image: "/screenshots/runa-desktop.jpg",
+    imageAlt: "Runa Masaüstü macOS ve Windows temsilci uygulaması, 3 bağımsız ses donanımı ve sistem tepsisi özellikleri",
+    docUrl: "https://dokuman.nornia.com.tr/masaustu-mobil-ve-webphone/",
+    highlights: [
+      {
+        title: "3 Bağımsız Ses Donanımı Yönlendirmesi",
+        desc: "Mikrofonu (Jabra USB), görüşme kulaklığını (Bluetooth) ve zil sesi çalacak masaüstü hoparlörünü birbirinden bağımsız tanımlayın.",
+      },
+      {
+        title: "Çağrıda Pencereyi Öne Getir & Sistem Tepsisi (Tray)",
+        desc: "Bilgisayar açıldığında otomatik başlar, arka planda sessizce bekler ve çağrı geldiğinde masaüstünde anında öne çıkar.",
+      },
+      {
+        title: "Tek Tıkla Kolay Giriş & Tüm 10 Panel Modülü",
+        desc: "E-postayla gönderilen tek kullanımlık kolay giriş linkiyle kurulur; Web Telefon, AI Canlı Çeviri, Omnichannel ve rehber tek pencerede çalışır.",
+      },
+    ],
+  },
+];
+
+export const TUNNEL_FLOW_STEPS = [
+  {
+    step: "01",
+    title: "Kurum İçi Santral",
+    subtitle: "Firewall / NAT / CGNAT Arkası",
+    detail: "Hiçbir gelen port (80/443/5060) açılmaz, statik IP gerekmez.",
+  },
+  {
+    step: "02",
+    title: "Şifreli Outbound Tünel",
+    subtitle: "HTTPS WSS + WireGuard + TURN",
+    detail: "Santral dışa doğru şifreli köprü kurar; SIP ve RTP sesi kesintisiz akar.",
+  },
+  {
+    step: "03",
+    title: "Nornia Connect Hub",
+    subtitle: "sirketiniz.nornia.com.tr + SSL",
+    detail: "Kurumsal alt alan adı ve otomatik yenilenen Let's Encrypt sertifikası.",
+  },
+  {
+    step: "04",
+    title: "Her Yerden Güvenli Erişim",
+    subtitle: "Web • Runa Mobil • Uzak IP Telefon",
+    detail: "Evden, şubeden ve mobilden tek yönlü ses sorunu olmadan HD görüşme.",
+  },
+];
+
+export const TUNNEL_PILLARS = [
+  {
+    title: "Sıfır Gelen Port (Zero-Port) Güvenliği",
+    desc: "Güvenlik duvarınızda dış dünyaya 80, 443, 5060 veya 10000–20000 RTP portu açmanıza gerek kalmaz. Santral yalnızca dışa doğru (outbound) şifreli tünel açtığı için tarama ve SIP saldırı yüzeyi ortadan kalkar.",
+  },
+  {
+    title: "Statik IP Olmadan Kurumsal FQDN & Otomatik SSL",
+    desc: "Ofisinizde dinamik IP veya CGNAT olsa bile kurulum sihirbazında seçtiğiniz sirketiniz.nornia.com.tr adresi otomatik SSL sertifikasıyla yayına girer; WebRTC mikrofon izinleri sıfır uyarıyla çalışır.",
+  },
+  {
+    title: "WireGuard SIP Edge & WebRTC TURN Ses Rölesi",
+    desc: "Uzak şubelerdeki Yealink/Cisco masa telefonları (5060 UDP/TCP & 5061 TLS) ve Runa Mobil cihazları WireGuard + TURN ses rölesi üzerinden çift NAT arkasında dahi tek yönlü ses yaşamadan bağlanır.",
+  },
+  {
+    title: "Yönetici Kontrollü Web-SSH & Filo Sağlığı",
+    desc: "Sistem yöneticisi tek anahtarla uzaktan destek erişimini dilediğinde açıp kapatabilir; kesintisiz çalışma durumu ve gecikme (ms) canlı olarak izlenir.",
+  },
+];
+
 export const ARCHITECTURE_CARDS = [
   {
     icon: "smartphone",
