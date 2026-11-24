@@ -1,6 +1,6 @@
 import React, { useEffect } from "react";
 import Head from "next/head";
-import { MANUAL_CHAPTERS, MANUAL_GROUPS, MANUAL_META } from "../../data/manualChapters";
+import { MANUAL_CHAPTERS, MANUAL_GROUPS, MANUAL_META, getChapterById } from "../../data/manualChapters";
 import ChapterArticle from "../../components/ChapterArticle";
 
 export async function getStaticPaths() {
@@ -11,12 +11,37 @@ export async function getStaticPaths() {
 export async function getStaticProps({ params }) {
   const slug = params?.slug || "all";
   const isAll = slug === "all";
-  const chapters = isAll ? MANUAL_CHAPTERS : MANUAL_CHAPTERS.filter((c) => c.id === slug);
+  if (isAll) {
+    return {
+      props: {
+        slug,
+        isAll: true,
+        isComposite: false,
+        compositeMeta: null,
+        chapters: MANUAL_CHAPTERS.filter((c) => !c.isCompositeGuide)
+      }
+    };
+  }
+  const target = getChapterById(slug);
+  if (target?.compositeChapterIds?.length > 0) {
+    const bundle = target.compositeChapterIds.map((cid) => getChapterById(cid)).filter(Boolean);
+    return {
+      props: {
+        slug,
+        isAll: false,
+        isComposite: true,
+        compositeMeta: target,
+        chapters: bundle
+      }
+    };
+  }
   return {
     props: {
       slug,
-      isAll,
-      chapters
+      isAll: false,
+      isComposite: false,
+      compositeMeta: null,
+      chapters: target ? [target] : []
     }
   };
 }
@@ -91,7 +116,7 @@ function buildModuleTocItems(ch) {
   return items;
 }
 
-export default function PrintManualPage({ isAll, chapters }) {
+export default function PrintManualPage({ isAll, isComposite = false, compositeMeta = null, chapters }) {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
@@ -103,12 +128,16 @@ export default function PrintManualPage({ isAll, chapters }) {
     }
   }, []);
 
-  const singleChapter = !isAll ? chapters[0] : null;
+  const singleChapter = !isAll && !isComposite ? chapters[0] : null;
   const singleTocItems = singleChapter ? buildModuleTocItems(singleChapter) : [];
 
   const docTitle = isAll
     ? `${MANUAL_META.product} — Tam Kullanım Kılavuzu`
+    : isComposite
+    ? `${MANUAL_META.product} — ${compositeMeta?.title || "Eğitim Kılavuzu"}`
     : `${MANUAL_META.product} — Bölüm ${singleChapter?.number}: ${singleChapter?.title}`;
+
+  const backHref = isAll ? "/" : isComposite ? `/${compositeMeta?.id}/` : `/${singleChapter?.id}/`;
 
   return (
     <div className="min-h-screen bg-white text-slate-900">
@@ -133,7 +162,7 @@ export default function PrintManualPage({ isAll, chapters }) {
             PDF Olarak Kaydet / Yazdır
           </button>
           <a
-            href={isAll ? "/" : `/${singleChapter?.id}/`}
+            href={backHref}
             className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-bold"
           >
             Kılavuza Dön
@@ -162,7 +191,9 @@ export default function PrintManualPage({ isAll, chapters }) {
                   Nornia
                 </div>
                 <div className="text-[11px] text-indigo-200 font-semibold">
-                  Akıllı İletişim Platformu — Kurumsal Kullanım Kılavuzu
+                  {isComposite
+                    ? "Akıllı İletişim Platformu — Standart Kullanıcı & Temsilci Eğitim Kılavuzu"
+                    : "Akıllı İletişim Platformu — Kurumsal Kullanım Kılavuzu"}
                 </div>
               </div>
             </div>
@@ -170,12 +201,16 @@ export default function PrintManualPage({ isAll, chapters }) {
 
           <h1 className="text-2xl sm:text-3xl font-black tracking-tight pt-1">
             {isAll
-              ? `Nornia Enterprise AI PBX — Tam Kullanım Kılavuzu (${MANUAL_CHAPTERS.length} Bölüm)`
+              ? `Nornia Enterprise AI PBX — Tam Kullanım Kılavuzu (${chapters.length} Bölüm)`
+              : isComposite
+              ? `${compositeMeta?.title} (${chapters.length} Bölüm)`
               : `Bölüm ${singleChapter?.number}: ${singleChapter?.title}`}
           </h1>
           <p className="text-xs text-indigo-100 leading-relaxed">
             {isAll
-              ? `Tüm ${MANUAL_CHAPTERS.length} menü ve rapor sayfasının canlı ekran görüntülerini, parametre referans tablolarını, rol yetki kodlarını, adım adım uygulama rehberlerini ve sorun giderme çözümlerini içeren resmi kurumsal el kitabı.`
+              ? `Tüm ${chapters.length} menü ve rapor sayfasının canlı ekran görüntülerini, parametre referans tablolarını, rol yetki kodlarını, adım adım uygulama rehberlerini ve sorun giderme çözümlerini içeren resmi kurumsal el kitabı.`
+              : isComposite
+              ? compositeMeta?.summary
               : singleChapter?.summary}
           </p>
         </div>
@@ -223,6 +258,41 @@ export default function PrintManualPage({ isAll, chapters }) {
                 );
               })}
             </div>
+          </div>
+        ) : isComposite ? (
+          /* Clickable Table of Contents — Composite Training Bundle PDF */
+          <div className="print-avoid-break p-6 rounded-2xl border border-slate-200 bg-slate-50/50 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+              <div>
+                <h2 className="text-base font-black text-slate-900">
+                  Eğitim Kılavuzu İçindekiler ({chapters.length} Bölüm)
+                </h2>
+                <p className="text-[11px] text-slate-500">
+                  Profil &amp; Avatar Ayarları, Oturum/Mola Yönetimi ve Temsilci Çağrı Paneli&apos;nin 10 sekmesini tek kılavuzda toplar.
+                </p>
+              </div>
+              <span className="px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-700 text-[10px] font-extrabold">
+                Etkileşimli Eğitim PDF&apos;i
+              </span>
+            </div>
+
+            <nav className="space-y-1.5">
+              {chapters.map((c, idx) => (
+                <a
+                  key={c.id}
+                  href={`#chapter-${c.id}`}
+                  className="flex items-center justify-between gap-3 py-2 border-b border-slate-200/70 text-xs text-slate-900 font-bold hover:text-indigo-700"
+                >
+                  <span className="flex items-baseline gap-2.5 min-w-0">
+                    <span className="font-mono font-black text-indigo-600 text-[11px] shrink-0">
+                      {String(idx + 1).padStart(2, "0")}.
+                    </span>
+                    <span className="truncate">{c.title}</span>
+                  </span>
+                  <span className="text-[10px] text-indigo-500 font-bold shrink-0">Git →</span>
+                </a>
+              ))}
+            </nav>
           </div>
         ) : (
           /* Clickable Table of Contents — Single Module PDF */

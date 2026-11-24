@@ -28,7 +28,7 @@ export const MANUAL_META = {
   product: "Nornia Enterprise AI PBX",
   version: "v3.10.11",
   updatedAt: "24 Kasım 2026",
-  totalPages: 104,
+  totalPages: 105,
   fullPdfPath: "/pdfs/nornia-kullanim-kilavuzu-tam.pdf"
 };
 

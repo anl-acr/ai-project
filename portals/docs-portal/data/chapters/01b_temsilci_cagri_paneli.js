@@ -1,5 +1,46 @@
-// Temsilci Çağrı Paneli (Agent Workspace) — Son Kullanıcı & Temsilci Rehberi (11 Ayrı Sayfa)
+// Temsilci Çağrı Paneli (Agent Workspace) — Son Kullanıcı & Temsilci Rehberi (Tek Eğitim Kılavuzu + 11 Ayrı Sayfa)
 export const CHAPTERS_TEMSILCI_PANELI = [
+  {
+    id: "temsilci-cagri-paneli-kilavuzu",
+    number: "05",
+    groupId: "temsilci-paneli",
+    category: "Temsilci Çağrı Paneli (Kullanıcı Rehberi)",
+    title: "Temsilci Çağrı Paneli & Profil Ayarları (Standart Kullanıcı Eğitim Kılavuzu)",
+    shortTitle: "Temsilci Çağrı Paneli",
+    menuPath: "Sağ Üst Avatar Menüsü (Profil Ayarları) + Temsilci Çağrı Paneli (10 Sekme)",
+    pbxRoute: "/?tab=cagri-merkezi",
+    permissions: ["call_panel:access", "Tüm standart kullanıcı & temsilci yetkileri"],
+    badge: "Tek PDF Eğitim Kılavuzu • 12 Bölüm",
+    readMinutes: 65,
+    isCompositeGuide: true,
+    compositePdfFilename: "nornia-temsilci-cagri-paneli-egitim-kilavuzu.pdf",
+    compositeChapterIds: [
+      "kisisel-profil-ve-ust-cubuk",
+      "temsilci-cagri-paneli",
+      "cagri-paneli-pano",
+      "cagri-paneli-web-telefon-aktif-cagri",
+      "cagri-paneli-temsilciler",
+      "cagri-paneli-hizli-arama",
+      "cagri-paneli-kayip-cagri",
+      "cagri-paneli-rehber",
+      "cagri-paneli-cagri-gecmisi",
+      "cagri-paneli-sesli-posta",
+      "cagri-paneli-sohbet",
+      "cagri-paneli-masa-telefonum"
+    ],
+    summary:
+      "Standart şirket çalışanları ve çağrı merkezi temsilcilerinin eğitiminde kullanılmak üzere hazırlanmış tek parça eğitim dokümanıdır. Profil & Avatar Ayarları (Üst Çubuk, Global Arama Ctrl+K, 11 Kişisel Sekme), Oturum & Mola Yönetimi ve Temsilci Çağrı Paneli'ndeki 10 sekmenin (Pano, Web Telefon & Aktif Çağrı, Temsilciler BLF, Hızlı Arama, Kayıp Çağrı, Rehber, Çağrı Geçmişi, Sesli Posta, Sohbet ve Masa Telefonum) tamamını tek sayfa ve tek indirilebilir kurumsal PDF halinde sunar.",
+    prerequisites: [
+      "Bu kılavuz yeni işe başlayan tüm temsilciler ve standart santral kullanıcılarına tek PDF dosyası olarak dağıtılabilir.",
+      "İçindeki 12 bölümün her biri gerçek canlı santral ekran görüntüleri, tüm aktif görüşme/transfer/konferans ekranları ve adım adım kullanım yönergeleriyle eksiksiz birleştirilmiştir."
+    ],
+    screenshots: [],
+    fieldTable: [],
+    sections: [],
+    troubleshooting: [],
+    relatedPages: ["masaustu-mobil-ve-webphone", "kisisel-profil-ve-ust-cubuk", "temsilci-cagri-paneli"],
+    relatedApis: ["GET /api/auth/me", "POST /api/agent/status", "POST /api/v1/calls/originate"]
+  },
   {
     id: "temsilci-cagri-paneli",
     number: "04",

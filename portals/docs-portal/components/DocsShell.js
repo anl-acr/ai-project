@@ -371,6 +371,26 @@ export default function DocsShell({ activeChapter = null, children }) {
               <span>Bu Sayfada</span>
             </div>
             <nav className="space-y-1.5 text-xs">
+              {activeChapter.compositeChapterIds?.length > 0 && (
+                <>
+                  <div className="pb-1 text-[10px] font-extrabold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
+                    Kılavuz İçeriği ({activeChapter.compositeChapterIds.length} Bölüm)
+                  </div>
+                  {activeChapter.compositeChapterIds.map((cid, idx) => {
+                    const sub = MANUAL_CHAPTERS.find((c) => c.id === cid);
+                    if (!sub) return null;
+                    return (
+                      <a
+                        key={cid}
+                        href={`#bundle-${cid}`}
+                        className="block py-1 text-slate-600 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 truncate font-semibold"
+                      >
+                        {idx + 1}. {sub.shortTitle || sub.title}
+                      </a>
+                    );
+                  })}
+                </>
+              )}
               {activeChapter.showIsoDownload && (
                 <a
                   href="#iso-indir"
@@ -449,11 +469,11 @@ export default function DocsShell({ activeChapter = null, children }) {
               </div>
               <a
                 href={`/pdfs/${activeChapter.id}.pdf`}
-                download={`nornia-${activeChapter.number}-${activeChapter.id}.pdf`}
+                download={activeChapter.compositePdfFilename || `nornia-${activeChapter.number}-${activeChapter.id}.pdf`}
                 className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 text-[11px] font-extrabold transition"
               >
                 <FileDown size={13} />
-                <span>Bu Sayfa PDF</span>
+                <span>{activeChapter.isCompositeGuide ? "Eğitim Kılavuzu PDF" : "Bu Sayfa PDF"}</span>
               </a>
             </div>
           </aside>
