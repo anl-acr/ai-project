@@ -332,7 +332,7 @@ server {{
 
 server {{
     listen 80;
-    server_name api.nornia.com.tr dokuman.nornia.com.tr xn--dokman-3ya.nornia.com.tr;
+    server_name nornia.com.tr www.nornia.com.tr api.nornia.com.tr dokuman.nornia.com.tr xn--dokman-3ya.nornia.com.tr;
 
     location /.well-known/acme-challenge/ {{
         root /var/www/html;
@@ -340,6 +340,51 @@ server {{
 
     location / {{
         return 301 https://$host$request_uri;
+    }}
+}}
+
+server {{
+    listen 443 ssl;
+    server_name nornia.com.tr;
+
+    ssl_certificate {ssl_cert};
+    ssl_certificate_key {ssl_key};
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    return 301 https://www.nornia.com.tr$request_uri;
+}}
+
+server {{
+    listen 443 ssl;
+    server_name www.nornia.com.tr;
+
+    ssl_certificate {ssl_cert};
+    ssl_certificate_key {ssl_key};
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    root /var/www/nornia-web;
+    index index.html;
+
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml image/svg+xml;
+
+    location /api/v1/public/ {{
+        proxy_pass http://127.0.0.1:8050;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }}
+
+    location /_next/static/ {{
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+    }}
+
+    location / {{
+        add_header Cache-Control "no-cache, must-revalidate";
+        try_files $uri $uri.html $uri/ /index.html;
     }}
 }}
 
@@ -411,7 +456,7 @@ server {{
 
 server {{
     listen 80 default_server;
-    server_name nornia.com.tr www.nornia.com.tr *.nornia.com.tr _;
+    server_name *.nornia.com.tr _;
 
     client_max_body_size 100M;
 
@@ -446,7 +491,7 @@ server {{
 
 server {{
     listen 443 ssl default_server;
-    server_name nornia.com.tr www.nornia.com.tr *.nornia.com.tr _;
+    server_name *.nornia.com.tr _;
 
     ssl_certificate {ssl_cert};
     ssl_certificate_key {ssl_key};

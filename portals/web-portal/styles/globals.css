@@ -1,0 +1,198 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    scroll-padding-top: 5.5rem;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+
+  body {
+    font-family: "Inter", system-ui, -apple-system, sans-serif;
+    background-color: #ffffff;
+    color: #0f172a;
+  }
+
+  h1, h2, h3, h4 {
+    font-family: "Plus Jakarta Sans", "Inter", system-ui, sans-serif;
+    letter-spacing: -0.025em;
+  }
+}
+
+/* Pure Light Corporate SaaS ambient radial wash (Seçenek 2 DNA) */
+.hero-prism-bg {
+  background-color: #ffffff;
+  background-image:
+    radial-gradient(60% 55% at 78% 18%, rgba(79, 70, 229, 0.085) 0%, rgba(14, 165, 233, 0.045) 45%, transparent 78%),
+    radial-gradient(45% 45% at 12% 72%, rgba(244, 63, 94, 0.05) 0%, rgba(245, 158, 11, 0.03) 45%, transparent 75%),
+    linear-gradient(180deg, #fafbff 0%, #ffffff 68%, #f8fafc 100%);
+}
+
+/* Subtle Nornia prism pill border */
+.prism-pill-border {
+  background:
+    linear-gradient(#ffffff, #ffffff) padding-box,
+    linear-gradient(95deg, #0ea5e9, #4f46e5, #db2777, #f59e0b, #10b981) border-box;
+  border: 1px solid transparent;
+}
+
+/* Native accessible accordion (modern-web-guidance: accordion) */
+.nornia-faq details {
+  border-radius: 1rem;
+  border: 1px solid #e2e8f0;
+  background-color: #ffffff;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.nornia-faq details:hover {
+  border-color: #cbd5e1;
+}
+
+.nornia-faq details[open] {
+  border-color: #c7d2fe;
+  box-shadow: 0 12px 30px -16px rgba(30, 27, 75, 0.12);
+}
+
+.nornia-faq details > summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1.25rem 1.5rem;
+  font-family: "Plus Jakarta Sans", "Inter", system-ui, sans-serif;
+  font-weight: 600;
+  font-size: 1.03rem;
+  line-height: 1.45;
+  color: #0f172a;
+  cursor: pointer;
+  user-select: none;
+}
+
+.nornia-faq details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.nornia-faq details > summary:focus-visible {
+  outline: 2px solid #4f46e5;
+  outline-offset: -2px;
+  border-radius: 1rem;
+}
+
+.nornia-faq details > summary::before {
+  content: "";
+  inline-size: 1.125rem;
+  block-size: 1.125rem;
+  flex-shrink: 0;
+  background-color: #4f46e5;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat center / contain;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat center / contain;
+  rotate: -90deg;
+}
+
+.nornia-faq details[open] > summary::before {
+  rotate: 0deg;
+}
+
+.nornia-faq details::details-content {
+  interpolate-size: allow-keywords;
+  overflow: clip;
+  contain: layout;
+}
+
+.nornia-faq details:not([open])::details-content {
+  block-size: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .nornia-faq details > summary::before {
+    transition: rotate 0.2s ease;
+  }
+
+  .nornia-faq details::details-content {
+    transition: block-size, content-visibility, display;
+    transition-duration: 0.28s;
+    transition-timing-function: ease-in-out;
+    transition-behavior: allow-discrete;
+  }
+}
+
+/* Accessible form controls & post-interaction validation (modern-web-guidance: forms + validate-input-after-interaction) */
+.nornia-field-control {
+  font: inherit;
+  font-size: max(1rem, 1em);
+  min-height: 48px;
+  width: 100%;
+  border-radius: 0.75rem;
+  border: 1px solid #94a3b8;
+  background-color: #ffffff;
+  color: #0f172a;
+  padding: 0.7rem 0.95rem;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+textarea.nornia-field-control {
+  min-height: 112px;
+  resize: vertical;
+}
+
+@media (pointer: coarse) {
+  .nornia-field-control {
+    min-height: 52px;
+  }
+}
+
+.nornia-field-control:focus-visible {
+  outline: 2px solid #4f46e5;
+  outline-offset: 2px;
+  border-color: #4f46e5;
+}
+
+.nornia-error-msg {
+  display: none;
+  margin-top: 0.375rem;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: #b91c1c;
+}
+
+:is(.nornia-field-control:user-invalid, .nornia-field-control.user-invalid-fallback) {
+  border-color: #dc2626;
+  background-color: #fef2f2;
+}
+
+:is(.nornia-field-control:user-invalid, .nornia-field-control.user-invalid-fallback) + .nornia-error-msg {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+}
+
+:is(.nornia-field-control:user-valid, .nornia-field-control.user-valid-fallback) {
+  border-color: #16a34a;
+}
+
+/* Canonical visually-hidden utility (keeps live announcer in accessibility tree) */
+.visually-hidden:where(:not(:focus-within, :active)) {
+  position: absolute !important;
+  clip-path: inset(50%) !important;
+  overflow: hidden !important;
+  width: 1px !important;
+  height: 1px !important;
+  margin: -1px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  white-space: nowrap !important;
+}
+
+/* Clean radio accent */
+input[type="radio"],
+input[type="checkbox"] {
+  accent-color: #312e81;
+}

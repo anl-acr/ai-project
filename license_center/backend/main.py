@@ -4005,6 +4005,77 @@ async def receive_heartbeat(payload: HeartbeatSchema, request: Request, db: Asyn
 
 
 # --------------------------------------------------------------------------
+# Public Corporate Website (www.nornia.com.tr) — Demo Request Lead Capture
+# --------------------------------------------------------------------------
+_DEMO_REQ_RATE_LIMIT: Dict[str, List[float]] = {}
+
+
+class PublicDemoRequestSchema(BaseModel):
+    full_name: str
+    company: str
+    email: str
+    phone: str
+    deployment: str = "cloud"
+    team_size: str = "21-50"
+    notes: str = ""
+    website_hp: str = ""
+    source: str = "www.nornia.com.tr"
+
+
+@app.post("/api/v1/public/demo-request")
+async def submit_public_demo_request(payload: PublicDemoRequestSchema, request: Request):
+    """Captures demo & quote leads from www.nornia.com.tr with honeypot + IP rate-limiting."""
+    import time as _time
+    import pathlib as _pathlib
+
+    # Honeypot spam check — return silent 200 so bots do not probe further
+    if (payload.website_hp or "").strip():
+        return {"status": "ok", "message": "Talebiniz alındı."}
+
+    client_ip = (
+        (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+        or request.headers.get("x-real-ip")
+        or (request.client.host if request.client else "unknown")
+    )
+
+    now_ts = _time.time()
+    recent = [t for t in _DEMO_REQ_RATE_LIMIT.get(client_ip, []) if now_ts - t < 600]
+    if len(recent) >= 6:
+        raise HTTPException(status_code=429, detail="Çok fazla istek gönderildi. Lütfen birkaç dakika sonra tekrar deneyin.")
+    recent.append(now_ts)
+    _DEMO_REQ_RATE_LIMIT[client_ip] = recent
+
+    full_name = (payload.full_name or "").strip()[:120]
+    company = (payload.company or "").strip()[:150]
+    email = (payload.email or "").strip()[:160]
+    phone = (payload.phone or "").strip()[:40]
+    if len(full_name) < 2 or len(company) < 2 or "@" not in email or len(phone) < 7:
+        raise HTTPException(status_code=400, detail="Lütfen tüm zorunlu alanları geçerli biçimde doldurun.")
+
+    record = {
+        "created_at": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "ip": client_ip,
+        "full_name": full_name,
+        "company": company,
+        "email": email,
+        "phone": phone,
+        "deployment": (payload.deployment or "cloud").strip()[:40],
+        "team_size": (payload.team_size or "21-50").strip()[:40],
+        "notes": (payload.notes or "").strip()[:1200],
+        "source": (payload.source or "www.nornia.com.tr").strip()[:80],
+    }
+
+    target_file = _pathlib.Path(__file__).resolve().parent / "demo_requests.jsonl"
+    try:
+        with open(target_file, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except Exception as exc:
+        print(f"[DemoRequest Save Warning] {exc}")
+
+    return {"status": "ok", "message": "Demo talebiniz başarıyla kaydedildi."}
+
+
+# --------------------------------------------------------------------------
 # Nornia Connect Hub — Zero-Port Cloud Tunnel & Reverse Proxy Gateway
 # --------------------------------------------------------------------------
 from license_center.backend.connect_hub import connect_hub_router, forward_http_request_to_pbx

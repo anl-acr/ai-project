@@ -42,8 +42,9 @@ fi
 
 API_SRC="${REPO_ROOT}/portals/prebuilt/nornia-api"
 DOCS_SRC="${REPO_ROOT}/portals/prebuilt/nornia-docs"
+WEB_SRC="${REPO_ROOT}/portals/prebuilt/nornia-web"
 
-if [[ "${REBUILD_MODE}" == "--rebuild" || ! -f "${API_SRC}/index.html" || ! -f "${DOCS_SRC}/index.html" ]]; then
+if [[ "${REBUILD_MODE}" == "--rebuild" || ! -f "${API_SRC}/index.html" || ! -f "${DOCS_SRC}/index.html" || ! -f "${WEB_SRC}/index.html" ]]; then
   echo "[1/3] Kaynaktan derleme modu (--rebuild)..."
   "$PY_BIN" "${REPO_ROOT}/scripts/portals/export_openapi_catalog.py"
 
@@ -58,12 +59,19 @@ if [[ "${REBUILD_MODE}" == "--rebuild" || ! -f "${API_SRC}/index.html" || ! -f "
   rm -rf .next out
   NODE_OPTIONS="--max-old-space-size=1536" npm run build
   DOCS_SRC="${REPO_ROOT}/portals/docs-portal/out"
+
+  cd "${REPO_ROOT}/portals/web-portal"
+  [[ ! -d node_modules && -d "${REPO_ROOT}/license_center/frontend/node_modules" ]] && ln -sfn "${REPO_ROOT}/license_center/frontend/node_modules" node_modules
+  rm -rf .next out
+  NODE_OPTIONS="--max-old-space-size=1536" npm run build
+  WEB_SRC="${REPO_ROOT}/portals/web-portal/out"
 else
   echo "[1/3] Hazır ön-derlenmiş statik paketler kullanılıyor (0 MB RAM / hızlı yayın)..."
 fi
 
-echo "[2/3] Statik dosyalar /var/www/nornia-api ve /var/www/nornia-docs altına kopyalanıyor..."
-mkdir -p /var/www/nornia-api /var/www/nornia-docs
+echo "[2/3] Statik dosyalar /var/www/nornia-web, /var/www/nornia-api ve /var/www/nornia-docs altına kopyalanıyor..."
+mkdir -p /var/www/nornia-web /var/www/nornia-api /var/www/nornia-docs
+rsync -a --delete "${WEB_SRC}/" /var/www/nornia-web/
 rsync -a --delete "${API_SRC}/" /var/www/nornia-api/
 rsync -a --delete "${DOCS_SRC}/" /var/www/nornia-docs/
 rsync -a "${REPO_ROOT}/portals/docs-portal/public/screenshots/" /var/www/nornia-docs/screenshots/
@@ -78,6 +86,7 @@ echo "[3/3] Nginx yapılandırması yenileniyor ve SSL sertifikası kontrol edil
 import asyncio
 from license_center.backend.connect_hub import ensure_subdomain_ssl_and_nginx
 async def run():
+    await ensure_subdomain_ssl_and_nginx('www')
     await ensure_subdomain_ssl_and_nginx('api')
     await ensure_subdomain_ssl_and_nginx('dokuman')
 asyncio.run(run())
@@ -87,6 +96,7 @@ nginx -t && systemctl reload nginx
 
 echo "======================================================================"
 echo "  [TAMAMLANDI — 0 MB EK RAM]"
+echo "  * Kurumsal Web     : https://www.nornia.com.tr"
 echo "  * API Portalı      : https://api.nornia.com.tr"
 echo "  * Kullanım Kılavuzu: https://dokuman.nornia.com.tr"
 echo "======================================================================"
