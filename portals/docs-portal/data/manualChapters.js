@@ -95,10 +95,11 @@ const RAW_CHAPTERS = [
   ...CHAPTERS_YONETIM_B
 ];
 
-export const MANUAL_CHAPTERS = RAW_CHAPTERS.map((ch) => {
+export const MANUAL_CHAPTERS = RAW_CHAPTERS.map((ch, idx) => {
   const guide = ALL_EDIT_GUIDES[ch.id] || {};
   return {
     ...ch,
+    number: String(idx + 1).padStart(2, "0"),
     editFormSections: guide.editFormSections || ch.editFormSections || []
   };
 });

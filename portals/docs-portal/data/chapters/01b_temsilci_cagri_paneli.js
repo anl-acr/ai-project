@@ -62,7 +62,19 @@ export const CHAPTERS_TEMSILCI_PANELI = [
       { problem: "Mola seçtiğimde 'Kuyruk mola kotası dolu' uyarısı çıkıyor", cause: "Bağlı olduğunuz kuyrukta aynı anda molada olabilecek maksimum kişi sayısına ulaşılmış.", solution: "Açılan kutucuğa kısa mazeretinizi yazıp 'Süpervizörden Onay İste' butonuna basın; süpervizör onayladığında molanız otomatik başlar." },
       { problem: "Sol menüde bazı sekmeler (örn. Masa Telefonum veya Temsilciler) görünmüyor", cause: "Rol ayarınızda ilgili call_panel:tab_* yetkisi kapalı.", solution: "Sistem yöneticinizden Sistem Ayarları → Roller ekranından ilgili sekme yetkisini açmasını isteyin." }
     ],
-    relatedPages: ["cagri-paneli-pano", "cagri-paneli-web-telefon-aktif-cagri", "kisisel-profil-ve-ust-cubuk"],
+    relatedPages: [
+      "cagri-paneli-pano",
+      "cagri-paneli-web-telefon-aktif-cagri",
+      "cagri-paneli-temsilciler",
+      "cagri-paneli-hizli-arama",
+      "cagri-paneli-kayip-cagri",
+      "cagri-paneli-rehber",
+      "cagri-paneli-cagri-gecmisi",
+      "cagri-paneli-sesli-posta",
+      "cagri-paneli-sohbet",
+      "cagri-paneli-masa-telefonum",
+      "kisisel-profil-ve-ust-cubuk"
+    ],
     relatedApis: ["POST /api/agent/status", "GET /api/agent/stats", "POST /api/v1/extensions/{extension}/status"]
   },
   {
@@ -139,13 +151,16 @@ export const CHAPTERS_TEMSILCI_PANELI = [
       }
     ],
     fieldTable: [
-      { field: "Tuş Takımı (Dialpad) & Hızlı Rehber / Son Görüşmeler", type: "Klavye + Fare + Tek Tık Ara", defaultVal: "Anlık", required: false, description: "Numara yazıp Enter'a basarak veya sağdaki Son Görüşmeler / Hızlı Rehber listesinden tek tıkla arama başlatırsınız." },
-      { field: "Gelen Çağrı Ekranı (Yanıtla / Reddet / Kuyruk & CRM Kartı)", type: "Ringing Durumu", defaultVal: "Sesli & Masaüstü Bildirim", required: false, description: "Arayan kişi adı, numarası, hangi kuyruktan geldiği ve CRM müşteri özeti telefonu açmadan önce ekranda görünür." },
-      { field: "Aktif Görüşme Kontrolleri (Mute, Hold, DTMF, *9 Kayıt Duraklat, *11 Flip)", type: "InCall Araç Çubuğu", defaultVal: "Tek Tık", required: false, description: "Kredi kartı/KVKK bilgisinde ses kaydını duraklatır (*9), aktif görüşmeyi masa/mobil telefonunuza kesintisiz geçirir (*11)." },
-      { field: "Kör & Danışmalı Transfer + 3'lü Konferans + 2. Hat", type: "Çoklu Hat Motoru", defaultVal: "Sınırsız İç/Dış Hedef", required: false, description: "Müşteriyi doğrudan başka dahili/kuyruğa aktarabilir (Kör), önce ekip arkadaşınızla konuşup sonra bağlayabilir (Danışmalı) veya 3 kişiyi konferansa alabilirsiniz." },
-      { field: "Canlı Konuşma & Çeviri Akışı (6 Dil • 3 Ses Modu)", type: "EN / DE / RU / AR / FR / ES ↔ TR", defaultVal: "LiveTranslatorPanel", required: false, description: "Yabancı dil konuşan müşterinin sesini canlı Türkçe metne çevirir; yazdığınız Türkçe yanıtı hedef dilde sesli okutur (Sadece Müşteri / Müşteri+Ben / Sadece Ben)." },
-      { field: "Müşteri 360° Kartı (Alt+C) & CTI Screen Pop", type: "Birleşik Geçmiş + 2. Sekme CRM", defaultVal: "Alt+C", required: false, description: "Müşterinin geçmiş tüm çağrılarını, WhatsApp/E-Posta yazışmalarını ve randevularını açar." },
-      { field: "Çağrı Sonrası İşlem (ACW), AI Not Asistanı & Sonuç Kodu", type: "Otomatik Geri Sayım + Not", defaultVal: "Kuyruk ACW Süreli", required: false, description: "Görüşme bitince AI özet not önerisini ve sonuç kodunu seçip 'Notu Kaydet & Müsaite Geç' ile sonraki çağrıya hazır olursunuz." }
+      { field: "1. Tuş Takımı (Dialpad), Hızlı Rehber & Son Görüşmeler", type: "Klavye + Fare + Tek Tık Ara", defaultVal: "Boşta & Görüşme İçi DTMF", required: false, description: "Boştayken numara çevirir veya sağdaki Son Görüşmeler / Hızlı Rehber listesinden tek tıkla arar; aktif görüşmedeyken karşı IVR/banka menülerine DTMF tuşlaması (1, 2, *, #) gönderir ve '2. Hat İçin Numara...' ile yeni hat açar." },
+      { field: "2. Müşteri Bilgi Şeridi (Rehbere Ekle • 360° Kart Alt+C • CRM Aç)", type: "3 Hızlı Müşteri Aksiyonu", defaultVal: "Otomatik Eşleşme", required: false, description: "Numara rehberde yoksa 'Rehbere Ekle' çıkar; '360° Kart (Alt+C)' müşterinin geçmiş tüm çağrı/WhatsApp/E-Posta zaman tünelini açar; CTI tanımlıysa 'Müşteri CRM Aç (2. Sekme)' dış CRM'i açar." },
+      { field: "3. Sessize Al (Mic) & Beklemeye Al (Hold / MOH)", type: "Aktif Çağrı Buton 1 & 2", defaultVal: "Tek Tık", required: false, description: "Sessize Al (Mic) yalnızca kendi mikrofonunuzu kapatır (kırmızı olur); Beklemeye Al (Pause) müşteriye santralin kurumsal bekleme müziğini (MOH) dinletir (sarı olur)." },
+      { field: "4. Canlı AI Gürültü Engelleme Anahtarı (Sparkles)", type: "Aktif Çağrı Buton 3", defaultVal: "Yapay Zeka (RNNoise)", required: false, description: "Görüşmeyi kesmeden tek tıkla 'Yapay Zeka (RNNoise + Yan Ses Kesici) → Standart → Kapalı' modları arasında canlı geçiş yapar." },
+      { field: "5. KVKK & Kredi Kartı Ses Kaydı Duraklat (*9 — Kalkan)", type: "Aktif Çağrı Buton 4", defaultVal: "call_panel:pause_recording", required: false, description: "Müşteri kredi kartı numarası, CVV veya gizli şifre paylaşırken Asterisk MixMonitor ses kaydını duraklatır (sarı yanıp söner); bilgi bitince tekrar basılarak kayıt sürdürülür." },
+      { field: "6. Cihaz Değiştir / Call Flip (*11 — Çift Ok)", type: "Aktif Çağrı Buton 5", defaultVal: "call_panel:call_flip", required: false, description: "Aktif görüşmeyi kapatmadan aynı kullanıcıya kayıtlı tüm diğer cihazları (IP masa telefonu, RUNA masaüstü, mobil uygulama) çaldırır; hangisinden açarsanız görüşme kesintisiz oraya geçer." },
+      { field: "7. Çağrı Transferi (Kör & Danışmalı) + 3'lü Konferans + 2. Hat", type: "Aktif Çağrı Buton 6, 7 & 8", defaultVal: "Çoklu Hat Motoru", required: false, description: "Kör Transfer (doğrudan aktarır), Danışmalı Transfer (önce 2. hatta konuşup sonra birleştirir), Konferans (3. katılımcıyı sesli dahil eder) ve 2. Hat Ekle (Hat 1 / Hat 2 arasında geçiş)." },
+      { field: "8. Canlı Konuşma & Çeviri (6 Dil • 4 Ses Modu) & Çağrıyı Sonlandır", type: "Aktif Çağrı Buton 9 & 10", defaultVal: "EN/DE/RU/AR/FR/ES ↔ TR", required: false, description: "Yabancı dildeki müşteriyi canlı Türkçe metne çevirir; Türkçe yazdığınız yanıtı hedef dilde seslendirir ('Sadece Müşteri', 'Müşteri + Ben', 'Sadece Ben', 'Yazarak Seslendir'). Kırmızı ahize görüşmeyi bitirip ACW'ye geçirir." },
+      { field: "9. Canlı Donanım Mikrofon & Müşteri RTP Hoparlör VU Barları", type: "Gerçek Zamanlı Ses Ölçer", defaultVal: "%0–%100 Canlı", required: false, description: "Mikrofon (Donanım) kendi sesinizin gittiğini, Hoparlör (Müşteri Sesi) karşıdan RTP ses paketi geldiğini canlı yüzde barıyla kanıtlar." },
+      { field: "10. Sonuç Kodu Çipleri, AI Not Çıkar, Türkçe Sesli Dikte & ACW", type: "Görüşme İçi & Çağrı Sonrası", defaultVal: "Kuyruk ACW Süreli", required: false, description: "Görüşme sırasında veya ACW geri sayımında Sonuç Kodu seçer, 'AI Not Çıkar' ile otomatik özet oluşturur, mikrofonla sesli not dikte eder ve 'Kaydet & Müsaite Geç' ile sonraki çağrıya hazır olursunuz." }
     ],
     editFormSections: [
       {
@@ -153,67 +168,74 @@ export const CHAPTERS_TEMSILCI_PANELI = [
         tabTitle: "Ekran 1: Gelen Çağrı Çalarken (Incoming Call Ringing — Yanıtla, Reddet, Kuyruk & CRM Kartı)",
         badge: "Aktif Çağrı 1/6 • Gelen Çağrı",
         screenshot: { src: "/screenshots/tabs/call-panel/active/02-gelen-cagri-calarken.jpg", caption: "Gelen Çağrı Çalarken (Ringing) — Arayan kimliği, Kuyruk etiketi, VIP CRM özeti, 360° Kart ve yeşil 'Gelen Çağrıyı Yanıtla' butonu", routeHint: "Web Telefon → Gelen Çağrı (Ringing)" },
-        description: "Telefon çaldığında Web Telefon otomatik öne gelir; temsilci ahizeyi açmadan önce arayanın adını, şirketini, hangi kuyruktan geldiğini ve geçmiş notlarını görür.",
+        description: "Telefon çaldığında Web Telefon otomatik öne gelir, masaüstü bildirimi çıkar ve kulaklık + tanımlıysa ikincil zil hoparlörü çalar. Temsilci ahizeyi açmadan önce arayanın adını, şirketini, hangi kuyruktan geldiğini ve geçmiş notlarını görür.",
         fields: [
-          { name: "Kuyruk Rozeti, Kayıtlı Kişi Etiketi & '360° Kart'", type: "Örn. Satış Kuyruğu (2000) • VIP Müşteri", defaultVal: "Otomatik Eşleşme", required: false, effect: "Rehber ve CRM'den otomatik çekilen müşteri kimliğiyle temsilci 'Merhaba Ahmet Bey, Anadolu Lojistik...' şeklinde profesyonel karşılama yapar." },
-          { name: "Gelen Çağrıyı Yanıtla (Yeşil) & Çağrıyı Reddet (Kırmızı)", type: "Tek Tık / Klavye Kısayolu", defaultVal: "call_panel:webphone_reject", required: false, effect: "Yanıtla görüşmeyi anında başlatır; Reddet yetkisi açıksa çağrıyı meşgule düşürerek kuyruktaki sıradaki temsilciye iletir." }
+          { name: "Kuyruk Rozeti, Kayıtlı Kişi Etiketi, 'Rehbere Ekle' & '360° Kart (Alt+C)'", type: "Örn. Satış Kuyruğu (2000) • VIP Müşteri", defaultVal: "Otomatik Eşleşme", required: false, effect: "Rehber ve CRM'den otomatik çekilen müşteri kimliğiyle temsilci 'Merhaba Ahmet Bey, Anadolu Lojistik...' şeklinde profesyonel karşılama yapar. Alt+C ile geçmiş tüm aramalar ve WhatsApp mesajları anında açılır." },
+          { name: "Gelen Çağrıyı Yanıtla (Yeşil) & Çağrıyı Reddet (Kırmızı)", type: "Tek Tık / Klavye Kısayolu", defaultVal: "call_panel:webphone_reject", required: false, effect: "Yanıtla görüşmeyi anında başlatır (CTI Screen Pop açıksa dış CRM sekmesi de otomatik tetiklenir). Reddet yetkisi açıksa çağrıyı meşgule düşürerek kuyruktaki sıradaki temsilciye iletir." }
         ]
       },
       {
         level: 3,
-        tabTitle: "Ekran 2: Aktif Görüşme (InCall — Mute, Hold, DTMF, *9 Kayıt Duraklat, *11 Call Flip, Canlı Çeviri & Not)",
-        badge: "Aktif Çağrı 2/6 • Görüşme Aktif",
-        screenshot: { src: "/screenshots/tabs/call-panel/active/03-aktif-gorusme.jpg", caption: "Aktif Görüşme (InCall) — Canlı süre sayacı (02:14), tüm çağrı aksiyon butonları, sonuç kodu/not kutusu ve Canlı Çeviri paneli", routeHint: "Web Telefon → Aktif Görüşme (InCall)" },
-        description: "Görüşme bağlandığında aktif olan tam kontrol panelidir. Sol kısımda tuş takımı (IVR DTMF için) ve 'Yeni Hat Ara', sağ üstte çağrı kontrolleri, ortada hızlı sonuç kodu/not girişi ve altta Canlı Konuşma & Çeviri Akışı bulunur.",
+        tabTitle: "Ekran 2: Aktif Görüşme (InCall) — 10 Kontrol Butonu, VU Barları, AI Not, Dikte & Canlı Çeviri",
+        badge: "Aktif Çağrı 2/6 • Tüm Aktif İşlemler",
+        screenshot: { src: "/screenshots/tabs/call-panel/active/03-aktif-gorusme.jpg", caption: "Aktif Görüşme (InCall) — Canlı süre sayacı (02:14), 10 çağrı kontrol butonu, canlı Mikrofon/Hoparlör VU barları, Sonuç Kodu/AI Not kutusu ve Canlı Çeviri paneli", routeHint: "Web Telefon → Aktif Görüşme (InCall)" },
+        description: "Görüşme bağlandığında aktif olan tam kontrol panelidir. Sol kısımda DTMF tuş takımı ve 'Yeni Hat Ara', sağ üstte müşteri aksiyonları ile 10'lu çağrı kontrol çubuğu, ortada canlı Mikrofon/Hoparlör ses barları ile sonuç kodu / AI Not / sesli dikte alanı ve altta 6 dilli Canlı Konuşma & Çeviri paneli yer alır.",
         fields: [
-          { name: "Sessize Al (Mute) & Beklet (Hold / Bekleme Müziği)", type: "Mikrofon Kes / MoH Çal", defaultVal: "Tek Tık", required: false, effect: "Mute sizin sesinizi keser (müşteri sessizlik duyar); Hold müşteriye kurumsal bekleme müziği (MOH) dinletir." },
-          { name: "Ses Kaydını Duraklat / Devam Ettir (*9 — KVKK / PCI-DSS)", type: "call_panel:pause_recording", defaultVal: "MixMonitor Pause", required: false, effect: "Müşteri kredi kartı numarası veya gizli şifre söylerken kaydı anlık duraklatır; işlem bitince tekrar devam ettirir." },
-          { name: "Cihaza Aktar / Call Flip (*11)", type: "call_panel:call_flip", defaultVal: "Diğer Cihazları Çaldır", required: false, effect: "Görüşmeyi kapatmadan diğer cihazlarınıza (IP masa telefonu veya mobil uygulama) çaldırıp kesintisiz o cihaza geçmenizi sağlar." },
-          { name: "Canlı Konuşma & Çeviri Akışı (6 Dil & 3 Ses Çıkış Modu)", type: "EN / DE / RU / AR / FR / ES ↔ TR", defaultVal: "Sadece Müşteri / Müşteri+Ben / Sadece Ben", required: false, effect: "Müşteri yabancı dil konuştuğunda anlık Türkçe çevirisi sohbet akışına düşer; alttaki kutuya Türkçe yazıp Enter'a bastığınızda müşterinin dilinde doğal sesle okutulur." },
-          { name: "Görüşme İçi Hızlı Sonuç Kodu, Sesli Dikte Not & 'Kaydet'", type: "Sonuç Çipleri + Mikrofon Dikte", defaultVal: "Anlık Kayıt", required: false, effect: "Görüşme sürerken not alıp sonuç kodunu seçerek çağrı bittiğinde zaman kaybetmeden kapatmanızı sağlar." }
+          { name: "Buton 1 & 2: Sessize Al (Mikrofon) & Beklemeye Al (Hold / MOH)", type: "Mic / Pause İkonu", defaultVal: "Tek Tık", required: false, effect: "Sessize Al yalnızca sizin mikrofonunuzu keser (ofis içi danışma için idealdir); Beklemeye Al müşteriyi kurumsal bekleme müziğine (MOH) alır ve iki tarafın sesini keser." },
+          { name: "Buton 3: Canlı Gürültü Engelleme (Sparkles — AI RNNoise / Standart / Kapalı)", type: "Canlı Ses Filtresi", defaultVal: "Yapay Zeka (AI)", required: false, effect: "Çağrı devam ederken yan masadaki gürültü veya klavye sesleri oluşursa tek tıkla AI RNNoise gürültü engelleyiciyi açıp kapatabilirsiniz." },
+          { name: "Buton 4: KVKK & Kredi Kartı Ses Kaydı Duraklat (*9 — Kalkan İkonu)", type: "call_panel:pause_recording", defaultVal: "MixMonitor Pause", required: false, effect: "Müşteri kart numarası, son kullanma tarihi, CVV veya gizli şifre söylerken basıldığında Asterisk ses kaydını duraklatır (kalkan sarı yanıp söner). Hassas veri bittiğinde tekrar basılarak kayda devam edilir." },
+          { name: "Buton 5: Cihaz Değiştir / Call Flip (*11 — Çift Ok İkonu)", type: "call_panel:call_flip", defaultVal: "Tüm Cihazları Çaldır", required: false, effect: "Masadan kalkmanız gerektiğinde görüşmeyi kapatmadan diğer kayıtlı cihazlarınızı (IP masa telefonu veya mobil uygulama) çaldırır; açtığınız anda görüşme kesintisiz o cihaza aktarılır. Ayrıca başka cihazda konuşurken Web Telefon üstünde 'Görüşmeyi Bu Cihaza Al (*11)' banner'ı da çıkar." },
+          { name: "Buton 6, 7 & 8: Çağrı Transferi (→) • Konferans (Radio) • Yeni Çağrı / 2. Hat Ekle (Telefon)", type: "Yönlendirme & Çoklu Hat", defaultVal: "Yetki Bazlı", required: false, effect: "Kör/Danışmalı Transfer panelini açar, 3. kişiyi konferansa dahil eder veya mevcut müşteriyi bekletip 2. dahili/dış hat açar." },
+          { name: "Buton 9 & 10: Canlı Konuşma & Çeviri (Languages) • Çağrıyı Sonlandır (Kırmızı Ahize)", type: "6 Dil Tercüman + Hangup", defaultVal: "EN/DE/RU/AR/FR/ES", required: false, effect: "Canlı Çeviri panelinde 'Oto. Sesli Çeviri', 'Sadece Müşteri', 'Müşteri + Ben', 'Sadece Ben' ve 'Yazarak Seslendir' modları bulunur; yazdığınız Türkçe metin müşterinin dilinde doğal sesle okutulur." },
+          { name: "Canlı Mikrofon (Donanım) & Hoparlör (Müşteri Sesi) VU Seviye Çubukları", type: "%0–%100 Canlı Gösterge", defaultVal: "Gerçek Zamanlı", required: false, effect: "Görüşmede 'sesim gidiyor mu / müşterinin sesi geliyor mu' şüphesini saniyeler içinde giderir." },
+          { name: "Görüşme İçi Hızlı Sonuç Kodu Çipleri, 'AI Not Çıkar', Sesle Not Yaz (Dikte) & 'Kaydet'", type: "AI Özet + Türkçe Dikte", defaultVal: "Anlık Kayıt", required: false, effect: "Görüşme sürerken tek tıkla sonuç kodu seçer, AI Not Çıkar ile konuşmadan otomatik özet üretir veya mikrofonla sesli not dikte edip kaydedersiniz." }
+        ],
+        tips: [
+          "Karşı tarafın IVR menüsünde 'Muhasebe için 2'ye basın' dendiğinde soldaki tuş takımına (veya klavyeden rakamlara) basarak doğrudan DTMF sinyali gönderebilirsiniz.",
+          "Müşteri başka bir departmanı sorarsa 'Yeni Hat Ara' veya 'Kontrollü Transfer' ile önce ekip arkadaşınızı arayıp ön bilgi vermeniz müşteri memnuniyetini belirgin artırır."
         ]
       },
       {
         level: 3,
-        tabTitle: "Ekran 3: Aktif Görüşmede Çağrı Transferi (Kör Transfer & Danışmalı Transfer)",
+        tabTitle: "Ekran 3: Aktif Görüşmede Çağrı Transferi (Kontrolsüz/Kör & Kontrollü/Danışmalı Transfer)",
         badge: "Aktif Çağrı 3/6 • Transfer",
-        screenshot: { src: "/screenshots/tabs/call-panel/active/04-aktif-gorusme-transfer.jpg", caption: "Aktif Görüşme → Çağrı Transferi Paneli: Hedef dahili/kuyruk/dış numara arama, Kör Transfer ve Danışmalı Transfer seçimi", routeHint: "Web Telefon → Aktif Görüşme → Çağrı Transferi" },
-        description: "Aktif görüşme sırasında 'Çağrı Transferi' butonuna basıldığında açılan hedef seçim ve aktarım panelidir.",
+        screenshot: { src: "/screenshots/tabs/call-panel/active/04-aktif-gorusme-transfer.jpg", caption: "Aktif Görüşme → Çağrı Transferi Paneli: Hedef dahili/kuyruk/dış numara arama, Kontrolsüz (Kör) Transfer ve Kontrollü (Danışmalı) Transfer seçimi", routeHint: "Web Telefon → Aktif Görüşme → Çağrı Transferi" },
+        description: "Aktif görüşme sırasında 'Çağrı Transferi (→)' butonuna basıldığında açılan hedef seçim ve aktarım penceresidir. Dahili numara (örn. 1001), kuyruk numarası (örn. 2000) veya dış GSM/sabit numara yazabilirsiniz.",
         fields: [
-          { name: "Kör Transfer (Blind Transfer)", type: "Doğrudan Aktar", defaultVal: "Tek Adım", required: false, effect: "Hedef dahili veya kuyruk numarasını seçip aktar dediğinizde görüşme sizden anında çıkarak hedefi çaldırır." },
-          { name: "Danışmalı Transfer (Attended Transfer)", type: "Önce Konuş, Sonra Birleştir", defaultVal: "2. Hat Üzerinden", required: false, effect: "Müşteriyi bekleme müziğine alır, hedef ekip arkadaşınızı arayıp ön bilgi verir ve 'Transferi Tamamla' ile ikisini birbirine bağlarsınız." }
+          { name: "Kontrolsüz Transfer (Kör / Blind Transfer)", type: "Mor Buton • Tek Adım", defaultVal: "Anında Aktar", required: false, effect: "Hedef numarayı yazıp 'Kontrolsüz Transfer'e bastığınızda görüşme sizin ekranınızdan anında çıkar ve doğrudan hedef dahiliyi/kuyruğu çaldırır." },
+          { name: "Kontrollü Transfer (Danışmalı / Attended Transfer)", type: "İndigo Buton • 2 Adım", defaultVal: "Önce Konuş, Sonra Birleştir", required: false, effect: "1) Mevcut müşteriyi otomatik bekleme müziğine (Hold) alır. 2) Hedef ekip arkadaşınızı 2. hattan arar. 3) Arkadaşınız açtığında ön bilgi verirsiniz ve 'Transferi Tamamla' diyerek ikisini birbirine bağlayıp hattan çıkarsınız; arkadaşınız meşgulse 2. hattı kapatıp müşteriye geri dönersiniz." }
         ]
       },
       {
         level: 3,
-        tabTitle: "Ekran 4: Aktif Görüşmede 3'lü Konferans (Konferans Görüşmesi Ekleme)",
+        tabTitle: "Ekran 4: Aktif Görüşmede 3'lü Konferans (Ara & Konferansa Ekle)",
         badge: "Aktif Çağrı 4/6 • 3'lü Konferans",
-        screenshot: { src: "/screenshots/tabs/call-panel/active/05-aktif-gorusme-konferans.jpg", caption: "Aktif Görüşme → Konferans Görüşmesi Paneli: Görüşmeye 3. dahili veya dış telefon katılımcısı ekleme", routeHint: "Web Telefon → Aktif Görüşme → Konferans" },
-        description: "Mevcut müşteri görüşmesine teknik uzman, yönetici veya harici bir tedarikçiyi anında 3. katılımcı olarak dahil etmenizi sağlar.",
+        screenshot: { src: "/screenshots/tabs/call-panel/active/05-aktif-gorusme-konferans.jpg", caption: "Aktif Görüşme → Konferans Yönetimi Paneli: Görüşmeye 3. dahili veya dış telefon katılımcısı ekleme", routeHint: "Web Telefon → Aktif Görüşme → Konferans" },
+        description: "Mevcut müşteri görüşmesine teknik uzman, süpervizör veya harici bir tedarikçiyi anında 3. katılımcı olarak dahil etmenizi sağlar.",
         fields: [
-          { name: "3. Katılımcı Numarası / Dahili Seçici & 'Konferansa Ekle'", type: "Dahili veya Dış Numara", defaultVal: "WebRTC Audio Mix", required: false, effect: "3. kişi açtığında tüm taraflar birbirini kristal netliğinde duyar; istediğiniz katılımcıyı ayrı ayrı hattan çıkarabilirsiniz." }
+          { name: "Katılımcı Dahili / No & 'Ara & Konferansa Ekle'", type: "Dahili veya Dış Numara", defaultVal: "WebRTC Audio Mix", required: false, effect: "Hedef kişi aramayı yanıtladığında tüm taraflar aynı anda birbirini kristal netliğinde duyar. İhtiyaç bittiğinde tek katılımcıyı çıkarabilir veya görüşmeyi tamamen sonlandırabilirsiniz." }
         ]
       },
       {
         level: 3,
-        tabTitle: "Ekran 5: Çift Hat Yönetimi, Bekletme & Hatlar Arası Geçiş (Danışmalı Görüşme)",
+        tabTitle: "Ekran 5: Çift Hat Yönetimi, Bekletme & Hatlar Arası Geçiş (Multi-Line Swap & Merge)",
         badge: "Aktif Çağrı 5/6 • Çift Hat & Bekletme",
         screenshot: { src: "/screenshots/tabs/call-panel/active/06-cift-hat-danismali-bekletme.jpg", caption: "Çift Hat Aktif Görünümü — Hat 1 (Ahmet Yılmaz — Beklemede) ve Hat 2 (Murat BATTAL — Dahili Danışma Aktif) arasında tek tık geçiş", routeHint: "Web Telefon → Çift Hat / Danışmalı Görüşme" },
-        description: "Aktif bir müşteri görüşmesi sürerken 'Yeni Hat Ara' veya Danışmalı Transfer ile 2. bir hat açıldığında üstte her iki hattı canlı kartlar halinde yönetmenizi sağlar.",
+        description: "Aktif bir müşteri görüşmesi sürerken 'Yeni Hat Ara' veya Kontrollü Transfer ile 2. bir hat açıldığında üstte her iki hattı canlı kartlar halinde yönetmenizi sağlar.",
         fields: [
-          { name: "Hat 1 / Hat 2 Kartları (Beklemede ↔ Aktif Geçiş)", type: "Çoklu Hat Çubuğu", defaultVal: "Tek Tık Swap", required: false, effect: "Hangi hat kartına tıklarsanız o hat aktif konuşmaya geçer, diğer hat otomatik bekleme müziğine (Hold) alınır." },
-          { name: "Transferi Tamamla (Birleştir) veya 3'lü Konferansa Çevir", type: "İki Hattı Bağla", defaultVal: "Tek Tık", required: false, effect: "2. hattaki ekip arkadaşınızla konuştuktan sonra tek tıkla müşteriyi ona bağlayıp hattan çıkabilirsiniz." }
+          { name: "Hat 1 / Hat 2 Kartları (Beklemede ↔ Aktif Geçiş / Swap)", type: "Çoklu Hat Çubuğu", defaultVal: "Tek Tık Swap", required: false, effect: "Hangi hat kartına tıklarsanız o hat aktif konuşmaya geçer, diğer hat otomatik bekleme müziğine (Hold) alınır. Her hattın kendi süre sayacı ve kapatma butonu vardır." },
+          { name: "Transferi Tamamla (İki Hattı Birleştir) veya 3'lü Konferansa Çevir", type: "İki Hattı Bağla", defaultVal: "Tek Tık", required: false, effect: "2. hattaki ekip arkadaşınızla konuştuktan sonra tek tıkla müşteriyi ona bağlayabilir veya üçlü konferansa dönüştürebilirsiniz." }
         ]
       },
       {
         level: 3,
         tabTitle: "Ekran 6: Çağrı Sonrası İşlem (ACW), AI Not Asistanı & Sonuç Kodu Kaydetme",
         badge: "Aktif Çağrı 6/6 • ACW & AI Not",
-        screenshot: { src: "/screenshots/tabs/call-panel/active/07-cagri-sonrasi-acw-not.jpg", caption: "Çağrı Sonrası İşlem (ACW) — Hem Temsilci Oturumu kartında hem ana ekranda geri sayım, sonuç kodu seçici ve görüşme notu kaydetme", routeHint: "Web Telefon → Çağrı Sonrası İşlem (ACW)" },
-        description: "Kuyruk çağrısı sonlandığında otomatik devreye giren toparlanma (Wrap-Up) ekranıdır. Süre dolana kadar temsilciye yeni çağrı düşmez.",
+        screenshot: { src: "/screenshots/tabs/call-panel/active/07-cagri-sonrasi-acw-not.jpg", caption: "Çağrı Sonrası İşlem (ACW) — Hem sol Temsilci Oturumu kartında hem ana ekranda geri sayım, sonuç kodu seçici, AI Not Çıkar ve görüşme notu kaydetme", routeHint: "Web Telefon → Çağrı Sonrası İşlem (ACW)" },
+        description: "Kuyruk çağrısı sonlandığında otomatik devreye giren toparlanma (Wrap-Up) ekranıdır. Geri sayım dolana kadar temsilciye yeni kuyruk çağrısı düşmez; böylece temsilci sakin biçimde notunu ve sonuç kodunu kaydeder.",
         fields: [
-          { name: "Sonuç Kodu (Disposition) Seçimi & AI Not Önerisi", type: "Satış Yapıldı / Teklif İletildi / Bilgi Verildi / Teknik Destek...", defaultVal: "Kuyruk Kodları", required: false, effect: "Görüşmenin sonucunu işaretleyip AI'ın önerdiği özeti tek tıkla onaylarsınız; veriler Çağrı Sonuç Kodları ve Temsilci Notları raporuna işlenir." },
-          { name: "'Notu Kaydet & Müsaite Geç' / 'Not Yazmadan Müsaite Geç'", type: "Erken ACW Bitirme", defaultVal: "Otomatik Geri Sayım", required: false, effect: "Notunuzu 20 saniyeden erken bitirdiyseniz beklemeden hemen Müsait durumuna dönebilirsiniz." }
+          { name: "Sonuç Kodu (Disposition) Seçimi, 'AI Not Çıkar' & Sesli Dikte", type: "Satış Yapıldı / Bilgi Verildi / Teklif İletildi / Teknik Destek...", defaultVal: "Kuyruk Kodları", required: false, effect: "Görüşmenin sonucunu işaretleyip AI'ın konuşma dökümünden ürettiği özeti tek tıkla onaylarsınız; tüm veriler Çağrı Sonuç Kodları ve Temsilci Notları raporuna işlenir." },
+          { name: "'Kaydet & Müsaite Geç' / 'ACW Kapat (Not Yazmadan Müsaite Geç)'", type: "Erken ACW Bitirme", defaultVal: "Otomatik Geri Sayım", required: false, effect: "İşleminizi ACW süresi bitmeden tamamladıysanız beklemeden hemen Müsait durumuna geçip yeni çağrı almaya başlayabilirsiniz." }
         ]
       },
       {
@@ -221,7 +243,7 @@ export const CHAPTERS_TEMSILCI_PANELI = [
         tabTitle: "Alt Pencere: Web Telefon 6'lı Sistem Kontrolü & Sorun Giderme Ekranı",
         badge: "Web Telefon → Sistem Kontrolü",
         screenshot: { src: "/screenshots/tabs/call-panel/deep/webphone-diagnostics.jpg", caption: "Web Telefon Sistem Kontrolü — İnternet, HTTPS/WebRTC, Mikrofon İzni, Santral WSS/SIP, Web Lock ve Hoparlör 6'lı Tanılama", routeHint: "Web Telefon → 'WEB TELEFON HAZIR' Rozeti" },
-        description: "Web Telefon üstündeki durum rozetine tıklayıp açabileceğiniz 6 adımlı otomatik sağlık kontrolüdür.",
+        description: "Web Telefon üstündeki yeşil/kırmızı durum rozetine tıklayıp açabileceğiniz 6 adımlı otomatik sağlık kontrolüdür.",
         fields: [
           { name: "Cihaz Anahtarı (AIDA-DEV-...) & 6 Canlı Kontrol Satırı", type: "İnternet / HTTPS / Mikrofon / WSS-SIP / Web Lock / Hoparlör Testi", defaultVal: "Tekrar Tara + Test Sesi Çal", required: false, effect: "Mikrofon engellendiyse veya tarayıcı sekmeyi uyutuyorsa anında kırmızı uyarı ve tek tıkla çözüm rehberi sunar." }
         ]
@@ -229,12 +251,14 @@ export const CHAPTERS_TEMSILCI_PANELI = [
     ],
     sections: [
       {
-        heading: "1. Web Telefon Klavye & Hızlı İşlem İpuçları",
-        body: "Yoğun çağrı trafiğinde her saniye önemlidir; aşağıdaki kısayollarla fareye dokunmadan tüm çağrıyı yönetebilirsiniz:",
+        heading: "1. Aktif Çağrı Sırasında En Sık Kullanılan 5 İş Akışı",
+        body: "Gerçek bir çağrı merkezi gününde temsilcilerin en sık uyguladığı uçtan uca adımlar:",
         steps: [
-          "Gelen çağrıda `Alt+C` ile Müşteri 360° kartını açarak geçmiş telefon + WhatsApp özetini 2 saniyede görün.",
-          "Kredi kartı/şifre alınırken mutlaka 'Kaydı Duraklat (*9)' butonuna basın; bilgi bitince tekrar devam ettirin.",
-          "Ofis dışına çıkmanız gerekirse görüşmeyi kapatmadan '*11 (Call Flip)' ile mobil uygulamanıza aktarın."
+          "Müşteriyi Tanıma: Telefon çaldığında Kuyruk rozeti ve müşteri adını okuyun; `Alt+C` ile Müşteri 360° kartından son görüşme/WhatsApp özetine 2 saniyede göz atın.",
+          "Kredi Kartı / Hassas Veri Alma: Kalkan ikonuna (`*9`) basıp ses kaydını duraklatın (buton sarı yanıp söner), kart bilgisini aldıktan sonra tekrar basıp kaydı sürdürün.",
+          "Danışmalı Transfer: Transfer (`→`) butonundan arkadaşınızın dahilisini yazıp 'Kontrollü Transfer'e basın; arkadaşınıza ön bilgi verip 'Transferi Tamamla' ile bağlayın.",
+          "Yabancı Dil Görüşmesi: Canlı Çeviri (`Languages`) ikonunu açın, dili seçin (örn. EN); müşterinin sözlerini Türkçe okuyup yanıtınızı Türkçe yazarak müşterinin dilinde sesli okutun.",
+          "Görüşme Kapanışı (ACW): Kırmızı ahizeye bastıktan sonra 'AI Not Çıkar' ile özeti oluşturun, Sonuç Kodunu seçin ve 'Kaydet' diyerek anında Müsait'e dönün."
         ]
       }
     ],

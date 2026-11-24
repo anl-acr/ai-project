@@ -363,6 +363,7 @@ server {{
     }}
 
     location / {{
+        add_header Cache-Control "no-cache, must-revalidate";
         try_files $uri $uri.html $uri/ /index.html;
     }}
 }}
@@ -399,10 +400,11 @@ server {{
 
     location /pdfs/ {{
         add_header Content-Disposition "attachment";
-        expires 7d;
+        add_header Cache-Control "no-cache, must-revalidate";
     }}
 
     location / {{
+        add_header Cache-Control "no-cache, must-revalidate";
         try_files $uri $uri.html $uri/ /index.html;
     }}
 }}
