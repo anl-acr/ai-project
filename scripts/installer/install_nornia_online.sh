@@ -853,6 +853,7 @@ mkdir -p /etc/fail2ban/jail.d
 cat <<'EOF' > /etc/fail2ban/jail.d/nornia-asterisk.conf
 [asterisk]
 enabled  = true
+backend  = polling
 filter   = asterisk
 port     = 5060,5061
 logpath  = /var/log/asterisk/messages
