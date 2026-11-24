@@ -401,6 +401,20 @@ shared_lastcall = yes
 #include /etc/asterisk/queues_custom.conf
 EOF
 
+# Legacy chan_sip kapat (Nornia yalnızca chan_pjsip kullanır) ve anonim çağrıları engelle
+if [[ -f /etc/asterisk/modules.conf ]] && ! grep -q "noload => chan_sip.so" /etc/asterisk/modules.conf; then
+  echo "noload => chan_sip.so" >> /etc/asterisk/modules.conf
+fi
+cat <<'EOF' > /etc/asterisk/sip.conf
+[general]
+allowguest=no
+alwaysauthreject=yes
+EOF
+
+if [[ -f /etc/asterisk/logger.conf ]] && ! grep -q "^security =>" /etc/asterisk/logger.conf; then
+  sed -i '/^\[logfiles\]/a security => security,notice,warning,error' /etc/asterisk/logger.conf || true
+fi
+touch /var/log/asterisk/messages /var/log/asterisk/security
 touch /etc/asterisk/pjsip_custom.conf /etc/asterisk/extensions_custom.conf /etc/asterisk/queues_custom.conf /etc/asterisk/features_custom.conf
 chown -R asterisk:asterisk /etc/asterisk /var/lib/asterisk /var/spool/asterisk /var/log/asterisk /var/run/asterisk
 chmod -R 775 /etc/asterisk /var/run/asterisk
@@ -575,6 +589,22 @@ ufw allow 5061/tcp comment 'SIP TLS' >/dev/null 2>&1 || true
 ufw allow 8089/tcp comment 'WebRTC WSS' >/dev/null 2>&1 || true
 ufw allow 10000:20000/udp comment 'RTP Media' >/dev/null 2>&1 || true
 ufw --force enable >/dev/null 2>&1 || true
+
+# Fail2Ban Asterisk SIP koruması
+mkdir -p /etc/fail2ban/jail.d
+cat <<'EOF' > /etc/fail2ban/jail.d/nornia-asterisk.conf
+[asterisk]
+enabled  = true
+filter   = asterisk
+port     = 5060,5061
+logpath  = /var/log/asterisk/messages
+           /var/log/asterisk/security
+maxretry = 5
+findtime = 600
+bantime  = 3600
+EOF
+systemctl enable fail2ban 2>/dev/null || true
+systemctl restart fail2ban 2>/dev/null || true
 
 # PM2 uygulamalarını başlat & kendi systemd servisi (pm2-root.service) altında kalıcı çalıştır
 if command -v pm2 >/dev/null 2>&1; then

@@ -89,8 +89,11 @@ apt-get install -y \
 
 # Node.js 20 yoksa NodeSource'tan kur (Next.js 16.4.6 + pm2 paketleme için Node >= 20 zorunlu)
 if ! command -v node >/dev/null 2>&1 || [[ "$(node -v | sed 's/v//' | cut -d. -f1)" -lt 20 ]]; then
-  echo "[1b] Node.js 20 LTS kuruluyor..."
-  curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+  echo "[1b] Node.js 20 LTS (imzalı GPG deposu) kuruluyor..."
+  mkdir -p /etc/apt/keyrings
+  curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor --yes -o /etc/apt/keyrings/nodesource.gpg
+  echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" > /etc/apt/sources.list.d/nodesource.list
+  apt-get update -y
   apt-get install -y nodejs
 fi
 apt-get clean

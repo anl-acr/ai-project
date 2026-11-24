@@ -222,7 +222,10 @@ systemctl restart systemd-resolved 2>/dev/null || true
 echo "[2/12] Node.js 20 LTS ve PM2 kuruluyor..."
 NODE_MAJOR="$(node -v 2>/dev/null | sed -E 's/^v([0-9]+).*/\1/' || echo 0)"
 if [[ "$NODE_MAJOR" -lt 20 ]]; then
-  curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+  mkdir -p /etc/apt/keyrings
+  curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor --yes -o /etc/apt/keyrings/nodesource.gpg
+  echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" > /etc/apt/sources.list.d/nodesource.list
+  apt-get update -y
   apt-get install -y nodejs
 fi
 echo "  → Node.js $(node -v) / npm $(npm -v)"
@@ -579,6 +582,21 @@ shared_lastcall = yes
 #include /etc/asterisk/queues_custom.conf
 EOF
 
+# Legacy chan_sip kapat (Nornia yalnızca chan_pjsip kullanır) ve anonim çağrıları engelle
+if [[ -f /etc/asterisk/modules.conf ]] && ! grep -q "noload => chan_sip.so" /etc/asterisk/modules.conf; then
+  echo "noload => chan_sip.so" >> /etc/asterisk/modules.conf
+fi
+cat <<'EOF' > /etc/asterisk/sip.conf
+[general]
+allowguest=no
+alwaysauthreject=yes
+EOF
+
+# Asterisk güvenlik logunu etkinleştir (Fail2Ban [asterisk] jail'i için)
+if [[ -f /etc/asterisk/logger.conf ]] && ! grep -q "^security =>" /etc/asterisk/logger.conf; then
+  sed -i '/^\[logfiles\]/a security => security,notice,warning,error' /etc/asterisk/logger.conf || true
+fi
+touch /var/log/asterisk/messages /var/log/asterisk/security
 touch /etc/asterisk/pjsip_custom.conf /etc/asterisk/extensions_custom.conf /etc/asterisk/queues_custom.conf /etc/asterisk/features_custom.conf
 chown -R asterisk:asterisk /etc/asterisk /var/lib/asterisk /var/spool/asterisk /var/log/asterisk /var/run/asterisk
 chmod -R 775 /etc/asterisk /var/run/asterisk
@@ -829,6 +847,20 @@ if [[ "$SKIP_UFW" != "1" ]]; then
   ufw allow 10000:20000/udp comment 'RTP Media' >/dev/null 2>&1 || true
   ufw --force enable >/dev/null 2>&1 || true
 fi
+
+# Fail2Ban Asterisk & SSH koruması
+mkdir -p /etc/fail2ban/jail.d
+cat <<'EOF' > /etc/fail2ban/jail.d/nornia-asterisk.conf
+[asterisk]
+enabled  = true
+filter   = asterisk
+port     = 5060,5061
+logpath  = /var/log/asterisk/messages
+           /var/log/asterisk/security
+maxretry = 5
+findtime = 600
+bantime  = 3600
+EOF
 
 systemctl enable fail2ban chrony 2>/dev/null || true
 systemctl restart fail2ban chrony 2>/dev/null || true
