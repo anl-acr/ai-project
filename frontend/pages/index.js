@@ -5702,44 +5702,7 @@ export default function Home() {
                       <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-rose-500 ring-2 ring-white dark:ring-slate-900 animate-pulse" />
                     )}
                   </button>
-                  <div ref={profileDropdownRef} className="relative shrink-0 flex items-center gap-1.5">
-                    {(() => {
-                      const activeFwdPill =
-                        (fwdAlwaysActive && fwdAlwaysTarget && { label: "Yönlendirme", target: fwdAlwaysTarget, type: "always" }) ||
-                        (fwdBusyActive && fwdBusyTarget && { label: "Meşgulde", target: fwdBusyTarget, type: "busy" }) ||
-                        (fwdNoAnswerActive && fwdNoAnswerTarget && { label: "Cevapsızda", target: fwdNoAnswerTarget, type: "no_answer" }) ||
-                        null;
-                      const isDeskDndPill = Boolean(currentUser?.call_panel_prefs?.deskphoneSync?.dnd_active || agentActiveProfile === "meeting");
-                      if (!activeFwdPill && !isDeskDndPill) return null;
-                      return (
-                        <button
-                          type="button"
-                          onClick={() => setProfileDropdownOpen(true)}
-                          className={`hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-bold transition-all shadow-sm cursor-pointer ${
-                            activeFwdPill
-                              ? `${lightBg} ${text} ${borderLight} hover:opacity-90`
-                              : "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/30 hover:bg-red-500/15"
-                          }`}
-                          title={
-                            activeFwdPill
-                              ? `${activeFwdPill.label}: ${activeFwdPill.target} (Masa Telefonu ↔ Santral Senkron)`
-                              : "Rahatsız Etmeyin (DND) Aktif (Masa Telefonu ↔ Santral Senkron)"
-                          }
-                        >
-                          {activeFwdPill ? (
-                            <>
-                              <PhoneForwarded size={12} className="shrink-0" />
-                              <span className="font-mono max-w-[90px] truncate">{activeFwdPill.target}</span>
-                            </>
-                          ) : (
-                            <>
-                              <PhoneOff size={12} className="shrink-0" />
-                              <span>DND</span>
-                            </>
-                          )}
-                        </button>
-                      );
-                    })()}
+                  <div ref={profileDropdownRef} className="relative shrink-0">
                     <button
                       type="button"
                       onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
