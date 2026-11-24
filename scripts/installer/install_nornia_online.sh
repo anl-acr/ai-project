@@ -268,6 +268,15 @@ sudo -u postgres psql -p 5444 -d ai_pbx -c "CREATE EXTENSION IF NOT EXISTS vecto
 # 4. Nornia Uygulama Dosyalarının İndirilmesi (/opt/ai-project)
 # ------------------------------------------------------------------------------
 echo "[4/12] Nornia uygulama dosyaları /opt/ai-project dizinine kuruluyor..."
+IS_FRESH_INSTALL=0
+if [[ ! -d "${PROJECT_DIR}/backend" ]]; then
+  IS_FRESH_INSTALL=1
+fi
+EXISTING_SETTINGS_BAK=""
+if [[ "$IS_FRESH_INSTALL" == "0" && -f "${PROJECT_DIR}/backend/settings.json" ]]; then
+  EXISTING_SETTINGS_BAK="/tmp/nornia_existing_settings.json"
+  cp "${PROJECT_DIR}/backend/settings.json" "$EXISTING_SETTINGS_BAK"
+fi
 mkdir -p "$PROJECT_DIR"
 
 if [[ -n "$BUNDLE_URL" ]]; then
@@ -307,6 +316,14 @@ else
       git -C "$PROJECT_DIR" remote set-url origin "$REPO_URL"
     fi
   fi
+fi
+
+# Sıfır kurulumda Git reposundan gelebilecek geliştirme settings.json / .env / .db dosyalarını temizle
+# (Böylece /setup sihirbazı ilk açılışta kesin olarak tetiklenir)
+if [[ "$IS_FRESH_INSTALL" == "1" ]]; then
+  rm -f "${PROJECT_DIR}/backend/settings.json" "${PROJECT_DIR}/backend/.env" "${PROJECT_DIR}/backend"/*.db
+elif [[ -n "$EXISTING_SETTINGS_BAK" && -f "$EXISTING_SETTINGS_BAK" ]]; then
+  mv "$EXISTING_SETTINGS_BAK" "${PROJECT_DIR}/backend/settings.json"
 fi
 
 mkdir -p "${PROJECT_DIR}/recordings" "${PROJECT_DIR}/uploads" "${PROJECT_DIR}/backups" "${PROJECT_DIR}/network_backups"
@@ -754,6 +771,8 @@ module.exports = {
 EOF
 
 cd "$PROJECT_DIR"
+export HOME=/root
+export PM2_HOME=/root/.pm2
 pm2 startOrReload "${PROJECT_DIR}/ecosystem.config.js" || pm2 start "${PROJECT_DIR}/ecosystem.config.js"
 pm2 save --force
 pm2 startup systemd -u root --hp /root >/dev/null 2>&1 || true
