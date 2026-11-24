@@ -150,33 +150,39 @@ curl -sk https://127.0.0.1/api/version`
     ],
     screenshots: [
       {
-        src: "/screenshots/01-system-status.jpg",
-        caption: "İlk Kurulum Sihirbazı tamamlandıktan sonra Sistem Panosu & Sağlık görünümü — Ağ, FQDN, Asterisk ve Lisans doğrulaması",
-        routeHint: "Yönetim & Ayarlar → Sistem Panosu & Sağlık"
+        src: "/screenshots/setup-01-network.jpg",
+        caption: "Adım 1/6 — Ağ & NAT Ayarları: Algılanan ağ kartları (enp0s3 / wg0), kalıcı statik LAN IP, Gateway, DNS ve PJSIP Dinamik NAT",
+        routeHint: "http://<sunucu-ip>/setup → Adım 1: Ağ Ayarları"
+      },
+      {
+        src: "/screenshots/setup-02-license.jpg",
+        caption: "Adım 2/6 — Lisans Aktivasyonu & Donanım Kimliği: HW-ID kopyalama ve imzalı AIDA-... anahtar doğrulaması",
+        routeHint: "http://<sunucu-ip>/setup → Adım 2: Lisans"
       }
     ],
     fieldTable: [
       { field: "Santral Yerel LAN IP (CIDR)", type: "IPv4/Mask", defaultVal: "DHCP IP /24", required: true, description: "Sunucunun kalıcı yerel IP adresi (örn. 192.168.1.25/24). Adım 6 'Kurulumu Tamamla' butonuna basıldığında Ubuntu Netplan (/etc/netplan/99-nornia-static.yaml) dosyasına yazılır ve 2 saniye sonra canlı uygulanır; çakışan 00-installer-config.yaml otomatik etkisizleştirilir." },
       { field: "Varsayılan Ağ Geçidi (Gateway)", type: "IPv4", defaultVal: "192.168.1.1", required: true, description: "İnternet ve SIP operatör çıkışı için yönlendirici (router) IP adresi." },
       { field: "Birincil / İkincil DNS", type: "IPv4", defaultVal: "8.8.8.8 / 1.1.1.1", required: true, description: "Nornia Connect, Let's Encrypt ve SIP Trunk alan adı çözümlemesi için DNS sunucuları." },
-      { field: "PJSIP Dinamik NAT & Dış IP", type: "Boolean + IPv4", defaultVal: "Aktif", required: false, description: "Santral NAT arkasındaysa PJSIP transport'larına (UDP/TCP/WS/WSS) external_signaling_address ve external_media_address enjekte eder." },
+      { field: "PJSIP Dinamik NAT & Dış IP", type: "Boolean + IPv4", defaultVal: "NAT Aktif", required: false, description: "Santral NAT arkasındaysa PJSIP transport'larına (UDP/TCP/WS/WSS) external_signaling_address ve external_media_address enjekte eder." },
       { field: "Yerel Ağ Aralıkları (Local Nets)", type: "CIDR List", defaultVal: "192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12", required: false, description: "Asterisk'in NAT çevirisi yapmayacağı iç ağ (LAN/VPN) blokları." },
-      { field: "Lisans Anahtarı (AIDA-...)", type: "HMAC-SHA256 Token", defaultVal: "Boş", required: true, description: "AIDA-{KOD}-{YYYYMMDD}-{HW8}-{SIG8}[.BASE64_KOTA] biçimindedir. Büyük/küçük harf duyarlı Base64 kota uzantısı (max_users, max_concurrent_calls, allowed_features) otomatik çözülür." },
-      { field: "Nornia Alt Alan Adı (Subdomain)", type: "Slug (a-z, 0-9, -)", defaultVal: "Boş", required: true, description: "<ad>.nornia.com.tr adresini belirler. 'Kontrol Et' butonu Merkez Connect Hub'a HTTPS sorgusu atar; dolu veya rezerve (api, dokuman, panel, connect) ise ilerlemeyi engeller." },
-      { field: "Dahili Basamak Planı", type: "Seçim (3 / 4 hane)", defaultVal: "4 Haneli (1000-1999)", required: true, description: "İlk kurulumda standart 4 haneli plan (Dahililer 1000+, Kuyruklar 2000+, Konferans 3000+, IVR 5000+) önerilir." },
-      { field: "Yönetici E-Posta & Şifre", type: "Email + Parola", defaultVal: "admin", required: true, description: "Kurulum bitiminde yeni sekmede açılan https://<ad>.nornia.com.tr ekranında giriş yapacağınız süper yönetici bilgileri (bcrypt ile hashlenerek saklanır)." }
+      { field: "Lisans Anahtarı (AIDA-...)", type: "HMAC-SHA256 Token", defaultVal: "Zorunlu", required: true, description: "AIDA-{KOD}-{YYYYMMDD}-{HW8}-{SIG8}[.BASE64_KOTA] biçimindedir. Büyük/küçük harf duyarlı Base64 kota uzantısı (max_users, max_concurrent_calls, allowed_features) otomatik çözülür." },
+      { field: "FQDN & Nornia Alt Alan Adı", type: "Bulut / Özel / LAN", defaultVal: "Nornia Bulut FQDN", required: true, description: "<ad>.nornia.com.tr adresini belirler. 'Kontrol Et' butonu Merkez Connect Hub'a HTTPS sorgusu atar; dolu veya rezerve (api, dokuman, panel, connect) ise ilerlemeyi engeller." },
+      { field: "Dahili & Numara Planı", type: "4 Hane / 3 Hane", defaultVal: "1000–1099 / 6000–6099 / 8000–8099", required: true, description: "4 Haneli Kurumsal Plan (Dahililer 1000–1099, ACD Kuyruklar 6000–6099, Konferans 8000–8099, *8/**8/*97) ve isteğe bağlı Hızlı İlk Dahili Oluşturucu." },
+      { field: "Saat Dilimi, NTP & Dil", type: "Timezone + NTP + TR/EN", defaultVal: "Europe/Istanbul • NTP • Türkçe", required: true, description: "Sistem saat dilimini, otomatik NTP eşitlemesini (pool.ntp.org / tr.pool.ntp.org), tarih/saat biçimini ve varsayılan arayüz dilini ayarlar." },
+      { field: "Sistem Yöneticisi (admin) Şifresi", type: "Email + Parola (bcrypt)", defaultVal: "admin", required: true, description: "Adım 6'da oluşturulan süper yönetici ilk giriş şifresi (bcrypt cost=12 ile hashlenerek saklanır) ve şifre kurtarma e-posta adresi." }
     ],
     sections: [
       {
         heading: "1. 6 Adımlı Kurulum Sihirbazı Akışı",
-        body: "Tarayıcıda http://<sunucu-ip>/setup adresi açıldığında sihirbaz 6 ardışık adımdan geçer. Değişiklikler son adımda 'Kurulumu Tamamla' denilene kadar sunucunun mevcut ağ bağlantısını koparmaz; böylece tarayıcı oturumunuz kesilmeden tüm ayarları güvenle tamamlayabilirsiniz.",
+        body: "Tarayıcıda http://<sunucu-ip>/setup adresi açıldığında sihirbaz 6 ardışık adımdan geçer. Değişiklikler son adımda 'Ayarları Uygula ve Kurulumu Tamamla' denilene kadar sunucunun mevcut ağ bağlantısını koparmaz; böylece tarayıcı oturumunuz kesilmeden tüm ayarları güvenle tamamlayabilirsiniz.",
         steps: [
-          "Adım 1 — Ağ & NAT Ayarları: Algılanan ağ kartını (enp0s3/eth0) görün, kalıcı LAN IP/CIDR, Gateway, DNS ve gerekirse Dış IP (External IP) girin.",
-          "Adım 2 — Lisans & Donanım Kilidi: Ekranda gösterilen Donanım Kimliğini (HW-XXXX-XXXX) merkez panele verip aldığınız AIDA-... anahtarını yapıştırın ve 'Lisansı Doğrula'ya basın.",
-          "Adım 3 — Nornia Connect & Uzak Erişim: Müşteriye özel alt alan adını (örn. firmaadi -> firmaadi.nornia.com.tr) yazıp 'Kontrol Et' ile müsaitliğini doğrulayın.",
-          "Adım 4 — Numara Planı & Şirket Kimliği: Firma ünvanını, saat dilimini (Europe/Istanbul) ve dahili numara basamak yapısını belirleyin.",
-          "Adım 5 — Yönetici Hesabı & Güvenlik: Yönetici e-posta adresi, güçlü parola ve opsiyonel 2FA politikasını tanımlayın.",
-          "Adım 6 — Özet & Uygulama: 'Kurulumu Tamamla'ya tıklayın. Sistem veritabanını ilklendirir, Asterisk konfigürasyonunu yazar, Nornia Connect tünelini açar, Netplan IP değişikliğini uygular ve yeni sekmede https://<ad>.nornia.com.tr adresini açar."
+          "Adım 1 — Ağ & NAT Ayarları: Algılanan ağ kartlarını (enp0s3/wg0) görün, kalıcı LAN IP/CIDR, Gateway, DNS ve gerekirse PJSIP Dış IP (External IP) girin.",
+          "Adım 2 — Lisans Aktivasyonu & Donanım Kimliği: Ekranda gösterilen Donanım Kimliğini (HW-XXXX-XXXX) merkez panele verip aldığınız AIDA-... anahtarını yapıştırın ve 'Anahtarı Doğrula'ya basın.",
+          "Adım 3 — FQDN Yapısı & Uzak Erişim: Nornia Bulut FQDN (örn. acme.nornia.com.tr), Özel Kurumsal FQDN veya Sadece Yerel Ağ (LAN) modunu seçin; bulut modunda 'Kontrol Et' ile müsaitliği doğrulayın.",
+          "Adım 4 — Dahili Yapısı ve Numara Planı: 4 Haneli Kurumsal Plan (1000–1099) veya 3 Haneli Kompakt Plan seçin, kuyruk/konferans aralıkları ile özellik kodlarını (*8, **8, *97) ayarlayın ve isterseniz ilk dahilileri seri ekleyin.",
+          "Adım 5 — Saat, Tarih & Dil: Sistem saat dilimini (İstanbul / Türkiye TRT), Otomatik NTP (veya kapalı ağlar için Manuel Tarih/Saat), tarih-saat formatını ve varsayılan dili (Türkçe / English) belirleyin.",
+          "Adım 6 — Özet, Yönetici (admin) Hesabı & Uygula: 5 adımın özetini kontrol edin, zorunlu admin ilk giriş şifresini belirleyin ve 'Ayarları Uygula ve Kurulumu Tamamla' butonuna tıklayın."
         ],
         callout: {
           type: "info",

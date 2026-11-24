@@ -4,41 +4,97 @@ export const EDIT_GUIDES_PART1 = {
       {
         tabTitle: "Adım 1: Ağ & NAT Ayarları (Netplan + PJSIP Dinamik NAT)",
         badge: "Kurulum Adımı 1/6",
+        screenshot: {
+          src: "/screenshots/setup-01-network.jpg",
+          caption: "İlk Kurulum Sihirbazı — Adım 1/6: Algılanan ağ arayüzleri (enp0s3 / wg0), kalıcı LAN IP/CIDR, Gateway, DNS ve PJSIP Dinamik NAT ayarları",
+          routeHint: "http://<sunucu-ip>/setup → Adım 1: Ağ Ayarları"
+        },
         description: "Sunucunun kalıcı yerel LAN IP adresini, varsayılan ağ geçidini, DNS sunucularını ve NAT arkasındaki dış IP davranışını tanımlar. Girilen yeni statik IP sihirbaz sırasında bağlantıyı koparmamak için Adım 6 tamamlandıktan 2 saniye sonra canlı uygulanır.",
         fields: [
-          { name: "Algılanan Ağ Arayüzleri (NIC)", type: "Salt Okunur Bilgi", defaultVal: "enp0s3 / eth0", required: false, effect: "Sunucuda fiziksel/sanal olarak algılanan aktif ağ kartını ve o anki DHCP IPv4/CIDR adresini gösterir." },
+          { name: "Algılanan Ağ Arayüzleri (NIC)", type: "Salt Okunur Bilgi", defaultVal: "enp0s3 / wg0", required: false, effect: "Sunucuda fiziksel/sanal olarak algılanan aktif ağ kartlarını ve o anki IPv4/CIDR adreslerini gösterir." },
           { name: "Santral Yerel LAN IP Adresi (CIDR)", type: "IPv4/Mask", defaultVal: "Mevcut IP /24", required: true, effect: "Örn. 192.168.1.25/24. /etc/netplan/99-nornia-static.yaml dosyasına yazılır; çakışan 00-installer-config.yaml otomatik etkisizleştirilir." },
           { name: "Varsayılan Ağ Geçidi (Gateway)", type: "IPv4", defaultVal: "192.168.1.1", required: true, effect: "İnternet, SIP operatör ve Nornia Connect Hub çıkışı için yönlendirici IP adresi." },
           { name: "Birincil & İkincil DNS Sunucusu", type: "IPv4", defaultVal: "8.8.8.8 / 1.1.1.1", required: true, effect: "connect.nornia.com.tr, operatör SIP alan adları ve SSL çözümlemesi için kullanılır." },
-          { name: "PJSIP Dinamik NAT & Dış IP (External IP)", type: "Toggle + IPv4", defaultVal: "Aktif", required: false, effect: "Açıkken tüm PJSIP transport'larına external_signaling_address ve external_media_address enjekte eder; tek yönlü ses ve 32 sn kopma sorununu önler." },
+          { name: "PJSIP Dinamik NAT & Dış IP (External IP)", type: "Toggle + IPv4", defaultVal: "NAT Aktif", required: false, effect: "Açıkken tüm PJSIP transport'larına external_signaling_address ve external_media_address enjekte eder; tek yönlü ses ve 32 sn kopma sorununu önler." },
           { name: "Yerel Ağ Aralıkları (Local Nets)", type: "CIDR Listesi", defaultVal: "192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12", required: false, effect: "İç ağ ve VPN bloklarında Asterisk'in NAT çevirisi yapmadan doğrudan yerel IP ile haberleşmesini sağlar." }
         ]
       },
       {
-        tabTitle: "Adım 2: Lisans Anahtarı & Donanım Kilidi (HW-ID) Doğrulaması",
+        tabTitle: "Adım 2: Lisans Aktivasyonu & Donanım Kimliği (HW-ID)",
         badge: "Kurulum Adımı 2/6",
-        description: "Anakart UUID, /etc/machine-id ve NIC MAC parmak izinden üretilen donanım kimliğini gösterir; imzalı AIDA-... lisans anahtarının kotalarını çözümler.",
+        screenshot: {
+          src: "/screenshots/setup-02-license.jpg",
+          caption: "İlk Kurulum Sihirbazı — Adım 2/6: Sunucu Donanım Kimliği (HW-ID) kopyalama, Firma/Müşteri Kodu ve imzalı AIDA-... lisans doğrulaması",
+          routeHint: "http://<sunucu-ip>/setup → Adım 2: Lisans"
+        },
+        description: "Anakart UUID, /etc/machine-id ve NIC MAC parmak izinden üretilen donanım kimliğini gösterir; imzalı AIDA-... lisans anahtarının kotalarını çözümler ve donanım kilidini doğrular.",
         fields: [
-          { name: "Sunucu Donanım Kimliği (HW-ID)", type: "HW-XXXX-XXXX", defaultVal: "Otomatik Üretilir", required: true, effect: "Merkez Lisans Paneli'nden bu donanım için üretilmiş anahtarı doğrulayan benzersiz parmak izi." },
-          { name: "Lisans Anahtarı (AIDA-...[.BASE64])", type: "HMAC-SHA256 Token", defaultVal: "Boş", required: true, effect: "Nokta (.) sonrasındaki Base64 kota paketi büyük/küçük harf korunarak çözülür; bitiş tarihi, firma adı, kullanıcı/kanal/AI kotaları anında önizlenir." }
+          { name: "Bu Sunucunun Donanım Kimliği (HW-ID)", type: "HW-XXXX-XXXX", defaultVal: "Otomatik Üretilir", required: true, effect: "'Donanım ID Kopyala' butonu ile Merkez Lisans Paneli'nden bu donanım için üretilecek anahtara temel olan parmak izini kopyalarsınız." },
+          { name: "Firma / Kurum Adı & Müşteri Kodu", type: "Metin / Otomatik", defaultVal: "Anahtardan Okunur", required: true, effect: "Lisans doğrulandığında Müşteri Kodu (örn. ACME) ve Firma Ünvanı anahtardan otomatik doldurulur." },
+          { name: "Lisans Anahtarı (AIDA-...[.BASE64])", type: "HMAC-SHA256 Token", defaultVal: "Zorunlu", required: true, effect: "'Anahtarı Doğrula' butonuna basıldığında kriptografik imza, geçerlilik tarihi, kullanıcı ve eşzamanlı çağrı kotaları doğrulanır; geçerli lisans olmadan 3. adıma geçilemez." }
         ]
       },
       {
-        tabTitle: "Adım 3: Nornia Connect Alt Alan Adı (Subdomain) & Hub Tescili",
+        tabTitle: "Adım 3: FQDN Yapısı & Uzak Erişim (Nornia Bulut / Özel FQDN / LAN)",
         badge: "Kurulum Adımı 3/6",
-        description: "Port yönlendirme açmadan HTTPS, WebRTC WSS ve WireGuard SIP Edge erişimi sağlayan <alt-alan>.nornia.com.tr adresini sorgular ve tescil eder.",
+        screenshot: {
+          src: "/screenshots/setup-03-fqdn.jpg",
+          caption: "İlk Kurulum Sihirbazı — Adım 3/6: Nornia Bulut FQDN (<firma>.nornia.com.tr), Özel Kurumsal FQDN veya Sadece LAN seçimi ve canlı müsaitlik sorgusu",
+          routeHint: "http://<sunucu-ip>/setup → Adım 3: FQDN Yapısı"
+        },
+        description: "Santralin dış erişim mimarisini belirler. Önerilen 'Nornia Bulut FQDN' modu, güvenlik duvarında tek bir port bile açmadan HTTPS, WebRTC WSS ve WireGuard SIP Edge (5060 TCP) erişimi sağlar.",
         fields: [
-          { name: "Nornia Alt Alan Adı (Subdomain)", type: "Küçük harf / rakam", defaultVal: "Boş", required: true, effect: "'Kontrol Et' butonu Merkez Hub'a canlı HTTPS sorgusu atar. Başka santralde kilitliyse veya rezerveyse 'İleri' butonu kilitlenir." },
-          { name: "Nornia Hub Adresi & Bağlantı Anahtarı", type: "HTTPS URL + Opsiyonel Token", defaultVal: "https://connect.nornia.com.tr", required: false, effect: "Anahtar boş bırakılırsa Adım 2'deki lisans anahtarı otomatik kullanılır." }
+          { name: "Erişim Modu Seçimi", type: "Nornia Bulut / Özel FQDN / Sadece LAN", defaultVal: "Nornia Bulut FQDN", required: true, effect: "Nornia Bulut sıfır port ile otomatik SSL + SIP Edge sağlar; Özel FQDN kendi DNS + statik dış IP'nizi kullanır; Sadece LAN kapalı ağlar içindir." },
+          { name: "Nornia Alt Alan Adı (Subdomain)", type: "Küçük harf / rakam", defaultVal: "Boş", required: true, effect: "'Kontrol Et' butonu Merkez Connect Hub'a canlı HTTPS sorgusu atar. Başka santralde kilitliyse veya rezerveyse 'İleri' butonu kilitlenir." },
+          { name: "Nornia Hub Adresi & Bağlantı Anahtarı", type: "HTTPS URL + Opsiyonel Token", defaultVal: "https://connect.nornia.com.tr", required: false, effect: "Bağlantı anahtarı boş bırakılırsa Adım 2'de doğrulanan lisans anahtarı tünel kimliği olarak otomatik kullanılır." }
         ]
       },
       {
-        tabTitle: "Adım 4–6: Numara Planı, Yönetici Hesabı & Kurulumu Tamamla",
-        badge: "Kurulum Adımı 4–6/6",
-        description: "Firma kimliği, 4 haneli dahili planı ve süper yönetici hesabı oluşturularak kurulum sonlandırılır.",
+        tabTitle: "Adım 4: Dahili Yapısı ve Numara Planı (4 Hane / 3 Hane & İlk Dahililer)",
+        badge: "Kurulum Adımı 4/6",
+        screenshot: {
+          src: "/screenshots/setup-04-numbering.jpg",
+          caption: "İlk Kurulum Sihirbazı — Adım 4/6: 4 Haneli Kurumsal / 3 Haneli Kompakt numara planı, Dahili/Kuyruk/Konferans aralıkları, özellik kodları ve Hızlı İlk Dahili Oluşturucu",
+          routeHint: "http://<sunucu-ip>/setup → Adım 4: Dahili & Numara Planı"
+        },
+        description: "Santralin tüm dahili, ACD kuyruk, konferans odası numara aralıklarını ve fiziksel telefon özellik kodlarını tek adımda kurgular; isterseniz ilk dahilileri seri halinde oluşturur.",
         fields: [
-          { name: "Firma Adı & Dahili Basamak Planı", type: "Metin + 3/4 Hane", defaultVal: "4 Hane (1000–1999)", required: true, effect: "Dahili (1000+), Kuyruk (2000+), Konferans (3000+) ve IVR (5000+) bloklarını başlatır." },
-          { name: "Yönetici E-Posta & Güçlü Parola", type: "Email + Şifre", defaultVal: "Zorunlu", required: true, effect: "Eski demo kullanıcıları (200/201) temizlenir, yönetici oluşturulur ve yeni sekmede https://<alt-alan>.nornia.com.tr açılır." }
+          { name: "Numara Planı Şablonu", type: "4 Haneli Kurumsal / 3 Haneli Kompakt", defaultVal: "4 Haneli (Önerilen)", required: true, effect: "4 Haneli Plan: Dahililer 1000–1099, Kuyruklar 6000–6099, Konferans 8000–8099. 3 Haneli Kompakt Plan: Dahililer 100–599, Kuyruklar 600–699, Konferans 800–899." },
+          { name: "Dahili / ACD Kuyruk / Konferans Aralıkları", type: "Başlangıç – Bitiş Sayısal", defaultVal: "1000–1099 / 6000–6099 / 8000–8099", required: true, effect: "Yeni kullanıcı, kuyruk ve konferans odası eklerken otomatik önerilen numara havuzlarını ve Asterisk dialplan eşleşmelerini belirler." },
+          { name: "Grup Çekme / Doğrudan Çekme / Sesli Posta", type: "Özellik Kodları", defaultVal: "*8 / **8 / *97", required: false, effect: "Fiziksel IP telefon ve WebPhone üzerinden çağrı toplama (*8 / **8) ve sesli posta dinleme (*97) kısayollarını ayarlar." },
+          { name: "Hızlı İlk Dahili Oluşturucu (Opsiyonel)", type: "Başlangıç + Adet + Seri Ekle", defaultVal: "1000 / 5 adet", required: false, effect: "'+ Seri Ekle' ile kurulum sırasında 1000–1004 gibi ilk test dahililerini tek tıkla kuyruğa ekler." }
+        ]
+      },
+      {
+        tabTitle: "Adım 5: Sistem Saat Dilimi, Tarih Formatı & Varsayılan Dil",
+        badge: "Kurulum Adımı 5/6",
+        screenshot: {
+          src: "/screenshots/setup-05-datetime.jpg",
+          caption: "İlk Kurulum Sihirbazı — Adım 5/6: Saat dilimi seçimi (İstanbul TRT / UTC+3), Otomatik NTP veya Manuel Tarih/Saat, Tarih-Saat formatı ve Sistem Varsayılan Dili",
+          routeHint: "http://<sunucu-ip>/setup → Adım 5: Saat, Tarih & Dil"
+        },
+        description: "CDR çağrı kayıtları, ses kayıt damgaları, mesai/tatil takvimleri ve günlük temsilci istatistiklerinin doğru yerel saatte çalışması için işletim sistemi saat dilimini ve NTP eşitlemesini yapılandırır.",
+        fields: [
+          { name: "Sistem Saat Dilimi (Timezone)", type: "Aranabilir IANA Liste", defaultVal: "Europe/Istanbul (UTC+03:00)", required: true, effect: "Linux timedatectl, PostgreSQL raporları ve gece yarısı (00:00) temsilci performans sıfırlama zamanlayıcısını bu saat dilimine kilitler." },
+          { name: "Otomatik NTP / Manuel Tarih & Saat", type: "Senkronizasyon Modu", defaultVal: "Otomatik NTP (pool.ntp.org)", required: true, effect: "İnternetli sunucularda pool.ntp.org ve tr.pool.ntp.org ile milisaniye hassasiyetinde eşitleme yapar; kapalı ağlarda yerel NTP veya manuel tarih girilir." },
+          { name: "Tarih & Saat Biçimi", type: "DD.MM.YYYY / YYYY-MM-DD + 24s/12s", defaultVal: "DD.MM.YYYY • 24 Saat", required: false, effect: "Arayüz tabloları, PDF raporları ve çağrı geçmişindeki tarih/saat gösterim formatını belirler." },
+          { name: "Sistem Varsayılan Dili", type: "Türkçe / English", defaultVal: "Türkçe", required: false, effect: "Yeni oluşturulan kullanıcılar, sistem anonsları ve varsayılan arayüz dilini belirler." }
+        ]
+      },
+      {
+        tabTitle: "Adım 6: Tüm Ayarların Özeti, Yönetici (admin) Şifresi & Kurulumu Tamamla",
+        badge: "Kurulum Adımı 6/6",
+        screenshot: {
+          src: "/screenshots/setup-06-summary.jpg",
+          caption: "İlk Kurulum Sihirbazı — Adım 6/6: 5 adımın özet kartları, hızlı Düzenle kısayolları, zorunlu Sistem Yöneticisi (admin) ilk giriş şifresi ve Kurulumu Tamamla butonu",
+          routeHint: "http://<sunucu-ip>/setup → Adım 6: Özet & Uygula"
+        },
+        description: "Önceki 5 adımda yapılan tüm yapılandırmaları tek ekranda doğrular, her kutudaki 'Düzenle' bağlantısıyla ilgili adıma dönme imkanı verir ve zorunlu süper yönetici (admin) ilk giriş şifresini oluşturarak kurulumu kalıcı olarak tamamlar.",
+        fields: [
+          { name: "1–5. Adım Özet Kartları & Düzenle Bağlantıları", type: "Önizleme + Hızlı Geçiş", defaultVal: "Canlı Özet", required: false, effect: "Ağ/NAT, Lisans, FQDN, Numara Planı ve Saat/Dil bilgilerini son kez kontrol etmenizi; hata varsa tek tıkla ilgili adıma dönmenizi sağlar." },
+          { name: "Yönetici Ad Soyad & E-Posta (admin)", type: "Metin + Email", defaultVal: "Kullanıcı Adı: admin", required: false, effect: "Sistem yöneticisinin görüntülenecek adını ve şifre kurtarma/sistem bildirim e-posta adresini kaydeder." },
+          { name: "Yönetici Şifresi & Şifre Tekrarı (Güç Ölçer)", type: "Zorunlu Parola (bcrypt)", defaultVal: "Zorunlu", required: true, effect: "İlk giriş şifresi bcrypt (cost=12) ile hashlenerek saklanır; kurulum sonrası eski demo kullanıcıları temizlenir." },
+          { name: "Ayarları Uygula ve Kurulumu Tamamla", type: "Son Aksiyon", defaultVal: "Otomatik Kilitler", required: true, effect: "Asterisk PJSIP/dialplan dosyalarını yazar, Nornia Connect tünelini başlatır, Netplan statik IP'yi 2 sn sonra uygular, /setup rotasını kalıcı olarak kilitler (HTTP 403) ve yeni sekmede santral panelini açar." }
         ]
       }
     ]
