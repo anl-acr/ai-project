@@ -38,6 +38,17 @@ export const EDIT_GUIDES_PART3 = {
         fields: [
           { name: "Dış Hat (Trunk), CallerID Override, PIN & İşlem Geçmişi (Undo)", type: "Snapshot Rollback", defaultVal: "Her işlem kayıtlı", required: false, effect: "Hatalı toplu işlem yapılırsa İşlem Geçmişi listesinden tek tıkla eski haline döndürülür." }
         ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Pencere: Son Uygulanan Toplu Konfigürasyonlar & Tek Tıkla Geri Al (Undo Çekmecesi)",
+        badge: "Toplu Konfigürasyon → Geçmiş & Undo",
+        screenshot: { src: "/screenshots/tabs/deep/bulk-history-drawer.jpg", caption: "Toplu Konfigürasyon → 'İşlem Geçmişi & Geri Al' paneli ve Hızlı İşlem Şablonları", routeHint: "Santral → Toplu Konfigürasyon → İşlem Geçmişi & Geri Al" },
+        description: "Sağ üstteki 'İşlem Geçmişi & Geri Al' butonuna basıldığında açılan ve geçmişte uygulanan tüm toplu değişiklikleri etkilenen kayıt sayısıyla birlikte tek tıkla geri almanızı (Undo) sağlayan denetim çekmecesidir.",
+        fields: [
+          { name: "İşlem Özeti, Tarih/Saat, Uygulayan Yönetici & Etkilenen Kayıt Sayısı", type: "Değiştirilemez Snapshot Listesi", defaultVal: "Otomatik Kaydedilir", required: false, effect: "Uygulama öncesinde tüm hedef kayıtların önceki JSON değerlerini saklar." },
+          { name: "Tek Tıkla Geri Al (Rollback) & Hızlı İşlem Şablonları", type: "Ses Kaydı / Yönlendirme Sıfırla / Karantina Kaldır", defaultVal: "Anında Asterisk Sync", required: false, effect: "Yanlışlıkla tüm abonelerin yönlendirmesi veya kaydı değiştirildiyse tek tıkla önceki değerlere döner ve Asterisk yapılandırmasını yeniden yazar." }
+        ]
       }
     ]
   },
@@ -136,6 +147,16 @@ export const EDIT_GUIDES_PART3 = {
         fields: [
           { name: "Engel Türü (Telefon / E-Posta), Değer & Engelleme Nedeni", type: "phone / email + Gerekçe", defaultVal: "phone", required: true, effect: "Çağrıyı veya e-postayı daha girişte keser ve İhlal Raporu'na işler." }
         ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Pencere: Yasaklı Kelime / Cümle Ekleme Modalı (AI Suistimal & Otomatik Kapatma)",
+        badge: "Kara Liste → Yasaklı Kelimeler",
+        screenshot: { src: "/screenshots/tabs/deep/blacklist-word-modal.jpg", caption: "Numara Engelleme → Yasaklı Kelimeler → '+' Yasaklı Kelime/Cümle Ekle penceresi", routeHint: "Santral → Numara Engelleme → Yasaklı Kelimeler → +" },
+        description: "Sesli AI görüşmelerinde ve yazılı Omnichannel sohbetlerinde hakaret, dolandırıcılık veya şirket politikasına aykırı ifadeler tespit edildiğinde anında uyarı veya otomatik sonlandırma tetikleyen sözlük penceresidir.",
+        fields: [
+          { name: "Yasaklanacak İfade (Kelime veya Cümle)", type: "Türkçe Büyük/Küçük Harf Duyarsız", defaultVal: "block_words", required: true, effect: "Canlı konuşma dökümünde veya WhatsApp mesajında bu ifade geçtiği anda olay İhlal Raporu'na kaydedilir, yöneticilere E-Mail/WhatsApp uyarısı gidebilir ve AI görüşmeyi güvenle kapatabilir." }
+        ]
       }
     ]
   },
@@ -164,6 +185,27 @@ export const EDIT_GUIDES_PART3 = {
           { name: "API Sorgu, Koşul (If/Else), Döngü (Loop), Gemini AI, Geçit (Portal) & Hedef", type: "success/error, true/false, loop/completed", defaultVal: "Dinamik", required: false, effect: "Dış ERP'den VIP/borç sorgulayıp dallandırır, Gemini AI'a bağlam aktarır veya Kuyruk/Dahili/Voicemail'e yönlendirir." },
           { name: "Canlı Akış Simülatörü (Test Aracı)", type: "Arayan CID + DID + DTMF", defaultVal: "/api/settings/call-flow/simulate", required: false, effect: "Telefon aramadan verdiğiniz senaryoyu adım adım canlandırır." }
         ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Pencere 1: CallFlow Düğüm Yapılandırma Modalı (DTMF, API Değişkeni, Koşul & WhatsApp)",
+        badge: "CallFlow → Düğüm Düzenle",
+        description: "Kanvastaki herhangi bir düğüme çift tıklandığında açılan ve o düğümün çalışma mantığını, değişken adını ve çıkış dallarını ayrıntılı düzenleyen 3. seviye penceredir.",
+        fields: [
+          { name: "Mesai & Tatil Kontrolü (working_hours)", type: "Takvim Seçici → active / inactive / holiday", defaultVal: "Varsayılan Mesai", required: false, effect: "Gelen çağrıyı hafta içi mesai, mesai dışı ve resmi tatil kollarına milisaniyeler içinde ayırır." },
+          { name: "IVR Tuşlama (ivr) & Dinamik Anons (audio / tts)", type: "Ses Dosyası / AI TTS + Tuş Listesi (1–9, *, #) + Timeout & Hatalı Tuş Limiti", defaultVal: "3 Tekrar / 5 sn", required: false, effect: "Müşterinin bastığı rakamları (örn. TC/Sipariş No) değişkene atar veya ilgili tuş koluna yönlendirir." },
+          { name: "Harici API Sorgu (api_call) & Koşul (condition — If/Else)", type: "GET/POST URL + JSONPath Değişkeni + ==, !=, >, contains", defaultVal: "success / error + true / false", required: false, effect: "Örn. ERP'den müşterinin VIP statüsünü veya borç durumunu çekip true/false kollarına dallandırır." },
+          { name: "WhatsApp Mesaj Gönder, Gemini AI & Geçit (Portal)", type: "Anlık Şablon / AI Asistan + Bağlam Aktarımı / Başka Akışa Atla", defaultVal: "Dinamik Değişkenli", required: false, effect: "Arayan cep numarasına konum/link WhatsApp mesajı atar veya toplanan değişkenleri Gemini AI asistanına bağlam olarak aktarır." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Pencere 2: Canlı Arama Akışı Simülatörü ('Akışı Test Et')",
+        badge: "CallFlow → Simülatör",
+        description: "Üst araç çubuğundaki yeşil 'Akışı Test Et (Simülatör)' butonuna basıldığında açılan ve gerçek bir telefon araması yapmadan tüm dalları kanvas üzerinde canlı yeşille izlemenizi sağlayan test penceresidir.",
+        fields: [
+          { name: "Test Arayan Numara (CID), Aranan DID, Simüle Tarih/Saat & DTMF Dizisi", type: "Örn. 0532... + 90850... + 1,2", defaultVal: "POST /api/settings/call-flow/simulate", required: true, effect: "Mesai içi/dışı veya resmi tatil saatini taklit ederek çağrının hangi düğümlerden geçip hangi hedefe ulaşacağını adım adım raporlar ve kanvas üzerinde görsel iz bırakır." }
+        ]
       }
     ]
   },
@@ -189,6 +231,16 @@ export const EDIT_GUIDES_PART3 = {
         fields: [
           { name: "Kampanya Adı, Çıkış Hattı (Trunk), Eşzamanlı Arama Limiti, Tekrar Deneme & Aralığı (dk)", type: "Concurrency + Retry + Delay", defaultVal: "3 kanal / 2 deneme / 30 dk", required: true, effect: "Lisans ve operatör kanal limitini aşmadan kontrollü hızda arama yapar." },
           { name: "Yanıtlandığında Hedef, Yasal Başlangıç–Bitiş Saati & Numara Listesi", type: "AI Temsilci / Kuyruk / Anons + CSV", defaultVal: "09:30–18:30", required: true, effect: "Müşteri açtığında seçilen AI asistana veya kuyruğa bağlar; pencere dışında otomatik bekler." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Pencere: Telefon Listesi Yükle Modalı (Kampanya Numara Havuzu İçe Aktarma)",
+        badge: "Dialer → Numara Yükle",
+        screenshot: { src: "/screenshots/tabs/deep/dialer-upload-modal.jpg", caption: "Dış Arama (Dialer) → 'Numara Listesi Yükle' (Upload ikonu): Her satıra numara veya 'Numara, İsim' formatında toplu liste ekleme", routeHint: "Dış Arama (Dialer) → Kampanya Satırı → Numara Listesi Yükle" },
+        description: "Mevcut bir dış arama kampanyasına saniyeler içinde yüzlerce veya binlerce aranacak telefon numarası ve müşteri adı ekleyen alt penceredir.",
+        fields: [
+          { name: "Telefon Numaraları (Her Satıra Bir Numara veya 'Numara, İsim')", type: "Çok Satırlı Liste / CSV Yapıştır", defaultVal: "05321002030, Ahmet Yılmaz", required: true, effect: "Müşteri adı birlikte verildiğinde AI Sesli Asistan müşteriye ismiyle hitap edebilir; hatalı/boş satırlar otomatik temizlenir ve kara listedeki numaralar aranmaz." }
         ]
       }
     ]

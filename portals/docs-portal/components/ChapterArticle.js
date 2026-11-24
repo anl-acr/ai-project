@@ -346,22 +346,39 @@ export default function ChapterArticle({ chapter, printMode = false }) {
                 <div
                   key={sIdx}
                   id={`edit-tab-${sIdx + 1}`}
-                  className="print-avoid-break rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden"
+                  className={`print-avoid-break rounded-2xl bg-white dark:bg-slate-900 border shadow-xs overflow-hidden ${
+                    sub.level === 3
+                      ? "ml-0 sm:ml-6 border-purple-200 dark:border-purple-900/60"
+                      : "border-slate-200 dark:border-slate-800"
+                  }`}
                 >
                   <button
                     type="button"
                     onClick={() =>
                       !printMode && setOpenEditTabs((prev) => ({ ...prev, [sIdx]: !isOpen }))
                     }
-                    className="w-full px-5 py-4 bg-slate-50/80 dark:bg-slate-950/50 border-b border-slate-200/70 dark:border-slate-800 flex items-center justify-between gap-3 text-left cursor-pointer"
+                    className={`w-full px-5 py-4 border-b flex items-center justify-between gap-3 text-left cursor-pointer ${
+                      sub.level === 3
+                        ? "bg-purple-50/70 dark:bg-purple-950/25 border-purple-200/70 dark:border-purple-900/50"
+                        : "bg-slate-50/80 dark:bg-slate-950/50 border-slate-200/70 dark:border-slate-800"
+                    }`}
                   >
                     <div className="flex items-center gap-2.5 min-w-0 flex-wrap">
-                      <span className="px-2 py-0.5 rounded-lg bg-indigo-600 text-white font-mono text-[10px] font-black shrink-0">
-                        {sIdx + 1}
+                      <span
+                        className={`px-2 py-0.5 rounded-lg text-white font-mono text-[10px] font-black shrink-0 ${
+                          sub.level === 3 ? "bg-purple-600" : "bg-indigo-600"
+                        }`}
+                      >
+                        {sub.level === 3 ? `↳ ${sIdx + 1}` : sIdx + 1}
                       </span>
                       <span className="text-sm font-black text-slate-900 dark:text-white">
                         {sub.tabTitle}
                       </span>
+                      {sub.level === 3 && (
+                        <span className="px-2 py-0.5 rounded-md bg-purple-500/15 text-purple-700 dark:text-purple-300 text-[10px] font-extrabold">
+                          Alt Pencere / Derin Ayar
+                        </span>
+                      )}
                       {sub.badge && (
                         <span className="px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 text-[10px] font-bold">
                           {sub.badge}

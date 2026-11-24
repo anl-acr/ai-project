@@ -27,6 +27,82 @@ export const EDIT_GUIDES_PART2 = {
         ]
       },
       {
+        level: 3,
+        tabTitle: "Alt Pencere 2.1: SIP Cihazı Ekle / SIP Cihazı Ayarlarını Düzenle (Kimlik, Sürücü, Transport & SIP Edge)",
+        badge: "Kullanıcı → SIP → Cihaz Düzenle",
+        screenshot: { src: "/screenshots/tabs/deep/deskphone-sip-credentials-edit.jpg", caption: "Kullanıcı Düzenle → SIP → Masa Telefonu Düzenle (Kalem / +): Cihaz Tipi, SIP Kullanıcı Adı, Şifre, PJSIP/Cisco Motoru, Transport ve Nornia SIP Edge", routeHint: "Kullanıcılar → Düzenle → SIP → SIP Cihazları → Düzenle" },
+        description: "SIP sekmesindeki 'SIP Cihazları' kartında '+' veya kalem ikonuna tıklandığında açılan 3. seviye kimlik ve protokol yapılandırma penceresidir. Her kullanıcıya birden fazla fiziksel masa telefonu, Cisco kurumsal telefon veya harici mobil SIP istemcisi eklenebilir.",
+        fields: [
+          { name: "SIP Cihazı Adı & Telefon / Cihaz Tipi", type: "Masa Telefonu (IP Telefon) / Web Telefonu (WebRTC) / Cisco Enterprise / Mobil SIP / Softphone", defaultVal: "Masa Telefonu 1", required: true, effect: "Cihaz tipine göre Asterisk PJSIP şablonunu (WSS DTLS-SRTP vs. UDP/TCP/TLS IP Telefon) ve inceleme penceresindeki sekmeleri otomatik belirler." },
+          { name: "Kullanıcı Adı (SIP Aktivasyon) & SIP Register Şifresi", type: "Rastgele 8 Hane Alfanümerik + 24 Hane Güçlü Parola", defaultVal: "Sayısal Dahilisiz Güvenli ID", required: true, effect: "SIP tarayıcı botlarına (sipvicious) karşı sayısal dahili (1000) yerine tahmin edilemez endpoint ID (örn. qST5JFuQ) ile kayıt alır; kopyala/yenile butonları anında yeni kimlik üretir." },
+          { name: "SIP Motoru (Sürücü)", type: "PJSIP (Standart) / Cisco Enterprise (TCP 5160 UseCallManager)", defaultVal: "PJSIP", required: true, effect: "Yealink, Fanvil, Grandstream, Snom, Poly için PJSIP; Cisco 79xx/88xx kurumsal seriler için özel TCP 5160 sürücüsünü etkinleştirir." },
+          { name: "Maksimum Aktivasyon Sayısı (max_contacts) & Transport Protokolü", type: "1–5 Eşzamanlı Kayıt + UDP (5060) / TCP (5060) / TLS (5061) / WSS", defaultVal: "1–3 / UDP veya TCP", required: true, effect: "TCP seçimi NAT/firewall arkasındaki masa telefonlarında bağlantı kopmalarını azaltır; TLS tüm SIP sinyalleşmesini şifreler." },
+          { name: "Uzak Erişim (Nornia SIP Edge) & SIP Cihazı Aktif", type: "Toggle + Toggle", defaultVal: "Aktif", required: false, effect: "Uzak Erişim açıldığında telefon evden veya dış şubeden port açmadan Nornia SIP Edge tüneli üzerinden santrale güvenle kayıt olur; Aktif kapatılırsa cihaz silinmeden geçici olarak devre dışı bırakılır." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Pencere 2.2: Masa Telefonu İnceleme — Sekme 1/4: Cihaz & Ağ Detayları, Autoprovision & Uzaktan Komutlar",
+        badge: "Masa Telefonu İncele 1/4",
+        screenshot: { src: "/screenshots/tabs/deep/deskphone-inspect-overview.jpg", caption: "Masa Telefonu — Cihaz İnceleme & Telefon Ayarları → Sekme 1: Canlı Durum, MAC Otomatik Marka Algılama, LAN/WAN Modu, Check-Sync ve Reboot", routeHint: "Kullanıcılar → Düzenle → SIP → Masa Telefonu (Büyüteç) → Cihaz & Ağ Detayları" },
+        description: "SIP Cihazları listesindeki masa telefonunun büyüteç (İncele) butonuna tıklandığında açılan 4 sekmeli derin donanım ve yönetim penceresinin 1. sekmesidir.",
+        fields: [
+          { name: "Canlı Durum Kartları (Kayıt & RTT / Canlı IP & Web GUI / User-Agent & MAC)", type: "Gerçek Zamanlı Asterisk PJSIP Sorgusu", defaultVal: "Anlık", required: false, effect: "Telefonun kayıtlı (Online) durumunu, gecikmesini (ms), aldığı IP adresini, doğrudan telefonun kendi Web arayüzüne giden 'Web GUI' bağlantısını ve firmware sürümünü gösterir." },
+          { name: "MAC Adresi (Otomatik Marka), Telefon Markası & Model", type: "XX:XX:XX:XX:XX:XX + Yealink / Fanvil / Grandstream / Cisco / Snom / Poly", defaultVal: "OUI Otomatik Algılama", required: true, effect: "MAC adresi yazıldığı anda OUI önekine göre marka (örn. 80:5E:C0 → Yealink) ve desteklenen model listesi otomatik seçilir." },
+          { name: "Sabit / Bilinen IP Adresi & Bağlantı Lokasyonu (LAN / WAN / Otomatik)", type: "IPv4 + lan / wan / auto", defaultVal: "LAN veya WAN", required: false, effect: "LAN: Santral yerel IP ile tünelsiz kurulum. WAN: Uzak şube/ev ofis için dış FQDN + NAT Keep-Alive. Otomatik: Telefonun geldiği IP bloğuna göre dinamik seçim." },
+          { name: "Otomatik Kurulum (Autoprovision) URL'leri & Uzaktan Komutlar", type: ".cfg/.xml İndir • Check-Sync Gönder • Reboot • LAN/WAN URL Kopyala", defaultVal: "SIP NOTIFY", required: false, effect: "'.cfg/.xml İndir' manuel yükleme dosyasını verir; 'Check-Sync Gönder' telefonu kapatmadan yeni ayar/BLF'leri çektirir; 'Reboot' telefonu uzaktan yeniden başlatır." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Pencere 2.3: Masa Telefonu İnceleme — Sekme 2/4: BLF & Programlanabilir DSS Tuşları (1–24) ve Softkeys (F1–F4)",
+        badge: "Masa Telefonu İncele 2/4",
+        screenshot: { src: "/screenshots/tabs/deep/deskphone-inspect-blf.jpg", caption: "Masa Telefonu — Cihaz İnceleme → Sekme 2: 24 Programlanabilir DSS/BLF Tuşu, Rehberden Otomatik BLF Doldur ve Ekran Altı Softkeys (F1–F4)", routeHint: "Kullanıcılar → Düzenle → SIP → Masa Telefonu (Büyüteç) → BLF & Tuş Tanımları" },
+        description: "Fiziksel IP masa telefonunun yan ekran tuşlarını (1–24) ve ekran altı esnek tuşlarını (F1–F4) tek tek veya rehberden otomatik programlayan 2. sekmedir.",
+        fields: [
+          { name: "Rehberden Otomatik BLF Doldur & Yeni Tuş Ekle (+)", type: "Tek Tık Otomatik Doldurma + Satır Ekle", defaultVal: "1–24 Tuş", required: false, effect: "'Rehberden Otomatik BLF Doldur' sistemdeki diğer aktif dahilileri isimleriyle birlikte boş DSS tuşlarına sırayla yerleştirir." },
+          { name: "Tuş No (1–24) & Tuş Tipi (DSS Key Type)", type: "Hat (Line) / BLF (Meşguliyet & Çağrı Çekme) / Hızlı Arama (Speed Dial) / Sesli Posta (*97) / Rahatsız Etme (DND) / Aktar (Transfer) / Çağrı Çek (*8)", defaultVal: "BLF", required: true, effect: "BLF seçili tuşlar karşı dahili konuşurken kırmızı yanar, çalarken yanıp söner ve tek basışta o çağrıyı çekmenizi (Directed Pickup) sağlar." },
+          { name: "Dahili / Hedef Değeri & Ekran Etiketi", type: "Kullanıcı Seçici / Serbest Kod + Etiket", defaultVal: "Otomatik İsim", required: true, effect: "BLF tipinde sistem kullanıcıları açılır listeden seçilir; ekran etiketi masa telefonunun LCD ekranında görünecek kısa addır." },
+          { name: "Ekran Altı Esnek Tuşlar (Softkeys F1–F4)", type: "Geçmiş / Rehber / Yönlendirme / DND / Menü / Tekrar Ara / Aktar / Çağrı Çek", defaultVal: "F1–F4", required: false, effect: "Telefon boştayken LCD ekranın hemen altındaki 4 fiziksel tuşun işlevini marka bağımsız olarak autoprovision dosyasına basar." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Pencere 2.4: Masa Telefonu İnceleme — Sekme 3/4: Diğer Telefon Ayarları (Kodek Önceliği, DTMF, Dil, NTP, Auto-Answer & Ghost Call)",
+        badge: "Masa Telefonu İncele 3/4",
+        screenshot: { src: "/screenshots/tabs/deep/deskphone-inspect-settings.jpg", caption: "Masa Telefonu — Cihaz İnceleme → Sekme 3: Ses Kodek Önceliği, DTMF, Dil, Saat Dilimi, NTP, İnterkom Auto-Answer ve Ghost Call Koruması", routeHint: "Kullanıcılar → Düzenle → SIP → Masa Telefonu (Büyüteç) → Diğer Telefon Ayarları" },
+        description: "Hem Asterisk PJSIP endpoint'ine hem de telefonun otomatik kurulum (.cfg/.xml) dosyasına eşzamanlı uygulanan ses, zaman ve güvenlik ayarlarıdır.",
+        fields: [
+          { name: "Ses Kodek Önceliği (Audio Codecs — Öncelik #1..#5)", type: "G.722 (HD 16 kHz) / G.711 A-Law (PCMA) / G.711 µ-Law (PCMU) / Opus / G.729 (8 kbps)", defaultVal: "G.722 → PCMA → PCMU → G.729", required: true, effect: "Yukarı/Aşağı oklarla kodek müzakere sırasını değiştirir. Ofis içi HD ses için G.722 #1, Türkiye operatör uyumu için G.711 A-Law #2 önerilir." },
+          { name: "DTMF Tuşlama Modu", type: "RFC 4733 / RFC 2833 (Önerilen) / SIP INFO / Inband", defaultVal: "RFC 4733", required: true, effect: "Banka ve IVR menülerinde tuşlamaların kusursuz algılanması için RFC 4733 standart olarak tutulmalıdır." },
+          { name: "Telefon Ekran Dili, Saat Dilimi & NTP Saat Sunucusu", type: "Türkçe / English + GMT+3..+0 + pool.ntp.org", defaultVal: "Türkçe / GMT+3 / pool.ntp.org", required: false, effect: "Telefonun menü dilini ve LCD ekranındaki tarih/saat senkronizasyonunu merkezi olarak ayarlar." },
+          { name: "İnterkom / Otomatik Cevap (Auto-Answer)", type: "Toggle", defaultVal: "Kapalı", required: false, effect: "Açıkken iç interkom/anons çağrılarında ahizeyi kaldırmadan hoparlörden otomatik yanıt verir (yönetici-asistan ve depo kullanımı için idealdir)." },
+          { name: "Doğrudan IP Çağrı Engeli (Ghost Call Koruması)", type: "Toggle", defaultVal: "Aktif (Önerilen)", required: false, effect: "Santral dışı sahte SIP tarayıcılarının (örn. 100/1000@IP) telefonun yerel portunu doğrudan çaldırarak oluşturduğu 'hayalet çağrıları' cihaz seviyesinde engeller." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Pencere 2.5: Masa Telefonu İnceleme — Sekme 4/4: Canlı PJSIP Dahili Detay (asterisk -rx \"pjsip show endpoint\")",
+        badge: "Masa Telefonu İncele 4/4",
+        screenshot: { src: "/screenshots/tabs/deep/deskphone-inspect-pjsip.jpg", caption: "Masa Telefonu — Cihaz İnceleme → Sekme 4: Canlı Asterisk PJSIP Endpoint & Contact Terminal Çıktısı", routeHint: "Kullanıcılar → Düzenle → SIP → Masa Telefonu (Büyüteç) → PJSIP Dahili Detay" },
+        description: "SSH bağlantısı açmadan doğrudan tarayıcı içinden bu cihaza ait canlı Asterisk PJSIP endpoint ve contact durumunu inceleyen teknik teşhis sekmesidir.",
+        fields: [
+          { name: "4 Özet Teknik Kart (Endpoint/Context, İzinli Kodekler, CallerID & DTMF, Pickup/Max Kayıt)", type: "Salt Okunur Canlı Veri", defaultVal: "webrtc_agents", required: false, effect: "Asterisk belleğinde fiilen yüklü olan aktif endpoint parametrelerini özetler." },
+          { name: "Canlı Terminal Çıktısı (pjsip show endpoint + pjsip show contact)", type: "Yenile + Kopyala", defaultVal: "Anlık CLI", required: false, effect: "Kayıt sorunlarında, NAT RTT yüksekliğinde veya transport uyuşmazlığında Asterisk'in gerçek zamanlı çıktısını tek tıkla kopyalamanızı sağlar. Alt soldaki 'SIP Kimlik Bilgilerini Düzenle' butonu doğrudan 2.1 penceresine geçer." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Pencere 2.6: Web Telefonu (WebRTC) — Cihaz İnceleme & Sayısal Dahilisiz PJSIP Mimarisi",
+        badge: "Web Telefon İncele",
+        screenshot: { src: "/screenshots/tabs/deep/user-sip-device-inspect.jpg", caption: "Web Telefonu (WebRTC) — Cihaz İnceleme: Canlı WSS bağlantısı, istemci IP:Port ve sayısal dahilisiz PJSIP güvenlik mimarisi", routeHint: "Kullanıcılar → Düzenle → SIP → Yazılım İstemcileri (Büyüteç)" },
+        description: "Tarayıcı WebPhone, PC/Mac Masaüstü ve Mobil uygulamaların ortak WebRTC (WSS DTLS-SRTP) oturumunu inceleyen alt penceredir.",
+        fields: [
+          { name: "Kayıt & Durum, İstemci IP Adresi & WSS, Tarayıcı / SIP.js İstemci", type: "Canlı WSS Telemetrisi", defaultVal: "WSS (DTLS-SRTP)", required: false, effect: "Kullanıcının şu an tarayıcıdan kayıtlı olup olmadığını, anlık WSS soket bilgisini ve maksimum eşzamanlı sekme/cihaz limitini (varsayılan 5) gösterir." },
+          { name: "Sayısal Dahilisiz PJSIP Mimarisi", type: "Güvenlik Açıklaması", defaultVal: "Mantıksal Dahili Korunur", required: false, effect: "Tarayıcı Asterisk'e sayısal dahili (1000) yerine rastgele endpoint ID ile kayıt olur; ancak tüm iç/dış aramalarda ve kuyruklarda mantıksal dahili numaranız korunur." }
+        ]
+      },
+      {
         tabTitle: "Sekme 3: Profiller & Yönlendirme (*70 Profiller, Cihaz Seçimi, 3-Seviye Yönlendirme & Follow Me)",
         badge: "Kullanıcı Düzenle 3/11",
         screenshot: { src: "/screenshots/tabs/users/03-profiller-yonlendirme.jpg", caption: "Kullanıcı Düzenle → Sekme 3: Profiller (*70), Cihaz Seçimi, Çalma Süresi ve 3-Seviye Çağrı Yönlendirme", routeHint: "Kullanıcılar → Düzenle → Profiller & Yönlendirme" },
@@ -264,6 +340,26 @@ export const EDIT_GUIDES_PART2 = {
         fields: [
           { name: "Marka, Model, MAC Adresi & Bağlanacak SIP Cihazı (Dahili)", type: "Yealink / Fanvil / Grandstream / Cisco / Snom / Poly", defaultVal: "Zorunlu", required: true, effect: "Telefon açılışta /api/prov/<mac>.cfg dosyasını çekerek tüm SIP ve BLF tuşlarını otomatik yükler." },
           { name: "Bağlantı Lokasyonu (Ağ Modu)", type: "Aynı Ofis (LAN) / Uzak Şube (WAN) / Otomatik", defaultVal: "Otomatik", required: true, effect: "WAN seçildiğinde Nornia Connect FQDN ve SIP Edge adresini cihaza basar." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Pencere: Ağdaki Yeni Cihazları Tara (Yerel Ağ IP Telefon Keşif Modalı)",
+        badge: "Oto Provizyon → Ağ Tara",
+        screenshot: { src: "/screenshots/tabs/deep/autoprov-scan.jpg", caption: "Oto Provizyon → Ağdaki Yeni Cihazları Tara (Wi-Fi ikonu): Yerel ağdaki eşleştirilmemiş Yealink, Fanvil, Grandstream ve Cisco telefonları otomatik tarama", routeHint: "Santral → Oto Provizyon → Ağdaki Yeni Cihazları Tara" },
+        description: "Aynı yerel ağa (LAN) yeni takılan ancak henüz hiçbir dahiliye atanmamış IP masa telefonlarını MAC OUI imzasından keşfeden alt penceredir.",
+        fields: [
+          { name: "Otomatik Komşu & ARP/OUI Taraması + Tekrar Tara", type: "Yealink / Grandstream / Fanvil / Cisco / Snom / Poly", defaultVal: "Anlık Tarama", required: false, effect: "Ağdaki telefonların IP, MAC ve üretici bilgisini listeler; bulunan cihaza tek tıkla dahili eşleştirmesi başlatır. Farklı VLAN veya uzak şubedeki cihazlar için sağ üstteki '+' butonuyla manuel MAC eklenir." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Pencere: Son Provizyon İstekleri (Canlı İzleme & HTTP .CFG/.XML Günlüğü)",
+        badge: "Oto Provizyon → Canlı Loglar",
+        screenshot: { src: "/screenshots/tabs/deep/autoprov-logs.jpg", caption: "Oto Provizyon → Son Provizyon İstekleri: Fiziksel telefonların santralden çektiği .cfg/.xml isteklerinin canlı izlenmesi", routeHint: "Santral → Oto Provizyon → Son Provizyon İstekleri" },
+        description: "IP telefonların açılışta veya 'Check-Sync' sonrasında santrale attığı HTTP/HTTPS provizyon isteklerini canlı izleyen teşhis penceresidir.",
+        fields: [
+          { name: "Zaman Damgası, Kaynak IP, MAC / Dosya Adı, User-Agent & HTTP Sonucu", type: "Canlı İstek Akışı", defaultVal: "200 OK / 404", required: false, effect: "Bir telefon ayarlarını çekmiyorsa doğru URL'ye gelip gelmediğini, hangi dosya adını (.cfg/.xml) istediğini ve firmware User-Agent bilgisini anında görmenizi sağlar." }
         ]
       }
     ]

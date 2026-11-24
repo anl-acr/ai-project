@@ -68,6 +68,19 @@ export const EDIT_GUIDES_PART1 = {
           { name: "Günlük KPI Kartları", type: "Toplam / Cevaplanan / Kaçan / AI Çözüm", defaultVal: "Bugün 00:00", required: false, effect: "Her gece Türkiye saati 00:00'da otomatik sıfırlanır; tıklanınca ilgili CDR filtresini açar." },
           { name: "Canlı Duygu & Kriz Radarı", type: "Pozitif / Nötr / Negatif", defaultVal: "Gerçek Zamanlı", required: false, effect: "Devam eden çağrıda yüksek öfke tespit edilirse süpervizöre canlı kırmızı alarm çıkarır." }
         ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Pencere: Kişisel Özet Ekranı Düzeni (Panoyu Özelleştir Modalı)",
+        badge: "AI Pano → Özelleştir",
+        screenshot: { src: "/screenshots/tabs/deep/live-dashboard-customize.jpg", caption: "Gerçek Zamanlı AI Pano → Panoyu Özelleştir: 4 pano bileşeninin görünürlük ve sıralama kontrolü", routeHint: "Gerçek Zamanlı AI Pano → Panoyu Özelleştir" },
+        description: "Sağ üstteki 'Panoyu Özelleştir (4/4)' butonuna tıklandığında açılan ve her yöneticinin kendi kokpit düzenini kaydetmesini sağlayan alt penceredir.",
+        fields: [
+          { name: "Canlı Kriz & Negatif Duygu Alarm Radarı", type: "Açık/Kapalı + Yukarı/Aşağı Sıra", defaultVal: "Açık (#1)", required: false, effect: "Aktif çağrılarda gerginlik veya şikayet algılandığında tek tıkla dinleme/sufle/devralma kartını en üstte tutar." },
+          { name: "Canlı AI Operasyon & Çözüm Kartları", type: "Açık/Kapalı + Sıra", defaultVal: "Açık (#2)", required: false, effect: "Aktif AI görüşmeleri, otonom çözüm oranı, canlı duygu dengesi ve temsilciye devir metriklerini gösterir." },
+          { name: "Canlı Arama Listesi & Gerçek Zamanlı AI Konsolu", type: "Açık/Kapalı + Sıra", defaultVal: "Açık (#3)", required: false, effect: "Aktif aramalar, canlı akan konuşma dökümü (STT), AI sufle kutusu ve temsilci notlarını yan yana sunar." },
+          { name: "AI Maliyet Özeti, Konu Dağılımı & En Çok Arayanlar + 'Sıfırla'", type: "Açık/Kapalı + Varsayılana Dön", defaultVal: "Açık (#4)", required: false, effect: "Yapay zeka sağlayıcı kredi tüketimini, gün içi konu dağılımını ve en yoğun arayanları listeler; 'Sıfırla' fabrika düzenine döner." }
+        ]
       }
     ]
   },
@@ -209,6 +222,29 @@ export const EDIT_GUIDES_PART1 = {
           { name: "Çoklu Hat Rozeti (recipient_info) & Hızlı Cevaplar (/)", type: "Örn. Satış Hattı - 0850...", defaultVal: "Otomatik", required: false, effect: "Müşterinin hangi WhatsApp hattına yazdığını gösterir; '/' ile hazır yanıtlar anında eklenir." },
           { name: "WhatsApp Toplu Yayın (Broadcast) & Onaylı HSM Şablonları", type: "CSV/TXT İçe Aktarma + Meta Template", defaultVal: "24 Saat Dışı Uyumlu", required: false, effect: "CSV/TXT'den numaraları temizleyip tekilleştirerek toplu mesaj veya 24 saat dışı onaylı şablon gönderir." }
         ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Pencere 1: Yeni İleti Başlat (Tekil E-Posta / Tekil WhatsApp Mesajı Gönderme)",
+        badge: "Omnichannel → Yeni İleti",
+        screenshot: { src: "/screenshots/tabs/deep/omni-compose.jpg", caption: "Ortak Gelen Kutusu → '+' Yeni İleti Başlat: Tekil E-Posta (Konu, Gövde, Ek Dosya) veya Tekil WhatsApp oturumu başlatma", routeHint: "Ortak Gelen Kutusu → +" },
+        description: "Sağ üstteki kırmızı '+' butonuna tıklandığında açılan ve temsilcinin sıfırdan giden E-Posta veya WhatsApp görüşmesi başlatmasını sağlayan alt penceredir.",
+        fields: [
+          { name: "Kanal Sekmesi (Yeni E-Posta Gönder / Yeni WhatsApp Mesajı)", type: "Çift Kanal Seçici", defaultVal: "E-Posta / WhatsApp", required: true, effect: "E-Posta sekmesinde alıcı adresi, konu, HTML/metin gövde ve dosya eki; WhatsApp sekmesinde Tekil Mesaj veya Toplu Kampanya modları açılır." },
+          { name: "Alıcı, Konu, Mesaj İçeriği & Ek Dosya Yükle", type: "Email / E.164 Telefon + Dosya", defaultVal: "SMTP / Meta Cloud API", required: true, effect: "Gönderilen ileti doğrudan ilgili müşterinin Ortak Gelen Kutusu sohbet geçmişine işlenir." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Pencere 2: WhatsApp Toplu Mesaj / Kampanya & PDF Katalog Yayınlama Modalı",
+        badge: "Omnichannel → Toplu Kampanya",
+        screenshot: { src: "/screenshots/tabs/deep/omni-broadcast.jpg", caption: "Ortak Gelen Kutusu → Yeni İleti → WhatsApp → Toplu Mesaj / Kampanya: Hedef kitle, duyuru metni ve PDF/medya ekleme", routeHint: "Ortak Gelen Kutusu → + → Yeni WhatsApp Mesajı → Toplu Mesaj / Kampanya" },
+        description: "Rehberdeki tüm kayıtlı kişilere, seçili rehber defterine veya CSV/TXT dosyasından yüklenen numara listesine tek tıkla toplu WhatsApp duyurusu ve PDF katalog gönderir.",
+        fields: [
+          { name: "Hedef Kitle Seçici (Rehberdeki Tüm Kayıtlı Kişiler / Rehber Defteri / CSV-TXT Dosyası)", type: "Dinamik Kitle + Otomatik Tekilleştirme", defaultVal: "Rehber", required: true, effect: "CSV/TXT seçildiğinde numaralar tarayıcıda temizlenir, +90 formatına normalize edilir ve mükerrer kayıtlar otomatik elenir." },
+          { name: "Kampanya / Duyuru Mesajı*", type: "Çok Satırlı Metin", defaultVal: "Zorunlu", required: true, effect: "Meta WhatsApp Business Cloud API üzerinden belirlenen hedef kitleye sırayla iletilir." },
+          { name: "Medya veya PDF Katalog URL / 'Ek Dosya Ekle'", type: "HTTPS URL veya Yerel Dosya (PDF/Görsel)", defaultVal: "Opsiyonel", required: false, effect: "Broşür, fiyat listesi PDF'i veya kampanya görselini mesajla birlikte müşterilere otomatik gönderir." }
+        ]
       }
     ]
   },
@@ -221,6 +257,29 @@ export const EDIT_GUIDES_PART1 = {
         fields: [
           { name: "Ücret / Paket Yükleme Modalı ($ USD)", type: "Hızlı Tutar + Mevcut Harcama", defaultVal: "USD", required: true, effect: "Yüklenen kredi tutarını kaydederek kalan bakiye yüzdesini ve tahmini kalan konuşma dakikasını hesaplar." },
           { name: "Kritik Uyarı Alarm Eşiği (%) & Dönem Sıfırlama", type: "50–95% + Sıfırla", defaultVal: "%80", required: false, effect: "Eşik aşılınca E-Mail & WhatsApp Bildirimleri üzerinden yöneticilere anında uyarı gönderilir." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Pencere 1: Sağlayıcı Ücret / Paket Yüklemesi Modalı ($ USD)",
+        badge: "API Bütçe → Ücret Yükle (+)",
+        screenshot: { src: "/screenshots/tabs/deep/budget-add-credit.jpg", caption: "API Bütçe ve Tüketim → Sağlayıcı '+' Butonu: Yeni Ücret Yüklemesi Başlat, Hızlı Tutar ($5–$100) ve Halihazırda Harcanmış Tutar", routeHint: "API Bütçe ve Tüketim → Sağlayıcı Kartı → +" },
+        description: "Google Gemini, ElevenLabs veya OpenAI gibi bulut servislere yeni kredi yüklediğinizde santraldeki takip dönemini başlatan alt penceredir.",
+        fields: [
+          { name: "Yükleme İşlem Türü", type: "Yeni Ücret Yüklemesi Başlat (Önerilen) / Mevcut Pakete Ekle", defaultVal: "Yeni Yükleme", required: true, effect: "Yeni yükleme seçildiğinde son yükleme tarihi şu an olarak kaydedilir ve yalnızca bundan sonraki çağrı/token tüketimleri bu paketten düşülür." },
+          { name: "Hızlı Tutar Seçimi ($5 / $10 / $20 / $50 / $100) & Yüklenen Paket Tutarı ($ USD)", type: "USD Ondalıklı", defaultVal: "$10", required: true, effect: "Kalan bakiye yüzdesini ve kalan tahmini konuşma dakikasını bu tutar üzerinden hesaplar." },
+          { name: "Platformda Halihazırda Harcanmış Tutar Varsa ($ USD – Opsiyonel)", type: "Başlangıç Ofseti", defaultVal: "0", required: false, effect: "Sağlayıcı panelinde önceden harcanmış küsurat (örn. $0.04) varsa birebir eşitleme yapmanızı sağlar." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Pencere 2: Paket Bütçesi, Tüketim Referansı & Alarm Eşiği Düzenle Modalı",
+        badge: "API Bütçe → Düzenle",
+        screenshot: { src: "/screenshots/tabs/deep/budget-edit-threshold.jpg", caption: "API Bütçe ve Tüketim → Sağlayıcı 'Düzenle' Butonu: Yüklenen paket, referans harcama ve kritik uyarı alarm eşiği (%)", routeHint: "API Bütçe ve Tüketim → Sağlayıcı Kartı → Düzenle" },
+        description: "Mevcut bir sağlayıcı paketinin bütçe tutarını düzeltme ve E-Mail/WhatsApp kota alarm yüzdesini özelleştirme penceresidir.",
+        fields: [
+          { name: "Tanımlı Paket Bütçesi ($ USD) & Düzeltilmiş Harcanan Referans ($ USD)", type: "Manuel Mutabakat", defaultVal: "Mevcut Değer", required: true, effect: "Ay sonu fatura mutabakatında santral tahminini sağlayıcı faturasıyla kuruşu kuruşuna eşitler." },
+          { name: "Kritik Uyarı Alarm Eşiği (%)", type: "Yüzde (50%–95%)", defaultVal: "%80", required: true, effect: "Harcanan tutar bu yüzdeyi geçtiğinde kart kırmızı uyarı moduna geçer ve tanımlı yöneticilere E-Mail + WhatsApp bildirimi tetiklenir." }
         ]
       }
     ]
@@ -318,6 +377,28 @@ export const EDIT_GUIDES_PART1 = {
         fields: [
           { name: "Düğüm Tipleri", type: "Açılış / Diyalog / KVKK Onay / Niyet Dallanması / Form Toplama / İsimle Dahili Transferi (directory_lookup) / Hedefe Transfer / Kapanış", defaultVal: "Otomatik Prompt Derleyici", required: false, effect: "Kaydedildiğinde compile_agent_scenario_to_instruction ile yapısal doğal dil talimatına derlenip Gemini Live'a yüklenir." },
           { name: "AI Senaryo Asistanı (Doğal Dil Modalı)", type: "Türkçe Metin → Görsel Akış", defaultVal: "Hazır Şablonlu", required: false, effect: "Akışınızı paragraf halinde yazın; sistem tüm dalları, dahili numaralarını ve kapanış düğümlerini otomatik çizer." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Pencere 8.1: AI Senaryo Asistanı (Doğal Dil İle Akış Tasarımı Modalı)",
+        badge: "Görsel Senaryo → AI İle Çiz",
+        screenshot: { src: "/screenshots/tabs/deep/ai-scenario-assistant.jpg", caption: "AI Temsilcileri → Görsel Senaryo → 'AI ile Otomatik Çiz': Türkçe senaryo metnini anında düğümlere ve ok bağlantılarına çeviren modal", routeHint: "AI Temsilcileri → Görsel Senaryo → AI ile Otomatik Çiz" },
+        description: "Görsel Senaryo Editöründe tek tek düğüm sürüklemek yerine akışınızı günlük Türkçe cümlelerle anlatarak tüm diyalog ağacını otomatik çizdiren 3. seviye penceredir.",
+        fields: [
+          { name: "Senaryo Açıklamanız (Türkçe Metin)", type: "Çok Satırlı Serbest Metin", defaultVal: "1–5 Maddeli Örnek Rehberli", required: true, effect: "POST /api/settings/ai-agents/generate-scenario üzerinden cümleleri, 'eğer/ise' dallanmalarını, KVKK onaylarını, 2000/1000 dahili transferlerini ve kapanışları düğüm JSON'una dönüştürür." },
+          { name: "Örnek Hazır Senaryo Komutları (Tek Tıkla Doldur)", type: "Satış & KVKK Akışı / Arıza & Destek Kaydı / İsimle Dahili Rehber", defaultVal: "3 Hazır Kalıp", required: false, effect: "Başlangıç için sektörel hazır metni kutuya doldurur; üzerinde düzenleme yapıp 'Senaryoyu Çiz ve Oluştur'a bastığınızda kanvas otomatik çizilir." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Pencere 8.2: Senaryo Düğümü Düzenleme & İsimle Dahili Transferi (directory_lookup)",
+        badge: "Görsel Senaryo → Düğüm Düzenle",
+        description: "Kanvastaki herhangi bir düğümün kalem ikonuna tıklandığında açılan ve düğümün konuşma metnini, koşul dallarını, toplanacak form alanlarını veya aktarım hedefini düzenleyen alt penceredir.",
+        fields: [
+          { name: "Düğüm Başlığı, Konuşma / Prompt Metni & Zorunlu Cümle", type: "Metin / KVKK / Diyalog", defaultVal: "Düğüm Tipine Özel", required: true, effect: "AI'ın bu adımda müşteriye söyleyeceği ana ifadeyi veya sorması gereken soruyu belirler." },
+          { name: "İsimle Dahili / Personel Transferi (directory_lookup)", type: "Dinamik system_users Eşleşmesi", defaultVal: "[ACTION: TRANSFER:ext]", required: false, effect: "Aktif sistem rehberini Gemini'a otomatik yükler; müşteri 'Anıl Bey'le görüşmek istiyorum' dediğinde AI ilgili dahiliyi bulup Asterisk AMI üzerinden anında aktarır." },
+          { name: "Form & Veri Toplama / CRM Webhook / Temsilciye Transfer / Sonlandırma", type: "Alan Listesi + Hedef Dahili/Kuyruk", defaultVal: "Async Tool / AMI Redirect", required: false, effect: "Müşteriden alınan ad-soyad, sipariş no veya randevu bilgisini ERP'ye yollar, kuyruğa aktarır veya nazik veda sonrası [ACTION: HANGUP] ile çağrıyı kapatır." }
         ]
       }
     ]

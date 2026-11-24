@@ -29,6 +29,18 @@ export const EDIT_GUIDES_PART4 = {
           { name: "6. Operatör Dakika & Paket (reports-trunk-minutes)", type: "Kullanılan / Kalan Dakika (%)", defaultVal: "Fatura Dönemi", required: false, effect: "Dış Hat ayarında tanımlı aylık paket dakikasının canlı tüketimini ve ay sonu taşma tahminini gösterir." },
           { name: "7. Hatalı & Eşleşmeyen Çağrı (reports-invalid-calls)", type: "Hata Nedeni Teşhisi", defaultVal: "Otomatik", required: false, effect: "Yanlış çevrilen numaraları, yetkisiz çıkış denemelerini ve DID kuralı eşleşmeyen gelen çağrıları Türkçe nedenleriyle listeler." }
         ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Pencereler: CDR Satır İçi Detay Popup'ları (Transkript, AI Özet, QA Puan Kartı & Temsilci Notları)",
+        badge: "CDR → Satır Detayları",
+        description: "Detaylı CDR tablosundaki her bir görüşme satırında bulunan aksiyon ikonlarına tıklandığında açılan ve sayfadan ayrılmadan derin inceleme sunan 4 alt penceredir.",
+        fields: [
+          { name: "Konuşma Dökümü (Transkript) Popup'ı", type: "Konuşmacı Ayrımı + Zaman Damgası", defaultVal: "Müşteri / Temsilci / AI", required: false, effect: "Görüşmenin tamamını sohbet balonu düzeninde okumanızı ve kritik ifadeleri kopyalamanızı sağlar." },
+          { name: "AI Görüşme Özeti & Duygu Analizi Popup'ı", type: "Otomatik Özet + Konu Etiketi + Duygu Skoru", defaultVal: "LLM Analizi", required: false, effect: "10 dakikalık bir görüşmenin ana konusunu, müşteri memnuniyetini ve alınması gereken aksiyonları 3 saniyede özetler." },
+          { name: "Kalite Değerlendirmesi (QA) Puan Kartı Popup'ı", type: "0–100 Puan + Kriter Bazlı Geçti/Kaldı + Koçluk Önerisi", defaultVal: "Otomatik QA", required: false, effect: "Her bir QA sorusundan kaç puan alındığını ve temsilcinin hangi cümleyi atladığını tek tek gösterir." },
+          { name: "Temsilci Notları & Transfer Zinciri (call_legs) Alt Tablosu", type: "ACW Notu + Sonuç Kodu + Bacak Dökümü", defaultVal: "Genişletilebilir Satır", required: false, effect: "Çağrı sırasındaki tüm transfer, *8 çekme ve kuyruk geçiş adımlarını ayrı bacaklar halinde açar." }
+        ]
       }
     ]
   },
@@ -87,6 +99,16 @@ export const EDIT_GUIDES_PART4 = {
           { name: "2. Temsilci Kronolojisi (reports-agent-status-timeline)", type: "Saniye Hassasiyetli Gantt Şeridi", defaultVal: "Günlük", required: false, effect: "Temsilcinin gün boyu hangi dakika Müsait, Görüşmede, Yemek Molasında veya Çevrimdışı olduğunu görselleştirir." },
           { name: "3. Mola & Puantaj Raporu + WFM Vardiya Planlayıcı", type: "İlk Giriş / Son Çıkış / Net Çalışma / Mola Türleri / Vardiya Sapması", defaultVal: "agent_break_logs + agent_shifts", required: false, effect: "WFM kartından her temsilciye haftalık vardiya tanımlanır; geç kalma, erken çıkma ve mola aşımı otomatik kırmızı vurgulanır." },
           { name: "4. Süpervizör Dinleme & Müdahale (reports-supervisor-audit)", type: "Süpervizör / Hedef / Mod (Listen-Whisper-Barge) / Süre", defaultVal: "Değiştirilemez Kayıt", required: false, effect: "KVKK ve iç denetim gereği yapılan her canlı dinleme/araya girme işlemini tam şeffaflıkla kaydeder." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Pencere: Temsilci Gün İçi Kronoloji Detay Modalı (Saniye Bazlı Olay Dökümü & Filtre)",
+        badge: "Kronoloji → Temsilci Detay",
+        description: "Temsilci Kronolojisi (Gantt) ekranında herhangi bir temsilcinin satırına tıklandığında açılan ve gün boyu tüm durum değişimlerini saniye hassasiyetinde filtreleyen alt penceredir.",
+        fields: [
+          { name: "Olay Tipi Filtreleri (Giriş/Çıkış, Müsait, Çağrı, Yemek/İhtiyaç Molası, RONA, Çevrimdışı)", type: "Çoklu Durum Çipleri", defaultVal: "Tümü", required: false, effect: "Sadece belirli bir mola türünü veya gün içi kısa kopmaları anında süzerek denetim yapmanızı sağlar." },
+          { name: "Başlangıç / Bitiş Saati, Süre (dk:sn) & Kaynak Notu", type: "Kronolojik Tablo", defaultVal: "agent_break_logs", required: false, effect: "Molanın temsilci tarafından mı yoksa RONA/Süpervizör müdahalesiyle mi başlatıldığını şeffaf biçimde gösterir." }
         ]
       }
     ]

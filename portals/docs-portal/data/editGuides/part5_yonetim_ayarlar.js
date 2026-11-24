@@ -75,6 +75,20 @@ export const EDIT_GUIDES_PART5 = {
         ]
       },
       {
+        level: 3,
+        tabTitle: "Alt Pencere: Yeni Taşra / Şube Santrali Ekle (Aktif-Yerel Edge / SRST, Dahili Bloğu, Failover Trunk & Opus Sync)",
+        badge: "Multi-Site → Yeni Şube Ekle",
+        screenshot: { src: "/screenshots/tabs/deep/federation-site-modal.jpg", caption: "Çok-Şubeli Santral → 'Yeni Şube Ekle': Çalışma & Hayatta Kalma Modu, Dahili Aralığı, WireGuard IP, Failover Trunk ve Ses Kaydı Sıkıştırma Politikası", routeHint: "Sistem Ayarları → Çok-Şubeli Santral → +" },
+        description: "Merkez (Hub) santraline yeni bir taşra/şube Edge santrali tanımlarken dahili bloğunu, WireGuard tünel IP'sini, internet kesintisi yedek hattını ve ses kaydı senkronizasyon politikasını belirleyen 3. seviye penceredir.",
+        fields: [
+          { name: "Şube Kodu (Benzersiz) & Şube Adı", type: "Örn. site-01 / Polatlı Şubesi", defaultVal: "Zorunlu", required: true, effect: "Merkez ile şube arasındaki PJSIP Trunk ve CDR/ses kaydı eşitleme kimliğini belirler." },
+          { name: "Çalışma & Hayatta Kalma Modu", type: "Aktif-Yerel Edge (Önerilen) / SRST Failover (Merkez → Yerel)", defaultVal: "Aktif-Yerel Edge", required: true, effect: "Aktif-Yerel Edge'de telefonlar daima yerel şube santraline bağlı kalır (kötü internette sıfır kesinti); SRST modunda normalde merkeze bağlı olup kopmada 15–30 sn içinde yerele geçer." },
+          { name: "Dahili Başlangıç / Bitiş, Şube Yerel IP & WireGuard IP", type: "Örn. 2000–2999 + LAN IP + 10.200.1.1", defaultVal: "Çakışmasız Blok", required: true, effect: "Merkez ile şube arasında çakışmasız dahili-to-dahili arama tablosu ve şifreli WireGuard ağı kurar." },
+          { name: "Dış Arama & İnternet Kesintisi Yedek Hat (1. Birincil + 2. Yedek GSM/FXO)", type: "hq_federation_trunk + Lokal GSM/FXO", defaultVal: "Otomatik Failover", required: false, effect: "İnternet kesildiğinde şube dış aramaları otomatik olarak 2. yedek yerel GSM/FXO ağ geçidinden çıkar." },
+          { name: "Ses Kaydı Sıkıştırma & Senkronizasyon Politikası", type: "Format (OPUS ~%85 küçültme) + Hız Limiti (256 Kbps) + Zamanlama (Mesai Dışı 19:00–08:00)", defaultVal: "OPUS / 256 Kbps / Mesai Dışı", required: false, effect: "Şube internetini yavaşlatmadan ses kayıtlarını gece saatlerinde OPUS ile sıkıştırıp merkeze aktarır." }
+        ]
+      },
+      {
         tabTitle: "Alt Ekran 2: Otoprovizyon Şablonları (.CFG / .XML Editörü)",
         badge: "Santral & Ağ 8/9",
         screenshot: { src: "/screenshots/tabs/settings/08-otoprovizyon-sablon.jpg", caption: "Sistem Ayarları → Otoprovizyon Şablonları — Marka/Model bazlı CFG/XML özelleştirme", routeHint: "Sistem Ayarları → Otoprovizyon Şablonları" },
@@ -103,6 +117,18 @@ export const EDIT_GUIDES_PART5 = {
         description: "Tüm modüller için :read / :write / :delete / :access ve Temsilci Çağrı Paneli'nin 25+ ince yetkisini yönetir.",
         fields: [
           { name: "Modül, Süpervizör & Temsilci Paneli Yetki Matrisi", type: "60+ Modül + 25+ call_panel:*", defaultVal: "Admin / Süpervizör / Temsilci", required: true, effect: "En az yetki prensibiyle her kullanıcının yalnızca görevine ait ekran ve butonları görmesini sağlar." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Pencere: Rolü Düzenle / Yeni Rol Oluştur (9 Yetki Kategorisi, Granüler CRUD & Süpervizör Alt Yetkileri)",
+        badge: "Roller → Düzenle Modalı",
+        screenshot: { src: "/screenshots/tabs/deep/role-edit-modal.jpg", caption: "Roller → Rolü Düzenle: 9 yetki başlığı, Görüntüleme/Güncelleme/Silme butonları, Süpervizör müdahale alt yetkileri ve İzin Verilen Mola Tipleri", routeHint: "Sistem Ayarları → Roller → Düzenle" },
+        description: "Herhangi bir rol kartında 'Düzenle' veya '+' butonuna basıldığında açılan ve 248+ bireysel yetki kodunu 9 kategori sekmesinde yöneten 3. seviye RBAC penceresidir.",
+        fields: [
+          { name: "Rol Kodu & Rol İsmi", type: "Slug (admin/supervisor/agent) + Görünen Ad", defaultVal: "Zorunlu", required: true, effect: "Kullanıcı Düzenle ekranındaki Rol seçicisinde görünecek kimliği belirler." },
+          { name: "9 Kategori Sekmesi & 'Tümünü Seç / Tümünü Kaldır'", type: "Operasyon, Süpervizör, AI & Bilgi, Santral, Çağrı & Yönlendirme, Raporlar, Yönetim, Sistem Ayarları, İzin Verilen Mola Tipleri", defaultVal: "Sayısal Sayaçlı (44/44)", required: false, effect: "Her kategoride kaç yetkinin açık olduğunu anlık sayaçla gösterir; tek tıkla kategori bazlı toplu seçim/kaldırma yapar." },
+          { name: "Granüler Aksiyon Kodları (:access / :read / :write / :delete) & Süpervizör Alt Yetkileri", type: "Görüntüleme / Ekleme-Düzenleme / Silme + Canlı Müdahale / Oturum Kapatma / Kapsam Filtresi", defaultVal: "En Az Yetki", required: false, effect: "Örn. bir takım liderine Canlı İzleme'de 'Durum Müdahalesi' yetkisi verirken 'Temsilci Oturum Kapatma' yetkisini kapalı tutabilirsiniz." }
         ]
       },
       {
@@ -152,6 +178,17 @@ export const EDIT_GUIDES_PART5 = {
         description: "Tek sunucuda birden fazla şirketi 15 PostgreSQL tablosunda katı tenant_id izolasyonuyla yönetir.",
         fields: [
           { name: "Müşteri Adı, Kod Adı (Slug), Lisans Planı, Bitiş Tarihi & Durum", type: "active / passive", defaultVal: "tenant-default", required: true, effect: "Pasife alınan müşterinin web erişimi ve AudioSocket AI çağrıları anında durdurulur." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Pencere: Yeni Müşteri Lisansı Oluştur / Düzenle (İmzalı Key, İzinli STT/TTS/LLM & Kota Özeti)",
+        badge: "Tenant → Müşteri Lisansı",
+        screenshot: { src: "/screenshots/tabs/deep/tenant-edit-modal.jpg", caption: "Müşteri (Tenant) Yönetimi → '+' Yeni Müşteri Lisansı Oluştur: İmzalı lisans anahtarı yapıştırma, izinli AI motorları ve salt-okunur kota özeti", routeHint: "Sistem Ayarları → Müşteri (Tenant) Yönetimi → +" },
+        description: "Aynı sunucuda yeni bir firma (tenant) oluştururken Merkez Lisans Sunucusundan (Control Center) üretilen donanım-kilitli imzalı anahtarı doğrulayıp kotaları önizleyen alt penceredir.",
+        fields: [
+          { name: "Müşteri / Firma Adı, Kod Adı (Slug) & Lisans Anahtarı (Panodan Yapıştır)", type: "HMAC-SHA256 + Base64 Kota", defaultVal: "Otomatik Çözümlenir", required: true, effect: "Anahtar yapıştırıldığı anda lisans paketi (Starter/Professional/Enterprise), bitiş tarihi ve müşteri durumu kriptografik olarak çözülür." },
+          { name: "1. Yapay Zeka Lisans Hakları & İzinli Motorlar (Salt-Okunur)", type: "AI Temsilci / RAG / Senaryo Kotası + İzinli STT / TTS / LLM", defaultVal: "Merkezi Lisans Kilitli", required: false, effect: "Bu müşterinin hangi STT (Gemini/Deepgram/OpenAI/ElevenLabs), TTS ve LLM (Gemini/OpenAI/Claude/Groq) motorlarını kullanabileceğini ve eşzamanlı kanal (+tolerans) sınırlarını gösterir." }
         ]
       },
       {
@@ -255,6 +292,18 @@ export const EDIT_GUIDES_PART5 = {
         ]
       },
       {
+        level: 3,
+        tabTitle: "Alt Pencere 1.1: WhatsApp Hattı Ekle / Düzenle (Çoklu Numara, Phone Number ID, Persona & Kuyruk)",
+        badge: "Kanallar → WhatsApp Hattı",
+        screenshot: { src: "/screenshots/tabs/deep/channel-wa-account-modal.jpg", caption: "Kanal Entegrasyonları → Çoklu WhatsApp Hatları '+' Butonu: Hat adı, görünen numara, Meta Phone Number ID, özel token, AI personası ve aktarım kuyruğu", routeHint: "Sistem Ayarları → Kanal Entegrasyonları → WhatsApp → +" },
+        description: "Aynı şirket (tenant) altında Satış Hattı, Destek Hattı veya Şube Hattı gibi birden fazla Meta WhatsApp Business numarasını ayrı AI personası ve kuyrukla bağlayan alt penceredir.",
+        fields: [
+          { name: "Hat Tanımı / Adı*, Görünecek Telefon Numarası & Phone Number ID*", type: "Örn. Satış Hattı + +90 850... + Meta ID", defaultVal: "Zorunlu", required: true, effect: "Webhook'tan gelen metadata.phone_number_id değerini bu hatla eşleştirir ve Ortak Gelen Kutusu'nda hat rozetini (recipient_info) gösterir." },
+          { name: "Hatta Özel Erişim Jetonu (Opsiyonel)", type: "Meta Permanent Access Token", defaultVal: "Boş = Genel Token", required: false, effect: "Farklı bir Meta Business uygulamasından bağlı numaralar için hatta özel erişim anahtarı tanımlanabilir." },
+          { name: "Bu Hatta Atanacak Yapay Zeka Personası & Canlı Temsilci Aktarım Kuyruğu", type: "Samimi / Satış / Destek / Kurumsal + Kuyruk Seçici", defaultVal: "Otomatik (AI Konu Analizi)", required: false, effect: "Örn. 0850 Satış hattına yazan müşteriye satış odaklı AI cevap verir, canlı temsilci istediğinde doğrudan Satış Kuyruğuna düşürür." }
+        ]
+      },
+      {
         tabTitle: "Alt Ekran 2: Hazır CRM Entegrasyon Marketi (Zoho, HubSpot, Salesforce, Bitrix24)",
         badge: "Kanallar 2/6",
         screenshot: { src: "/screenshots/tabs/settings/26-hazir-crm.jpg", caption: "Sistem Ayarları → Hazır CRM Entegrasyonları — Tek tık CRM bağlayıcıları ve bağlantı testi", routeHint: "Sistem Ayarları → Hazır CRM Entegrasyonları" },
@@ -288,6 +337,29 @@ export const EDIT_GUIDES_PART5 = {
         description: "api.nornia.com.tr üzerinde belgelenen 117 uç nokta için SHA-256 güvenli anahtarlar, IP kısıtları ve canlı erişim günlüğü.",
         fields: [
           { name: "API Anahtarı, Scope Yetkileri, IP Whitelist, Rate Limit & Webhook URL", type: "aida_live_... + HMAC-SHA256", defaultVal: "120 istek/dk", required: false, effect: "Brute-force koruması (25 hata/dk) ve canlı erişim/hata günlüğü ile tam güvenlik sağlar." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Pencere 5.1: Yeni Dış API Anahtarı (Token) Oluştur — IP Whitelist, Webhook HMAC & 8 Modül Scope Matrisi",
+        badge: "Dış API → Yeni Anahtar (+)",
+        screenshot: { src: "/screenshots/tabs/deep/api-key-create-modal.jpg", caption: "Kurumsal Dış API → '+' Yeni Dış API Anahtarı Oluştur: IP Whitelist, Süre, Rate Limit, Webhook URL/HMAC ve Modül Scope Matrisi", routeHint: "Sistem Ayarları → Kurumsal Dış API → +" },
+        description: "Harici ERP/CRM/Mobil yazılımlara en az yetki prensibiyle güvenli REST API v1 anahtarı üreten 3. seviye penceredir. Üretilen `aida_live_...` anahtarı güvenlik gereği yalnızca tek sefer gösterilir.",
+        fields: [
+          { name: "Entegrasyon / Yazılım Adı* & Açıklama / Not", type: "Örn. Logo ERP / Özel CRM", defaultVal: "Zorunlu", required: true, effect: "API Erişim Günlüğü ve güvenlik denetiminde isteği hangi entegrasyonun yaptığını tanımlar." },
+          { name: "İzin Verilen Sunucu IP Adresleri (IP Whitelist), Geçerlilik Süresi & Dakikalık İstek Limiti", type: "IPv4/CIDR + Süresiz/30/90/365 Gün + req/dk", defaultVal: "Süresiz / 120 istek/dk", required: false, effect: "IP Whitelist girilirse anahtar sızsa bile liste dışındaki IP'lerden gelen tüm istekler HTTP 403 ile reddedilir." },
+          { name: "Canlı Olay Bildirimi (Webhook URL) & Webhook Güvenlik İmzası (HMAC Secret)", type: "HTTPS URL + X-AIDA-Signature (HMAC-SHA256)", defaultVal: "Opsiyonel", required: false, effect: "Çağrı çaldığında, açıldığında veya kapandığında harici sunucunuza kriptografik imzalı POST olayı iletir." },
+          { name: "Modül Bazlı İşlem Yetkileri (Scope Matrisi) & 3 Hızlı Şablon", type: "Sadece GET / Standart CRM / Tüm Yetkiler + 8 Modül (GET/POST/PUT/DELETE)", defaultVal: "En Az Yetki", required: true, effect: "Canlı Çağrı Kontrolü, CDR & Ses Kayıtları, Aboneler, Rehber, Kuyruk, Kara Liste, Omnichannel ve Sistem Sağlığı yetkilerini metod bazında açıp kapatır." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Pencere 5.2: Canlı API Erişim & Güvenlik Denetim Günlüğü (Endpoint, Kaynak IP & HTTP Durum)",
+        badge: "Dış API → Erişim Günlüğü",
+        screenshot: { src: "/screenshots/tabs/deep/api-access-logs.jpg", caption: "Kurumsal Dış API → 'Canlı API Erişim & Güvenlik Günlüğü' sekmesi: Gerçek zamanlı istek, metod, kaynak IP ve HTTP sonuç kaydı", routeHint: "Sistem Ayarları → Kurumsal Dış API → Canlı API Erişim & Güvenlik Günlüğü" },
+        description: "Tüm harici yazılımların `/api/v1/*` uç noktalarına attığı istekleri canlı olarak izleyen, 401/403 yetki hatalarını ve brute-force denemelerini gösteren denetim sekmesidir.",
+        fields: [
+          { name: "Tarih/Saat, Entegrasyon/Anahtar, İşlem Türü (Metod), Çağrılan Endpoint, Kaynak IP & Durum", type: "HTTP 200 / 401 / 403 / 429", defaultVal: "Canlı Akış + Günlüğü Temizle", required: false, effect: "Entegrasyon geliştiricilerinin hangi endpoint'in hangi scope ile başarılı olduğunu veya reddedildiğini anında teşhis etmesini sağlar." }
         ]
       },
       {
@@ -328,6 +400,17 @@ export const EDIT_GUIDES_PART5 = {
         description: "Büyük CallFlow, kural veya toplu değişiklik öncesinde saniyeler içinde alınabilen hafif geri dönüş noktaları.",
         fields: [
           { name: "Snapshot Oluştur, Karşılaştır & Tek Tıkla Geri Dön", type: "Hızlı Rollback", defaultVal: "Anlık", required: false, effect: "Veritabanı/ses kayıtlarını bozmadan sadece santral yapılandırmasını önceki çalışan haline döndürür." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Pencere 3.1: Yeni Geri Yükleme Noktası Oluştur (Hazır Başlık Çipleri & Anlık Tenant Snapshot)",
+        badge: "Bakım → Snapshot Oluştur (+)",
+        screenshot: { src: "/screenshots/tabs/deep/restore-point-create.jpg", caption: "Geri Yükleme Noktası → '+' Yeni Geri Yükleme Noktası Oluştur: Hazır operasyon başlıkları ve isteğe bağlı açıklama notu", routeHint: "Sistem Ayarları → Geri Yükleme Noktası → +" },
+        description: "Kritik bir AI senaryosu, CallFlow, SIP Trunk veya rol yetkisi değişikliği yapmadan önce 1 saniyede adlandırılmış konfigürasyon fotoğrafı alan alt penceredir.",
+        fields: [
+          { name: "Geri Yükleme Noktası Başlığı* & 5 Hazır Başlık Çipi", type: "AI Senaryo / CallFlow / SIP Trunk / Kullanıcı-Rol / Stabil Konfigürasyon", defaultVal: "Zorunlu", required: true, effect: "Tek tıkla standart başlık doldurarak gelecekte hangi noktaya döneceğinizi kolayca hatırlamanızı sağlar." },
+          { name: "Açıklama / Not (İsteğe Bağlı)", type: "Serbest Not", defaultVal: "Tenant Bazlı İzole", required: false, effect: "Yapılacak değişikliğin sebebini kaydeder; otomatik şişme koruması (örn. 30 gün / maks 20 kayıt) ile uyumlu çalışır." }
         ]
       },
       {
@@ -395,6 +478,26 @@ export const EDIT_GUIDES_PART5 = {
         description: "SIP ve API brute-force engelleme, güvenilir IP beyaz listesi ve yetkisiz uluslararası arama kalkanı.",
         fields: [
           { name: "Engellenen IP Kaldırma, Whitelist & Saldırı Eşikleri", type: "IPv4 / CIDR + Anti-Scanner", defaultVal: "SIP 5 / API 25 hata", required: false, effect: "Ofis ve operatör IP'lerini korur, saldırgan botları (sipvicious vb.) otomatik bloklar." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Pencere 1: Manuel IP / Alt Ağ Engelle Modalı (Fail2Ban & UFW Firewall)",
+        badge: "Güvenlik → Manuel IP Engelle",
+        screenshot: { src: "/screenshots/tabs/deep/security-ban-modal.jpg", caption: "Güvenlik Kalkanı → '+' Manuel IP / Alt Ağ Engelle: Tekil IPv4 veya CIDR bloğunu anında UFW/Fail2Ban üzerinde bloklama", routeHint: "Güvenlik Kalkanı → Engellenen IP'ler → +" },
+        description: "Şüpheli bir kaynak IP adresini veya tüm saldırgan alt ağı (`/24`) otomatik eşiği beklemeden anında Linux güvenlik duvarından (UFW + Fail2Ban) engelleyen alt penceredir.",
+        fields: [
+          { name: "IP Adresi veya CIDR Bloğu & Engelleme Sebebi / Açıklama", type: "Örn. 31.70.90.134 veya 31.70.90.0/24", defaultVal: "SIP Tarayıcı / Yetkisiz Erişim", required: true, effect: "'Firewall'da Engelle' tıklandığında ilgili IP/blok tüm SIP (5060/5061) ve web portlarına anında kapatılır." }
+        ]
+      },
+      {
+        level: 3,
+        tabTitle: "Alt Pencere 2: Güvenli IP / IP Bloğu (Fail2Ban IgnoreIP & UFW Allow) Ekle / Düzenle Modalı",
+        badge: "Güvenlik → Güvenli IP Ekle",
+        screenshot: { src: "/screenshots/tabs/deep/security-whitelist-modal.jpg", caption: "Güvenlik Kalkanı → Güvenli IP / Blok Listesi → '+' Güvenli IP (IgnoreIP) Ekle penceresi", routeHint: "Güvenlik Kalkanı → Güvenli IP / Blok Listesi → +" },
+        description: "Şirket merkez ofisi, şube sabit IP'leri, SIP operatör SBC'leri ve ERP sunucularını Fail2Ban yanlış engellemesine karşı kalıcı olarak koruma altına alan alt penceredir.",
+        fields: [
+          { name: "Güvenli IP Adresi veya CIDR Bloğu & Açıklama", type: "IPv4 / CIDR + Not (Örn. Merkez Ofis Statik IP / Operatör SBC)", defaultVal: "ignoreip + UFW Allow", required: true, effect: "Fail2Ban jail yapılandırmasındaki ignoreip listesine ve UFW izin kurallarına işlenerek yanlış şifre denemelerinde dahi ofisinizin kilitlenmesini %100 önler." }
         ]
       }
     ]
