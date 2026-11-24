@@ -13,9 +13,10 @@ export const CHAPTERS_BASLANGIC = [
     readMinutes: 12,
     summary:
       "Nornia Enterprise AI PBX ISO görüntüsünden veya sanal makineden ilk açılışta çalışan 6 adımlı Kurulum Sihirbazı (/setup) ile statik LAN IP / Netplan yapılandırması, donanım kilidi (HW-ID) lisans doğrulaması, Nornia Connect bulut alt alan adı (FQDN) kilidi, başlangıç dahili planı ve yönetici hesabı oluşturma sürecini uçtan uca anlatır.",
+    showSizingCalculator: true,
     prerequisites: [
-      "Minimum donanım: 4 vCPU, 8 GB RAM, 40 GB SSD (100+ eşzamanlı çağrı veya yerel LLM için 8 vCPU / 16 GB RAM önerilir).",
       "Ubuntu 24.04 LTS tabanlı Nornia ISO kurulumu tamamlanmış ve sunucu yerel ağdan DHCP veya geçici IP almış olmalıdır.",
+      "Kurulum öncesi aşağıdaki 'Nornia Sunucu Kaynak Hesaplama Aracı' ile kullanıcı adedi, eşzamanlı çağrı, ses kaydı ve yerel LLM tercihinize göre gerekli vCPU, RAM, NVMe/NAS disk ve ağ kaynağını belirlemeniz önerilir.",
       "Merkez Lisans Paneli'nden (panel.nornia.com.tr) bu sunucunun HW-ID'si için üretilmiş imzalı AIDA-... lisans anahtarı hazır olmalıdır."
     ],
     screenshots: [

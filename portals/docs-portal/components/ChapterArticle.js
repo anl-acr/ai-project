@@ -26,6 +26,7 @@ import {
   Lightbulb
 } from "lucide-react";
 import { MANUAL_META, getChapterById } from "../data/manualChapters";
+import ServerSizingCalculator from "./ServerSizingCalculator";
 
 function ScreenshotCard({ shot, onZoom, printMode = false }) {
   const [failed, setFailed] = useState(false);
@@ -242,6 +243,13 @@ export default function ChapterArticle({ chapter, printMode = false }) {
           </div>
         )}
       </div>
+
+      {/* Interactive Server Sizing Calculator (when enabled on chapter) */}
+      {chapter.showSizingCalculator && (
+        <div id={printMode ? `${chapter.id}--hesaplayici` : undefined}>
+          <ServerSizingCalculator printMode={printMode} />
+        </div>
+      )}
 
       {/* Live Screenshots */}
       {chapter.screenshots && chapter.screenshots.length > 0 && (

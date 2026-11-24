@@ -26,6 +26,14 @@ function buildModuleTocItems(ch) {
   const items = [];
   let seq = 1;
   items.push({ num: `${seq++}.`, label: "Genel Bakış, Menü Yolu & Rol Yetkileri", href: `#${ch.id}--genel`, level: 1 });
+  if (ch.showSizingCalculator) {
+    items.push({
+      num: `${seq++}.`,
+      label: "Sunucu Kaynak & Kapasite Boyutlandırma Rehberi",
+      href: `#${ch.id}--hesaplayici`,
+      level: 1
+    });
+  }
   if (ch.screenshots && ch.screenshots.length > 0) {
     items.push({ num: `${seq++}.`, label: "Canlı Santral Arayüz Ekran Görüntüsü", href: `#${ch.id}--ekran`, level: 1 });
   }

@@ -371,6 +371,14 @@ export default function DocsShell({ activeChapter = null, children }) {
               <span>Bu Sayfada</span>
             </div>
             <nav className="space-y-1.5 text-xs">
+              {activeChapter.showSizingCalculator && (
+                <a
+                  href="#kaynak-hesaplayici"
+                  className="block py-1 text-indigo-600 dark:text-indigo-400 hover:underline font-extrabold"
+                >
+                  Sunucu Kaynak Hesaplayıcı
+                </a>
+              )}
               {activeChapter.screenshots?.length > 0 && (
                 <a
                   href="#ekran-goruntuleri"

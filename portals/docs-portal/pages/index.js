@@ -50,6 +50,13 @@ export default function DocsIndexPage() {
               <span>İlk Kurulumdan Başla</span>
               <ArrowRight size={14} />
             </Link>
+            <Link
+              href="/ilk-kurulum-sihirbazi/#kaynak-hesaplayici"
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500/25 hover:bg-emerald-500/40 border border-emerald-300/30 text-white text-xs font-extrabold transition"
+            >
+              <Cpu size={14} />
+              <span>Sunucu Kaynak Hesaplayıcı</span>
+            </Link>
             <a
               href={MANUAL_META.fullPdfPath}
               download="nornia-kullanim-kilavuzu.pdf"
