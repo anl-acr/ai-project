@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import HeroProductPreview from "../components/HeroProductPreview";
 import LiveTranslateShowcase from "../components/LiveTranslateShowcase";
+import { RunaMobileVisual, RunaDesktopVisual } from "../components/RunaAppVisuals";
 import DemoRequestForm from "../components/DemoRequestForm";
 import {
   SITE_CONFIG,
@@ -506,14 +507,13 @@ export default function NorniaHomePage() {
                     key={app.id}
                     className="flex flex-col overflow-hidden rounded-3xl border border-slate-200/90 bg-white shadow-card hover:border-indigo-200 transition"
                   >
-                    {/* Crisp Product Showcase Visual */}
-                    <div className="border-b border-slate-100 bg-slate-50">
-                      <img
-                        src={app.image}
-                        alt={app.imageAlt}
-                        loading="lazy"
-                        className="block w-full h-auto object-cover"
-                      />
+                    {/* Real App Screenshot Composite Visual with Crisp Feature Cards */}
+                    <div className="border-b border-slate-100">
+                      {app.id === "runa-mobile" ? (
+                        <RunaMobileVisual />
+                      ) : (
+                        <RunaDesktopVisual />
+                      )}
                     </div>
 
                     {/* Content & Features */}
