@@ -50,7 +50,7 @@ import {
 const NAV_LINKS = [
   { label: "Platform", href: "#platform" },
   { label: "Uygulamalar", href: "#uygulamalar" },
-  { label: "Sıfır-Port Tünel", href: "#tunel" },
+  { label: "Tünel", href: "#tunel" },
   { label: "Çözümler", href: "#cozumler" },
   { label: "Modeller", href: "#modeller" },
   { label: "Doküman", href: SITE_CONFIG.docsUrl, external: true },
