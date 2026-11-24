@@ -61,20 +61,27 @@ curl -s http://127.0.0.1:8000/api/settings/ras/status | python3 -m json.tool`
         body: "Fiziksel veya bulut sunucunuzda (VPS, AWS, Hetzner, VMware, Proxmox) Nornia ISO yerine standart temiz bir Ubuntu 24.04 LTS (64-bit) kuruluysa, Nornia destek ekibi tarafından sağlanan yetkili çevrimiçi kurulum betiği (install_nornia_online.sh) ile tüm sistem 12 adımda otomatik kurulur. Betik; PostgreSQL 16 (Port 5444 + pgvector), Nornia Asterisk (Cisco yaması + WebRTC SRTP + AudioSocket + Opus), Python sanal ortamı, Next.js üretim derlemesi, PM2 servisleri, Nginx HTTPS/WSS vekil sunucusu, UFW/Fail2Ban güvenlik duvarı ve 'nornia' / kısıtlı 'destek' hesaplarını ISO kurulumuyla birebir aynı standartta yapılandırır.",
         steps: [
           "Sunucunuza SSH ile root veya sudo yetkili kullanıcı olarak bağlanın ve işletim sisteminin Ubuntu 24.04 LTS olduğunu doğrulayın (`lsb_release -a`).",
-          "Nornia yetkili kurulum paketini (install_nornia_online.sh) sunucuya aktarın ve yetkili paket bağlantısı veya kurulum anahtarı ile çalıştırın.",
+          "`wget https://dokuman.nornia.com.tr/install_nornia_online.sh` komutuyla resmi kurulum betiğini sunucunuza indirin.",
+          "Betiği `sudo bash install_nornia_online.sh` ile başlatın (parametre verilmezse etkileşimli olarak kurumsal paket adresinizi sorar; ya da `--bundle-url` / `--asterisk-deb` bayraklarıyla tek satırda çalıştırabilirsiniz).",
           "Düşük bellekli sunucularda (< 6 GB RAM) betik derleme kararlılığı için otomatik 4 GB swap alanı oluşturur; hazır Asterisk .deb paketi verilirse ~15 saniyede kurulur, verilmezse kaynak koddan otomatik derlenir.",
           "Kurulum tamamlandığında ekranda PostgreSQL, Asterisk, Backend (8000) ve Frontend (3000) sağlık doğrulaması ile `http://<sunucu-ip>/setup` adresi yazdırılır; tarayıcıdan 6 adımlı Kurulum Sihirbazı ile devam edilir."
         ],
         codeBlock: {
-          title: "Ubuntu 24.04 LTS Çevrimiçi Kurulum Komutu (Yetkili Paket / Opsiyonel Bayraklar)",
+          title: "Ubuntu 24.04 LTS Çevrimiçi Kurulum Komutları (dokuman.nornia.com.tr)",
           lang: "bash",
-          code: `# 1. Yetkili Nornia kurulum paketi ile çevrimiçi kurulum (Önerilen)
+          code: `# 1. Resmi Nornia kurulum betiğini indir
+wget https://dokuman.nornia.com.tr/install_nornia_online.sh
+
+# 2. Etkileşimli başlatma (paket veya yetkili erişim bilgilerini sorar)
+sudo bash install_nornia_online.sh
+
+# --- VEYA tek satırda parametreli kurulum ---
 sudo bash install_nornia_online.sh \\
   --bundle-url "<NORNIA_KURUMSAL_PAKET_URL>" \\
   --bundle-token "<YETKILI_KURULUM_ANAHTARI>" \\
   --asterisk-deb "<NORNIA_ASTERISK_DEB_URL>"
 
-# 2. Opsiyonel güvenlik ve bulut parametreleri:
+# Opsiyonel güvenlik ve bulut parametreleri:
 #   --sysadmin-pass "<guclu-sifre>"   : 'nornia' SSH yönetim hesabı şifresi
 #   --destek-pass "<destek-sifre>"    : Kısıtlı 'destek' ağ konsolu şifresi
 #   --lock-root-ssh                   : Root SSH girişini tamamen kapatır (PermitRootLogin no)

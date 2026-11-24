@@ -14,20 +14,24 @@
 #   • İlk Web Kurulum Sihirbazı (/setup) hazır olarak açılır.
 #
 # Kurulum Modları (Özel/Private Kaynak Korumalı):
-#   1) Nornia Kurumsal Paket Sunucusu (Müşteri Kurulumları — GitHub Gerektirmez):
+#   1) İndirme:
+#      wget https://dokuman.nornia.com.tr/install_nornia_online.sh
+#
+#   2) Nornia Kurumsal Paket Sunucusu (Müşteri Kurulumları — GitHub Gerektirmez):
 #      sudo bash install_nornia_online.sh \
 #        --bundle-url https://panel.nornia.com.tr/releases/nornia-app-bundle.tar.gz \
+#        --bundle-token "<YETKILI_KURULUM_ANAHTARI>" \
 #        --asterisk-deb https://panel.nornia.com.tr/releases/nornia-asterisk_18.11.3_amd64.deb
 #
-#   2) Yetkili Nornia Teknik Ekibi (Private Git Repo):
-#      sudo bash install_nornia_online.sh --token ghp_xxxxxxxxxxxxxxxxxxxx
+#   3) Yetkili Nornia Teknik Ekibi (Private Git Repo):
+#      sudo bash install_nornia_online.sh --repo "<PRIVATE_GIT_URL>" --token "<PAT>"
 #
 # Ortam Değişkenleri (Opsiyonel):
 #   NORNIA_BUNDLE_URL       (önceden paketlenmiş nornia-app-bundle.tar.gz URL veya yerel dosya)
 #   NORNIA_BUNDLE_TOKEN     (bundle indirirken kullanılacak Bearer token / lisans anahtarı)
 #   NORNIA_REPO_URL         (özel Git depo URL'si — yalnızca yetkili ekip)
 #   NORNIA_BRANCH           (varsayılan: main)
-#   NORNIA_GIT_TOKEN        (özel GitHub repo için Personal Access Token — yalnızca yetkili ekip)
+#   NORNIA_GIT_TOKEN        (özel Git repo için Personal Access Token — yalnızca yetkili ekip)
 #   NORNIA_ASTERISK_DEB_URL (önceden derlenmiş .deb URL veya yerel dosya yolu — ~15 sn kurulum)
 #   NORNIA_SYSADMIN_USER    (varsayılan: nornia)
 #   NORNIA_SYSADMIN_PASS    (varsayılan: NorniaAdmin2027!*)
@@ -42,7 +46,7 @@ exec > >(tee -a "$LOG_FILE") 2>&1
 
 BUNDLE_URL="${NORNIA_BUNDLE_URL:-}"
 BUNDLE_TOKEN="${NORNIA_BUNDLE_TOKEN:-}"
-REPO_URL="${NORNIA_REPO_URL:-https://github.com/anl-acr/ai-project.git}"
+REPO_URL="${NORNIA_REPO_URL:-}"
 BRANCH="${NORNIA_BRANCH:-main}"
 GIT_TOKEN="${NORNIA_GIT_TOKEN:-}"
 ASTERISK_DEB_SRC="${NORNIA_ASTERISK_DEB_URL:-}"
@@ -138,9 +142,33 @@ echo "  NORNIA ENTERPRISE AI PBX — ÇEVRİMİÇİ (ONLINE) KURULUM BAŞLATILIY
 echo "  Tarih      : $(date '+%Y-%m-%d %H:%M:%S')"
 echo "  Sistem     : ${OS_ID} ${OS_VER} ($(dpkg --print-architecture 2>/dev/null || uname -m))"
 echo "  Hedef Dizin: ${PROJECT_DIR}"
-echo "  Depo / Dal : ${REPO_URL} (${BRANCH})"
 echo "  Log Dosyası: ${LOG_FILE}"
 echo "======================================================================"
+
+# Kaynak parametresi verilmediyse ve /opt/ai-project boşsa etkileşimli sor
+if [[ -z "$BUNDLE_URL" && -z "$REPO_URL" && ! -d "${PROJECT_DIR}/backend" ]]; then
+  if [[ -t 0 ]]; then
+    echo ""
+    echo "Nornia kaynak paketi bilgilerini girin:"
+    echo "  [1] Nornia Kurumsal Paket URL (.tar.gz) — Önerilen"
+    echo "  [2] Yetkili Özel Git Deposu (Private Repo)"
+    read -r -p "Seçiminiz (1/2) [1]: " SRC_CHOICE
+    SRC_CHOICE="${SRC_CHOICE:-1}"
+    if [[ "$SRC_CHOICE" == "2" ]]; then
+      read -r -p "Özel Git Depo URL: " REPO_URL
+      read -r -s -p "Git Erişim Anahtarı (PAT Token): " GIT_TOKEN
+      echo ""
+    else
+      read -r -p "Kurumsal Paket URL (nornia-app-bundle.tar.gz): " BUNDLE_URL
+      read -r -s -p "Yetkili Kurulum Anahtarı (opsiyonel, Enter ile geç): " BUNDLE_TOKEN
+      echo ""
+    fi
+  else
+    echo "[HATA] Kurulum kaynağı belirtilmedi." >&2
+    echo "       Lütfen --bundle-url <PAKET_URL> veya (yetkili ekip için) --repo <GIT_URL> --token <PAT> parametrelerini kullanın." >&2
+    exit 1
+  fi
+fi
 
 if [[ "$OS_ID" != "ubuntu" || "$OS_VER" != "24.04" ]]; then
   echo "[UYARI] Bu betik Ubuntu 24.04 LTS için optimize edilmiştir (algılanan: ${OS_ID} ${OS_VER})."

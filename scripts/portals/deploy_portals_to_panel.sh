@@ -68,6 +68,10 @@ rsync -a --delete "${API_SRC}/" /var/www/nornia-api/
 rsync -a --delete "${DOCS_SRC}/" /var/www/nornia-docs/
 rsync -a "${REPO_ROOT}/portals/docs-portal/public/screenshots/" /var/www/nornia-docs/screenshots/
 rsync -a "${REPO_ROOT}/portals/docs-portal/public/pdfs/" /var/www/nornia-docs/pdfs/
+if [[ -f "${REPO_ROOT}/scripts/installer/install_nornia_online.sh" ]]; then
+  cp "${REPO_ROOT}/scripts/installer/install_nornia_online.sh" /var/www/nornia-docs/install_nornia_online.sh
+  chmod 0644 /var/www/nornia-docs/install_nornia_online.sh
+fi
 
 echo "[3/3] Nginx yapılandırması yenileniyor ve SSL sertifikası kontrol ediliyor..."
 "$PY_BIN" -c "
