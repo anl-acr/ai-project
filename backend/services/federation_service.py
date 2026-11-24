@@ -1050,7 +1050,8 @@ async def run_edge_sync_cycle(force_media: bool = False) -> Dict[str, Any]:
     synced_media_cnt = 0
 
     try:
-        async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
+        verify_tls = not bool(node.get("allow_self_signed")) and os.getenv("NORNIA_ALLOW_INSECURE_TLS", "0") != "1"
+        async with httpx.AsyncClient(timeout=10.0, verify=verify_tls) as client:
             hb_res = await client.post(
                 f"{hq_url}/api/federation/heartbeat",
                 headers=headers,

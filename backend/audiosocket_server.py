@@ -193,7 +193,13 @@ async def execute_async_tool_and_feed_context(tool_name: str, args_dict: dict, c
                         elif auth_t == "api_key" and auth_tok:
                             headers[str(ag.get("crm_auth_header_name") or "X-API-Key")] = auth_tok
                         import httpx
-                        async with httpx.AsyncClient(timeout=4.0, verify=False) as client:
+                        from backend.services.auth_service import validate_outbound_url
+                        ok_crm, err_crm = validate_outbound_url(crm_url, allow_private=True)
+                        if not ok_crm:
+                            print(f"[Async Tool CRM SSRF Blocked]: {err_crm}")
+                            break
+                        verify_tls = os.getenv("NORNIA_ALLOW_INSECURE_TLS", "0") != "1"
+                        async with httpx.AsyncClient(timeout=4.0, verify=verify_tls) as client:
                             if str(ag.get("crm_api_method") or "GET").upper() == "POST":
                                 resp = await client.post(crm_url, json={"caller": phone_val, "caller_clean": phone_digits, "call_id": call_id}, headers=headers)
                             else:
@@ -213,9 +219,14 @@ async def execute_async_tool_and_feed_context(tool_name: str, args_dict: dict, c
             url = args_dict.get("url")
             if url:
                 import httpx
-                async with httpx.AsyncClient(timeout=5) as client:
-                    resp = await client.post(url, json={"call_id": call_id, "args": args_dict})
-                    tool_result = f"Webhook Başarılı. Yanıt: {resp.text[:100]}"
+                from backend.services.auth_service import validate_outbound_url
+                ok_wh, err_wh = validate_outbound_url(str(url), allow_private=False)
+                if not ok_wh:
+                    tool_result = f"Webhook güvenlik politikası tarafından engellendi: {err_wh}"
+                else:
+                    async with httpx.AsyncClient(timeout=5, verify=True) as client:
+                        resp = await client.post(url, json={"call_id": call_id, "args": args_dict})
+                        tool_result = f"Webhook Başarılı. Yanıt: {resp.text[:100]}"
             else:
                 tool_result = "Webhook URL belirtilmedi."
         else:
@@ -613,7 +624,8 @@ async def _execute_http_request_node(node: dict, flow_vars: dict) -> tuple[str, 
         return "error", trace_info
 
     try:
-        async with httpx.AsyncClient(timeout=timeout_sec, verify=False) as client:
+        verify_tls = os.getenv("NORNIA_ALLOW_INSECURE_TLS", "0") != "1"
+        async with httpx.AsyncClient(timeout=timeout_sec, verify=verify_tls) as client:
             if method == "GET":
                 q_params = parsed_body if isinstance(parsed_body, dict) else {}
                 resp = await client.get(resolved_url, headers=headers, params=q_params)
@@ -2380,7 +2392,13 @@ async def fetch_customer_crm_context_for_ai(call_id: str, did: str, ai_agent: di
 
             try:
                 import httpx
-                async with httpx.AsyncClient(timeout=3.5, verify=False) as client:
+                from backend.services.auth_service import validate_outbound_url
+                ok_pre, err_pre = validate_outbound_url(resolved_url, allow_private=True)
+                if not ok_pre:
+                    print(f"[Pre-Call CRM SSRF Blocked]: {err_pre}")
+                    return ""
+                verify_tls = os.getenv("NORNIA_ALLOW_INSECURE_TLS", "0") != "1"
+                async with httpx.AsyncClient(timeout=3.5, verify=verify_tls) as client:
                     if api_method == "POST":
                         headers["Content-Type"] = "application/json"
                         if req_body_tpl:
@@ -2470,7 +2488,13 @@ async def dispatch_ai_crm_post_call_webhook(call_id: str, did: str, ai_agent: di
             headers[auth_header or "X-API-Key"] = auth_token
 
         import httpx
-        async with httpx.AsyncClient(timeout=5.0, verify=False) as client:
+        from backend.services.auth_service import validate_outbound_url
+        ok_post, err_post = validate_outbound_url(webhook_url, allow_private=True)
+        if not ok_post:
+            print(f"[Post-Call Webhook SSRF Blocked]: {err_post}")
+            return
+        verify_tls = os.getenv("NORNIA_ALLOW_INSECURE_TLS", "0") != "1"
+        async with httpx.AsyncClient(timeout=5.0, verify=verify_tls) as client:
             await client.post(
                 webhook_url,
                 json={

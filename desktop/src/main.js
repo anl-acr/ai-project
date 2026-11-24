@@ -791,50 +791,35 @@ ipcMain.handle("aida:login", async (_event, payload = {}) => {
   }
 
   try {
-    const resUsers = await nodeRequest(`${resolved.apiOrigin}/api/settings/users?tenant_id=all`, {
+    const loginRes = await nodeRequest(`${resolved.apiOrigin}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        username: cleanUsername,
+        password: String(password || ""),
+        remember_me: Boolean(rememberMe),
+        client_type: "desktop"
+      }),
       timeoutMs: 6500
     });
-    const usersList = Array.isArray(resUsers.json) ? resUsers.json : [];
 
-    const adminUser = usersList.find((u) => u.role === "admin" || u.username === "admin" || u.id === 1);
-    const validAdminPassword = adminUser?.password || "admin";
-
-    let matchedUser = null;
-    let resolvedUserId = "";
-
-    if (cleanUsername === "admin" && (password === validAdminPassword || password === "admin")) {
-      matchedUser = adminUser || { id: "admin", username: "admin", full_name: "Sistem Yöneticisi", role: "admin" };
-      resolvedUserId = "admin";
-    } else {
-      const cleanLower = cleanUsername.toLowerCase();
-      const found = usersList.find(
-        (u) =>
-          (u.username === cleanUsername ||
-            u.email === cleanUsername ||
-            (u.email && String(u.email).toLowerCase() === cleanLower) ||
-            String(u.extension || "") === cleanUsername ||
-            u.full_name === cleanUsername ||
-            (u.sip_username && u.sip_username === cleanUsername)) &&
-          (u.password === password || u.sip_password === password)
-      );
-      if (found) {
-        matchedUser = found;
-        resolvedUserId = String(found.id);
-      }
+    const loginData = loginRes.json || {};
+    if (loginRes.status < 200 || loginRes.status >= 300 || !loginData.user) {
+      return { ok: false, error: loginData.detail || "Geçersiz kullanıcı adı, dahili numarası veya şifre." };
     }
 
-    if (!matchedUser) {
-      return { ok: false, error: "Geçersiz kullanıcı adı, dahili numarası veya şifre." };
-    }
+    const matchedUser = loginData.user;
+    const resolvedUserId = String(matchedUser.id ?? "admin");
 
-    if (matchedUser.two_factor_enabled) {
+    if (loginData.requires_2fa) {
       const normMethod =
-        !matchedUser.two_factor_method || matchedUser.two_factor_method === "app"
+        !loginData.two_factor_method || loginData.two_factor_method === "app"
           ? "google_auth"
-          : matchedUser.two_factor_method;
+          : loginData.two_factor_method;
       return {
         ok: true,
         requires2fa: true,
+        twoFactorToken: loginData.two_factor_token || "",
         apiOrigin: resolved.apiOrigin,
         uiOrigin: resolved.uiOrigin,
         displayHost: resolved.displayHost,
@@ -860,7 +845,8 @@ ipcMain.handle("aida:login", async (_event, payload = {}) => {
       username: matchedUser.username || cleanUsername,
       fullName: matchedUser.full_name || matchedUser.username || cleanUsername,
       extension: matchedUser.extension || "",
-      tenantId: matchedUser.tenant_id || "tenant-default"
+      tenantId: matchedUser.tenant_id || "tenant-default",
+      accessToken: loginData.access_token || ""
     };
 
     const serverStartOnBoot =

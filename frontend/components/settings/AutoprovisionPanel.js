@@ -28,7 +28,7 @@ import {
   Wifi,
   ChevronDown,
 } from "lucide-react";
-import * as XLSX from "xlsx";
+import * as XLSX from "../../utils/excelHelper";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
 
@@ -448,10 +448,7 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
     reader.onload = async (evt) => {
       setLoading(true);
       try {
-        const bstr = evt.target.result;
-        const workbook = XLSX.read(bstr, { type: "binary" });
-        const ws = workbook.Sheets[workbook.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json(ws);
+        const rows = await XLSX.readFileToJson(file);
         let importedCount = 0;
 
         for (const row of rows) {

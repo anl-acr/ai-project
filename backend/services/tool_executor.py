@@ -304,7 +304,12 @@ async def execute_custom_api(name: str, args: dict) -> dict:
     print(f"[Custom API] Executing dynamic call: {method} {url}")
     
     try:
-        async with httpx.AsyncClient(verify=False, timeout=10.0) as client:
+        from backend.services.auth_service import validate_outbound_url
+        ok_u, err_u = validate_outbound_url(url, allow_private=True)
+        if not ok_u:
+            return {"status": "error", "message": f"Güvenlik politikası: {err_u}"}
+        verify_tls = os.getenv("NORNIA_ALLOW_INSECURE_TLS", "0") != "1"
+        async with httpx.AsyncClient(verify=verify_tls, timeout=10.0) as client:
             if method == "GET":
                 response = await client.get(url, headers=headers, params=query_params)
             elif method == "POST":

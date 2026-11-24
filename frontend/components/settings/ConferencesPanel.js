@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Plus, Search, Trash2, Edit2, X, Users, Check, AlertCircle, Mic, AlertTriangle, Download, Upload, BookOpen, Phone, ChevronDown } from "lucide-react";
-import * as XLSX from "xlsx";
+import * as XLSX from "../../utils/excelHelper";
 
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import TransferList from "../ui/TransferList";
@@ -329,11 +329,7 @@ export default function ConferencesPanel({ backendHost = "localhost:8000" }) {
       setError("");
       setSuccess("");
       try {
-        const bstr = evt.target.result;
-        const workbook = XLSX.read(bstr, { type: "binary" });
-        const wsname = workbook.SheetNames[0];
-        const ws = workbook.Sheets[wsname];
-        const data = XLSX.utils.sheet_to_json(ws);
+        const data = await XLSX.readFileToJson(file);
 
         for (const row of data) {
           const room_number = String(row["Oda No"] || row["Oda Numarası"] || "").trim();

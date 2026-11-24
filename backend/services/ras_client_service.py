@@ -590,6 +590,7 @@ async def _handle_tunneled_http_request(tunnel_ws: Any, msg: Dict[str, Any]):
         if k.lower() not in ("host", "content-length", "transfer-encoding", "connection")
     }
     clean_headers["X-Nornia-RAS-Tunnel"] = "1"
+    clean_headers["X-RAS-Forwarded"] = "1"
     if msg.get("public_host"):
         clean_headers["X-Forwarded-Host"] = str(msg.get("public_host"))
         clean_headers["Host"] = str(msg.get("public_host"))
@@ -796,8 +797,9 @@ async def _ras_tunnel_loop():
                 }
                 if ws_url.startswith("wss://"):
                     ssl_ctx = ssl.create_default_context()
-                    ssl_ctx.check_hostname = False
-                    ssl_ctx.verify_mode = ssl.CERT_NONE
+                    if os.getenv("NORNIA_ALLOW_INSECURE_TLS", "0") == "1":
+                        ssl_ctx.check_hostname = False
+                        ssl_ctx.verify_mode = ssl.CERT_NONE
                     conn_kwargs["ssl"] = ssl_ctx
 
                 async with websockets.connect(ws_url, **conn_kwargs) as tunnel_ws:
@@ -1202,7 +1204,14 @@ async def _query_hub_subdomain_check(hub_url: str, subdomain: str, hw_id: str) -
             f"http://{host_only}/api/v1/connect/check-subdomain?{query}",
         ]
 
-    async with httpx.AsyncClient(timeout=4.0, verify=False) as client:
+    from backend.services.auth_service import is_trusted_nornia_hub_url, validate_outbound_url
+    if not is_trusted_nornia_hub_url(norm):
+        ok_u, _ = validate_outbound_url(norm, allow_private=True)
+        if not ok_u:
+            return {"reachable": False, "available": False, "locked_to_this_hw": False, "message": "Güvenlik politikası: Geçersiz Hub adresi."}
+
+    verify_tls = os.getenv("NORNIA_ALLOW_INSECURE_TLS", "0") != "1"
+    async with httpx.AsyncClient(timeout=4.0, verify=verify_tls) as client:
         for url in candidates:
             try:
                 resp = await client.get(url)

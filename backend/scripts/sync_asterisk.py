@@ -28,20 +28,36 @@ if PROJECT_ROOT not in sys.path:
 def sync():
     print("[Sync Script] Asterisk konfigürasyonları güncelleniyor...")
     
-    # 1. Update /etc/asterisk/manager.conf for AMI authentication
-    mgr_content = """; ==========================================
+    # 1. Update /etc/asterisk/manager.conf for AMI authentication (localhost-only, dynamic AMI_SECRET)
+    ami_secret_val = os.getenv("AMI_SECRET", "").strip()
+    if not ami_secret_val:
+        env_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+        if os.path.exists(env_file):
+            try:
+                for line in open(env_file, "r", encoding="utf-8"):
+                    if line.strip().startswith("AMI_SECRET="):
+                        ami_secret_val = line.split("=", 1)[1].strip().strip('"').strip("'")
+                        break
+            except Exception:
+                pass
+    if not ami_secret_val:
+        import secrets as _sec
+        ami_secret_val = _sec.token_hex(24)
+
+    mgr_content = f"""; ==========================================
 ; Asterisk Manager Interface (AMI) Yapılandırması
 ; ==========================================
 [general]
 enabled = yes
 port = 5038
-bindaddr = 0.0.0.0
+bindaddr = 127.0.0.1
 
 [ai_backend_user]
-secret = backend_secure_key_99
+secret = {ami_secret_val}
 read = system,call,log,verbose,command,agent,user
 write = system,call,agent,originate
-permit = 0.0.0.0/0.0.0.0
+deny = 0.0.0.0/0.0.0.0
+permit = 127.0.0.1/255.255.255.0
 """
     manager_conf_path = "/etc/asterisk/manager.conf"
     if os.path.exists("/etc/asterisk"):

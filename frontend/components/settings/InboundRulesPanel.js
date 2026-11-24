@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Plus, Search, Edit2, Trash2, X, PhoneIncoming, Users, CheckCircle, ChevronRight, ChevronLeft, ArrowUp, ArrowDown, Inbox, Download, Upload } from "lucide-react";
-import * as XLSX from "xlsx";
+import * as XLSX from "../../utils/excelHelper";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
 
@@ -514,11 +514,7 @@ export default function InboundRulesPanel({ backendHost }) {
     reader.onload = async (evt) => {
       setLoading(true);
       try {
-        const bstr = evt.target.result;
-        const workbook = XLSX.read(bstr, { type: "binary" });
-        const wsname = workbook.SheetNames[0];
-        const ws = workbook.Sheets[wsname];
-        const data = XLSX.utils.sheet_to_json(ws);
+        const data = await XLSX.readFileToJson(file);
         const protocol = window.location.protocol === "https:" ? "https:" : "http:";
 
         for (const row of data) {

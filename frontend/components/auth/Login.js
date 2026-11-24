@@ -5,7 +5,8 @@ import { getApiBaseUrl } from "../../utils/apiHost";
 import {
   loadRememberedCredentials,
   saveRememberedCredentials,
-  setRememberMePreference
+  setRememberMePreference,
+  setAuthToken
 } from "../../utils/authStorage";
 import { getDeviceKeySync } from "../../utils/deviceIdentity";
 
@@ -33,6 +34,7 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
   // 2FA States
   const [is2FA, setIs2FA] = useState(false);
   const [twoFactorCode, setTwoFactorCode] = useState("");
+  const [twoFactorToken, setTwoFactorToken] = useState("");
   const [twoFactorUserId, setTwoFactorUserId] = useState(null);
   const [twoFactorMethod, setTwoFactorMethod] = useState("google_auth");
   const [twoFactorActiveMethods, setTwoFactorActiveMethods] = useState(["google_auth"]);
@@ -271,11 +273,16 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
             method: twoFactorMethod,
             secret: twoFactorSecret || undefined,
             phone: twoFactorPhone || undefined,
-            device_key: curDk || undefined
+            device_key: curDk || undefined,
+            two_factor_token: twoFactorToken || undefined,
+            remember_me: Boolean(rememberMe)
           })
         });
         const data = await res.json();
         if (res.ok && data.status === "success") {
+          if (data.access_token) {
+            setAuthToken(data.access_token, rememberMe);
+          }
           const updatedMethodsMap = data.methods && typeof data.methods === "object"
             ? { ...twoFactorMethodsMap, ...data.methods }
             : twoFactorMethodsMap;
@@ -311,6 +318,9 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
         saveRememberedCredentials(username, password, rememberMe);
       }
       if (result && result.requires2fa) {
+        if (result.two_factor_token) {
+          setTwoFactorToken(result.two_factor_token);
+        }
         const rawMethod = result.method || "google_auth";
         const normMethod = rawMethod === "app" ? "google_auth" : rawMethod;
         const activeList = Array.isArray(result.active_methods) && result.active_methods.length > 0

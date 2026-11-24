@@ -11,8 +11,8 @@
 #
 # Ortam Değişkenleri (Opsiyonel):
 #   NORNIA_SYSADMIN_USER  (varsayılan: nornia)
-#   NORNIA_SYSADMIN_PASS  (varsayılan: NorniaAdmin2027!*)
-#   NORNIA_DESTEK_PASS    (varsayılan: destekgiris2027!*)
+#   NORNIA_SYSADMIN_PASS  (varsayılan: her kurulumda otomatik rastgele üretilir)
+#   NORNIA_DESTEK_PASS    (varsayılan: her kurulumda otomatik rastgele üretilir)
 # ==============================================================================
 set -euo pipefail
 
@@ -49,9 +49,11 @@ if [[ "$(id -u)" -ne 0 ]]; then
 fi
 
 SYSADMIN_USER="${NORNIA_SYSADMIN_USER:-nornia}"
-SYSADMIN_PASS="${NORNIA_SYSADMIN_PASS:-NorniaAdmin2027!*}"
+SYSADMIN_PASS="${NORNIA_SYSADMIN_PASS:-$(openssl rand -base64 15 | tr -dc 'A-Za-z0-9!@#_' | head -c 16)}"
 DESTEK_USER="destek"
-DESTEK_PASS="${NORNIA_DESTEK_PASS:-destekgiris2027!*}"
+DESTEK_PASS="${NORNIA_DESTEK_PASS:-$(openssl rand -base64 15 | tr -dc 'A-Za-z0-9!@#_' | head -c 16)}"
+AMI_SECRET_GEN="${NORNIA_AMI_SECRET:-$(openssl rand -hex 24)}"
+SESSION_SECRET_GEN="${NORNIA_SESSION_SECRET:-$(openssl rand -hex 32)}"
 PROJECT_DIR="/opt/ai-project"
 
 export DEBIAN_FRONTEND=noninteractive
@@ -189,7 +191,10 @@ DATABASE_URL=postgresql+asyncpg://ai_pbx:${DB_PASS}@127.0.0.1:5444/ai_pbx
 AMI_HOST=127.0.0.1
 AMI_PORT=5038
 AMI_USER=ai_backend_user
-AMI_SECRET=backend_secure_key_99
+AMI_SECRET=${AMI_SECRET_GEN}
+NORNIA_SESSION_SECRET=${SESSION_SECRET_GEN}
+NORNIA_BIND_HOST=127.0.0.1
+NORNIA_ENABLE_DOCS=0
 EOF
 chmod 0600 "${PROJECT_DIR}/backend/.env"
 
@@ -289,7 +294,7 @@ module.exports = {
       name: "aida-backend",
       cwd: "/opt/ai-project",
       script: "/opt/ai-project/venv/bin/uvicorn",
-      args: "backend.main:app --host 0.0.0.0 --port 8000",
+      args: "backend.main:app --host 127.0.0.1 --port 8000",
       interpreter: "none",
       env: {
         PYTHONUNBUFFERED: "1"
@@ -337,14 +342,14 @@ runuser = asterisk
 rungroup = asterisk
 EOF
 
-cat <<'EOF' > /etc/asterisk/manager.conf
+cat <<EOF > /etc/asterisk/manager.conf
 [general]
 enabled = yes
 port = 5038
 bindaddr = 127.0.0.1
 
 [ai_backend_user]
-secret = backend_secure_key_99
+secret = ${AMI_SECRET_GEN}
 deny = 0.0.0.0/0.0.0.0
 permit = 127.0.0.1/255.255.255.0
 read = all
@@ -424,8 +429,19 @@ server {
     listen 443 ssl default_server;
     listen [::]:443 ssl default_server;
 
+    server_tokens off;
     ssl_certificate     /etc/nginx/ssl/nornia.crt;
     ssl_certificate_key /etc/nginx/ssl/nornia.key;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers on;
+
+    # SEC-08: HTTP Security Headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "camera=(), geolocation=(), payment=()" always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header Content-Security-Policy "default-src 'self' https: data: blob: wss: ws:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: blob: https:; frame-ancestors 'self';" always;
 
     client_max_body_size 100M;
 

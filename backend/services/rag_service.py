@@ -106,12 +106,24 @@ async def index_pdf_file(file_path: str, filename: str, tenant_id: str = "tenant
 
 async def index_website_url(url: str, tenant_id: str = "tenant-default"):
     """Crawls a website, extracts text, chunks it, embeds, and saves to local PostgreSQL."""
+    from backend.services.auth_service import validate_outbound_url
+    ok_url, err_url = validate_outbound_url(url, allow_private=False)
+    if not ok_url:
+        raise ValueError(f"SSRF Koruması: {err_url}")
     print(f"[RAG] Web sitesi taranıyor: {url} (Tenant: {tenant_id})")
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
-    async with httpx.AsyncClient(verify=False, follow_redirects=True, timeout=30.0) as client:
+    verify_tls = os.getenv("NORNIA_RAG_ALLOW_SELF_SIGNED", "0") != "1"
+    async with httpx.AsyncClient(verify=verify_tls, follow_redirects=False, timeout=30.0) as client:
         response = await client.get(url, headers=headers)
+        if response.is_redirect and response.headers.get("location"):
+            from urllib.parse import urljoin
+            redir_url = urljoin(url, response.headers["location"])
+            ok_r, err_r = validate_outbound_url(redir_url, allow_private=False)
+            if not ok_r:
+                raise ValueError(f"SSRF Koruması (Yönlendirme): {err_r}")
+            response = await client.get(redir_url, headers=headers)
         html = response.text
         
     soup = BeautifulSoup(html, 'html.parser')

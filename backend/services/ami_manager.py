@@ -1187,11 +1187,12 @@ async def get_ami_manager() -> Manager:
 
         print(f"[AMI] Connecting to Asterisk AMI at {AMI_HOST}:{AMI_PORT}...")
         try:
+            live_ami_secret = os.getenv("AMI_SECRET") or AMI_SECRET
             mgr = Manager(
-                host=AMI_HOST,
-                port=AMI_PORT,
-                username=AMI_USER,
-                secret=AMI_SECRET,
+                host=os.getenv("AMI_HOST", AMI_HOST),
+                port=int(os.getenv("AMI_PORT", AMI_PORT)),
+                username=os.getenv("AMI_USER", AMI_USER),
+                secret=live_ami_secret,
                 loop=asyncio.get_event_loop()
             )
             await asyncio.wait_for(mgr.connect(), timeout=2.0)

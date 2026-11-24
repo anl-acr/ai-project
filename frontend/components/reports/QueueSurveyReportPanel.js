@@ -19,7 +19,7 @@ import {
   Columns,
   X
 } from "lucide-react";
-import * as XLSX from "xlsx";
+import * as XLSX from "../../utils/excelHelper";
 import { useTheme } from "../../utils/theme";
 import { getApiBaseUrl, tenantFetch } from "../../utils/apiHost";
 import DateTimePickerInput from "../common/DateTimePickerInput";

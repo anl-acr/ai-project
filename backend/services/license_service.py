@@ -4,9 +4,13 @@ import hmac
 import os
 import base64
 import json
-from backend.services.hardware_info import get_system_hardware_fingerprint, compute_system_serial_number
+from backend.services.hardware_info import get_system_hardware_fingerprint, compute_system_serial_number, _load_serial_secret
 
-LICENSE_MASTER_SECRET = "AIDA_MASTER_LICENSE_SECRET_KEY_2026_SECURE_SALT_99"
+def get_license_master_secret() -> str:
+    """Reads the license HMAC secret dynamically from NORNIA_LICENSE_SECRET / LICENSE_MASTER_SECRET or /etc/nornia/license.secret."""
+    return _load_serial_secret()
+
+LICENSE_MASTER_SECRET = get_license_master_secret()
 
 def generate_tenant_serial_number(tenant_code: str, tenant_num_id: int = 100) -> str:
     """
@@ -20,7 +24,7 @@ def generate_tenant_serial_number(tenant_code: str, tenant_num_id: int = 100) ->
         num_val = 100
     num_part = f"{num_val:04d}"
     sig = hmac.new(
-        LICENSE_MASTER_SECRET.encode("utf-8"),
+        get_license_master_secret().encode("utf-8"),
         f"TENANT_SERIAL:{clean_code}:{num_part}".encode("utf-8"),
         hashlib.sha256
     ).hexdigest()[:6].upper()
@@ -77,7 +81,7 @@ def compute_license_signature(tenant_code: str, expiry_date_str: str, hw_id: str
     clean_hw = hw_id.strip().upper().replace("-", "").replace("HW", "")
     msg = f"{clean_code}:{clean_date}:{clean_hw}"
     signature = hmac.new(
-        LICENSE_MASTER_SECRET.encode("utf-8"),
+        get_license_master_secret().encode("utf-8"),
         msg.encode("utf-8"),
         hashlib.sha256
     ).hexdigest()[:8].upper()
@@ -370,7 +374,7 @@ def verify_nornia_root_sso_token(token: str) -> dict:
 
     _, b64_payload, sig = parts
     expected_sig = hmac.new(
-        LICENSE_MASTER_SECRET.encode("utf-8"),
+        get_license_master_secret().encode("utf-8"),
         f"NORNIA_ROOT_SSO:{b64_payload}".encode("utf-8"),
         hashlib.sha256,
     ).hexdigest()[:16].upper()

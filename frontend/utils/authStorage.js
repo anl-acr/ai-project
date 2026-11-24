@@ -2,76 +2,75 @@ const REMEMBER_FLAG_KEY = "aida_remember_me";
 const REMEMBER_USER_KEY = "aida_remembered_username";
 const REMEMBER_SECRET_KEY = "aida_remembered_secret";
 const CACHED_USER_PROFILE_KEY = "aida_cached_user_profile";
-const OBFUSCATION_SALT = "AIDA_PBX_REMEMBER_V1";
+const AUTH_TOKEN_KEY = "nornia_auth_token";
 
-function encodeRememberedSecret(plainText) {
-  if (!plainText) return "";
+export function setAuthToken(token, rememberMe = true) {
+  if (typeof window === "undefined") return;
   try {
-    const utf8 = encodeURIComponent(String(plainText));
-    let xored = "";
-    for (let i = 0; i < utf8.length; i += 1) {
-      const code = utf8.charCodeAt(i) ^ OBFUSCATION_SALT.charCodeAt(i % OBFUSCATION_SALT.length);
-      xored += String.fromCharCode(code);
+    if (!token) {
+      sessionStorage.removeItem(AUTH_TOKEN_KEY);
+      localStorage.removeItem(AUTH_TOKEN_KEY);
+      return;
     }
-    return typeof window !== "undefined" ? `v1:${window.btoa(xored)}` : "";
+    sessionStorage.setItem(AUTH_TOKEN_KEY, String(token));
+    if (rememberMe) {
+      localStorage.setItem(AUTH_TOKEN_KEY, String(token));
+    } else {
+      localStorage.removeItem(AUTH_TOKEN_KEY);
+    }
+  } catch (e) {}
+}
+
+export function getAuthToken() {
+  if (typeof window === "undefined") return "";
+  try {
+    return sessionStorage.getItem(AUTH_TOKEN_KEY) || localStorage.getItem(AUTH_TOKEN_KEY) || "";
   } catch (e) {
     return "";
   }
 }
 
-function decodeRememberedSecret(encoded) {
-  if (!encoded || typeof encoded !== "string") return "";
+export function clearAuthToken() {
+  if (typeof window === "undefined") return;
   try {
-    const raw = encoded.startsWith("v1:") ? encoded.slice(3) : encoded;
-    const xored = typeof window !== "undefined" ? window.atob(raw) : "";
-    let utf8 = "";
-    for (let i = 0; i < xored.length; i += 1) {
-      const code = xored.charCodeAt(i) ^ OBFUSCATION_SALT.charCodeAt(i % OBFUSCATION_SALT.length);
-      utf8 += String.fromCharCode(code);
-    }
-    return decodeURIComponent(utf8);
-  } catch (e) {
-    return "";
-  }
+    sessionStorage.removeItem(AUTH_TOKEN_KEY);
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+  } catch (e) {}
 }
 
 export function setRememberMePreference(enabled) {
   if (typeof window === "undefined") return;
   try {
     localStorage.setItem(REMEMBER_FLAG_KEY, enabled ? "true" : "false");
+    localStorage.removeItem(REMEMBER_SECRET_KEY);
     if (!enabled) {
       localStorage.removeItem(REMEMBER_USER_KEY);
-      localStorage.removeItem(REMEMBER_SECRET_KEY);
     }
   } catch (e) {}
 }
 
-export function saveRememberedCredentials(username, password, rememberMe) {
+export function saveRememberedCredentials(username, _password, rememberMe) {
   if (typeof window === "undefined") return;
   try {
+    // SEC-05: Never store plaintext/XOR-encoded passwords in localStorage; remember username only
+    localStorage.removeItem(REMEMBER_SECRET_KEY);
     if (rememberMe) {
       const cleanUser = String(username || "").trim();
       localStorage.setItem(REMEMBER_FLAG_KEY, "true");
       if (cleanUser) {
         localStorage.setItem(REMEMBER_USER_KEY, cleanUser);
       }
-      if (password !== undefined && password !== null && String(password).length > 0) {
-        localStorage.setItem(REMEMBER_SECRET_KEY, encodeRememberedSecret(String(password)));
-      }
     } else {
       localStorage.setItem(REMEMBER_FLAG_KEY, "false");
       localStorage.removeItem(REMEMBER_USER_KEY);
-      localStorage.removeItem(REMEMBER_SECRET_KEY);
     }
   } catch (e) {}
 }
 
-export function updateRememberedPasswordIfSaved(newPassword) {
-  if (typeof window === "undefined" || !newPassword) return;
+export function updateRememberedPasswordIfSaved(_newPassword) {
+  if (typeof window === "undefined") return;
   try {
-    if (localStorage.getItem(REMEMBER_FLAG_KEY) === "true" && localStorage.getItem(REMEMBER_USER_KEY)) {
-      localStorage.setItem(REMEMBER_SECRET_KEY, encodeRememberedSecret(String(newPassword)));
-    }
+    localStorage.removeItem(REMEMBER_SECRET_KEY);
   } catch (e) {}
 }
 
@@ -80,14 +79,14 @@ export function loadRememberedCredentials() {
     return { rememberMe: true, username: "", password: "" };
   }
   try {
+    localStorage.removeItem(REMEMBER_SECRET_KEY);
     const rawFlag = localStorage.getItem(REMEMBER_FLAG_KEY);
     const rememberMe = rawFlag === null ? true : rawFlag === "true";
     if (!rememberMe) {
       return { rememberMe: false, username: "", password: "" };
     }
     const username = localStorage.getItem(REMEMBER_USER_KEY) || "";
-    const password = decodeRememberedSecret(localStorage.getItem(REMEMBER_SECRET_KEY) || "");
-    return { rememberMe: true, username, password };
+    return { rememberMe: true, username, password: "" };
   } catch (e) {
     return { rememberMe: true, username: "", password: "" };
   }
@@ -159,7 +158,9 @@ export function clearAuthenticatedSession() {
     localStorage.removeItem("current_user_id");
     localStorage.removeItem(CACHED_USER_PROFILE_KEY);
     localStorage.removeItem("agent_avatar");
+    localStorage.removeItem(AUTH_TOKEN_KEY);
     sessionStorage.removeItem("is_logged_in");
     sessionStorage.removeItem("current_user_id");
+    sessionStorage.removeItem(AUTH_TOKEN_KEY);
   } catch (e) {}
 }

@@ -46,10 +46,58 @@ from license_center.backend.license_generator import (
     compute_system_serial_number,
     generate_tenant_serial_number,
     generate_nornia_root_sso_token,
-    LICENSE_MASTER_SECRET,
+    get_license_master_secret,
 )
 
-app = FastAPI(title="Nornia Cloud Center - Central License & Fleet Management API", version="2.5.0")
+try:
+    from dotenv import load_dotenv as _lc_load_dotenv
+    _lc_load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+except Exception:
+    pass
+
+_MASTER_SESSION_SECRET_CACHE: Optional[str] = None
+
+
+def get_master_session_secret() -> str:
+    """
+    Dedicated HMAC signing secret for Master Panel MSESS & T2FA tokens.
+    Strictly isolated from the license signing secret (SEC-02).
+    """
+    global _MASTER_SESSION_SECRET_CACHE
+    env_val = (os.getenv("NORNIA_MASTER_SESSION_SECRET") or "").strip()
+    if len(env_val) >= 32:
+        _MASTER_SESSION_SECRET_CACHE = env_val
+        return env_val
+    if _MASTER_SESSION_SECRET_CACHE:
+        return _MASTER_SESSION_SECRET_CACHE
+    key_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".master_session_secret")
+    try:
+        if os.path.exists(key_path):
+            stored = open(key_path, "r", encoding="utf-8").read().strip()
+            if len(stored) >= 32:
+                _MASTER_SESSION_SECRET_CACHE = stored
+                return stored
+    except Exception:
+        pass
+    generated = secrets.token_hex(32)
+    try:
+        with open(key_path, "w", encoding="utf-8") as kf:
+            kf.write(generated + "\n")
+        os.chmod(key_path, 0o600)
+    except Exception:
+        pass
+    _MASTER_SESSION_SECRET_CACHE = generated
+    return generated
+
+
+_LC_ENABLE_DOCS = os.getenv("NORNIA_ENABLE_DOCS", "0") == "1"
+app = FastAPI(
+    title="Nornia Cloud Center - Central License & Fleet Management API",
+    version="2.5.0",
+    docs_url="/docs" if _LC_ENABLE_DOCS else None,
+    redoc_url="/redoc" if _LC_ENABLE_DOCS else None,
+    openapi_url="/openapi.json" if _LC_ENABLE_DOCS else None,
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -87,7 +135,7 @@ def generate_master_session_token(user: MasterUser) -> str:
         json.dumps(payload, separators=(",", ":")).encode("utf-8")
     ).decode("utf-8").rstrip("=")
     sig = hmac.new(
-        LICENSE_MASTER_SECRET.encode("utf-8"),
+        get_master_session_secret().encode("utf-8"),
         f"NORNIA_MASTER_SESSION:{b64_payload}".encode("utf-8"),
         hashlib.sha256,
     ).hexdigest()[:16].upper()
@@ -106,7 +154,7 @@ def verify_master_session_token(token: Optional[str]) -> Optional[Dict[str, Any]
         return None
     _, b64_payload, sig = parts
     expected_sig = hmac.new(
-        LICENSE_MASTER_SECRET.encode("utf-8"),
+        get_master_session_secret().encode("utf-8"),
         f"NORNIA_MASTER_SESSION:{b64_payload}".encode("utf-8"),
         hashlib.sha256,
     ).hexdigest()[:16].upper()
@@ -242,7 +290,7 @@ def generate_2fa_temp_token(user_id: int, username: str) -> str:
     payload_str = f"{user_id}:{username}:{exp}"
     b64 = base64.urlsafe_b64encode(payload_str.encode("utf-8")).decode("utf-8").rstrip("=")
     sig = hmac.new(
-        LICENSE_MASTER_SECRET.encode("utf-8"),
+        get_master_session_secret().encode("utf-8"),
         f"2FA_TEMP:{b64}".encode("utf-8"),
         hashlib.sha256,
     ).hexdigest()[:16].upper()
@@ -258,7 +306,7 @@ def verify_2fa_temp_token(token: str) -> Optional[int]:
         return None
     _, b64, sig = parts
     expected_sig = hmac.new(
-        LICENSE_MASTER_SECRET.encode("utf-8"),
+        get_master_session_secret().encode("utf-8"),
         f"2FA_TEMP:{b64}".encode("utf-8"),
         hashlib.sha256,
     ).hexdigest()[:16].upper()

@@ -50,10 +50,17 @@ function MyApp({ Component, pageProps }) {
 
       if (isApiCall) {
         config = config ? { ...config } : {};
+        if (!config.credentials) {
+          config.credentials = 'include';
+        }
         const userId = sessionStorage.getItem('current_user_id') || localStorage.getItem('current_user_id') || 'System';
         const activeTenantId = localStorage.getItem('active_tenant_id') || 'tenant-default';
         const clientIp = cachedClientIp || localStorage.getItem('client_public_ip') || '';
+        const authToken = sessionStorage.getItem('nornia_auth_token') || localStorage.getItem('nornia_auth_token') || '';
         const headers = new Headers(config.headers || {});
+        if (authToken && !headers.has('Authorization')) {
+          headers.set('Authorization', `Bearer ${authToken}`);
+        }
         if (!headers.has('X-User-ID') || headers.get('X-User-ID') === 'System') {
           headers.set('X-User-ID', String(userId));
         }

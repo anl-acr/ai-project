@@ -1061,8 +1061,14 @@ async def dispatch_external_api_webhook_event(
     }
     body_bytes = json.dumps(body_dict, ensure_ascii=False).encode("utf-8")
 
-    async with httpx.AsyncClient(timeout=5.0, verify=False) as client:
+    from backend.services.auth_service import validate_outbound_url
+    verify_tls = os.getenv("NORNIA_ALLOW_INSECURE_TLS", "0") != "1"
+    async with httpx.AsyncClient(timeout=5.0, verify=verify_tls) as client:
         for t in targets:
+            ok_wh, err_wh = validate_outbound_url(t["url"], allow_private=False)
+            if not ok_wh:
+                print(f"[ExternalAPI Webhook SSRF Blocked] {t['url']} -> {err_wh}")
+                continue
             sig = hmac.new(
                 t["secret"].encode("utf-8"),
                 body_bytes,

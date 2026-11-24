@@ -302,6 +302,11 @@ server {{
     ssl_certificate {ssl_cert};
     ssl_certificate_key {ssl_key};
     ssl_protocols TLSv1.2 TLSv1.3;
+    server_tokens off;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
     client_max_body_size 50M;
 
@@ -350,6 +355,11 @@ server {{
     ssl_certificate {ssl_cert};
     ssl_certificate_key {ssl_key};
     ssl_protocols TLSv1.2 TLSv1.3;
+    server_tokens off;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
     return 301 https://www.nornia.com.tr$request_uri;
 }}
@@ -361,6 +371,11 @@ server {{
     ssl_certificate {ssl_cert};
     ssl_certificate_key {ssl_key};
     ssl_protocols TLSv1.2 TLSv1.3;
+    server_tokens off;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
     root /var/www/nornia-web;
     index index.html;
@@ -395,6 +410,11 @@ server {{
     ssl_certificate {ssl_cert};
     ssl_certificate_key {ssl_key};
     ssl_protocols TLSv1.2 TLSv1.3;
+    server_tokens off;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
     root /var/www/nornia-api;
     index index.html;
@@ -420,6 +440,11 @@ server {{
     ssl_certificate {ssl_cert};
     ssl_certificate_key {ssl_key};
     ssl_protocols TLSv1.2 TLSv1.3;
+    server_tokens off;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
     return 301 https://dokuman.nornia.com.tr$request_uri;
 }}
@@ -431,6 +456,11 @@ server {{
     ssl_certificate {ssl_cert};
     ssl_certificate_key {ssl_key};
     ssl_protocols TLSv1.2 TLSv1.3;
+    server_tokens off;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
     root /var/www/nornia-docs;
     index index.html;
@@ -496,6 +526,11 @@ server {{
     ssl_certificate {ssl_cert};
     ssl_certificate_key {ssl_key};
     ssl_protocols TLSv1.2 TLSv1.3;
+    server_tokens off;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
     client_max_body_size 100M;
 
@@ -1063,10 +1098,11 @@ async def relay_client_websocket_to_pbx(websocket: WebSocket):
 @connect_hub_router.get("/api/v1/connect/ssh-proxy/{subdomain}")
 async def get_zero_port_ssh_proxy_script(subdomain: str):
     """
-    Returns a pure Python stdlib WebSocket-to-stdio SSH ProxyCommand script that tunnels native OpenSSH
-    directly over Port 443 (WSS) through Nornia Connect Hub without needing Port 2222 open on any firewall.
-    Usage on Mac/Linux:
-    ssh -o ProxyCommand='python3 -c "import urllib.request; exec(urllib.request.urlopen(\"https://connect.nornia.com.tr/ssh/app\").read())"' aida@app.nornia.com.tr
+    Returns a pure Python stdlib WebSocket-to-stdio SSH ProxyCommand script (with strict TLS verification)
+    that tunnels native OpenSSH over Port 443 (WSS) through Nornia Connect Hub.
+    Recommended Usage (Zero-RCE):
+      ssh -o ProxyCommand="websocat -b wss://connect.nornia.com.tr/api/v1/connect/tcp-relay/<sub >/22" aida@<sub>.nornia.com.tr
+    Or download once, verify SHA-256 header (X-Script-SHA256), and run locally.
     """
     sub = re.sub(r"[^a-z0-9-_]", "", str(subdomain or "app").strip().lower()) or "app"
     script = f"""import base64, json, os, select, socket, ssl, struct, sys
@@ -1076,8 +1112,6 @@ PORT = 443
 PATH = "/api/v1/connect/tcp-relay/{sub}/22"
 
 ctx = ssl.create_default_context()
-ctx.check_hostname = False
-ctx.verify_mode = ssl.CERT_NONE
 raw_sock = socket.create_connection((HOST, PORT), timeout=10)
 sock = ctx.wrap_socket(raw_sock, server_hostname=HOST)
 

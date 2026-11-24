@@ -16,12 +16,18 @@ if (bootState && bootState.session && bootState.uiOrigin && typeof window !== "u
       sessionStorage.setItem("aida_desktop_mode", "1");
       sessionStorage.setItem("is_logged_in", "true");
       sessionStorage.setItem("current_user_id", String(bootState.session.userId));
+      if (bootState.session.accessToken) {
+        sessionStorage.setItem("nornia_auth_token", String(bootState.session.accessToken));
+      }
       if (bootState.justLoggedIn) {
         sessionStorage.setItem("aida_just_logged_in", "1");
       }
       if (bootState.rememberMe) {
         localStorage.setItem("is_logged_in", "true");
         localStorage.setItem("current_user_id", String(bootState.session.userId));
+        if (bootState.session.accessToken) {
+          localStorage.setItem("nornia_auth_token", String(bootState.session.accessToken));
+        }
       }
       if (bootState.session.tenantId) {
         localStorage.setItem("active_tenant_id", String(bootState.session.tenantId));

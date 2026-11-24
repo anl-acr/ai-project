@@ -105,21 +105,39 @@ def extract_client_ip(request: Optional[Request]) -> str:
     return resolve_real_ip(None, raw_uid)
 
 def get_user_info(request: Request):
-    raw_user_id = request.headers.get("X-User-ID", "admin")
-    user_label = resolve_audit_user_label(raw_user_id)
-    tenant_id = request.headers.get("X-Tenant-ID") or request.headers.get("Tenant-ID") or request.query_params.get("tenant_id") or "tenant-default"
+    auth_user = getattr(request.state, "auth_user", None)
+    if isinstance(auth_user, dict) and auth_user.get("uid"):
+        raw_user_id = str(auth_user["uid"])
+        user_label = resolve_audit_user_label(raw_user_id)
+        is_privileged = bool(auth_user.get("root")) or str(auth_user.get("role") or "").lower() in ("admin", "superadmin", "nornia_root")
+        req_tenant = request.headers.get("X-Tenant-ID") or request.headers.get("Tenant-ID") or request.query_params.get("tenant_id")
+        if is_privileged and req_tenant:
+            tenant_id = req_tenant
+        else:
+            tenant_id = str(auth_user.get("tid") or "tenant-default")
+    else:
+        raw_user_id = request.headers.get("X-User-ID", "system")
+        user_label = resolve_audit_user_label(raw_user_id)
+        tenant_id = request.headers.get("X-Tenant-ID") or request.headers.get("Tenant-ID") or request.query_params.get("tenant_id") or "tenant-default"
     client_ip = extract_client_ip(request)
     from backend.services.audit_logger import record_known_user_ip
     record_known_user_ip(user_label, client_ip)
     return {"user_id": user_label, "raw_user_id": raw_user_id, "tenant_id": tenant_id, "ip_address": client_ip}
 
-app = FastAPI(title="AI PBX & Omnichannel Backend API")
+_ENABLE_OPENAPI_DOCS = os.getenv("NORNIA_ENABLE_DOCS", "0") == "1"
+app = FastAPI(
+    title="AI PBX & Omnichannel Backend API",
+    docs_url="/docs" if _ENABLE_OPENAPI_DOCS else None,
+    redoc_url="/redoc" if _ENABLE_OPENAPI_DOCS else None,
+    openapi_url="/openapi.json" if _ENABLE_OPENAPI_DOCS else None,
+)
 
 @app.middleware("http")
 async def audit_client_ip_middleware(request: Request, call_next):
     from backend.services.audit_logger import current_request_ip_ctx, record_known_user_ip, is_loopback_or_empty_ip
     resolved_ip = extract_client_ip(request)
-    raw_uid = request.headers.get("X-User-ID", "")
+    auth_u = getattr(request.state, "auth_user", None)
+    raw_uid = str(auth_u.get("uid")) if isinstance(auth_u, dict) and auth_u.get("uid") else request.headers.get("X-User-ID", "")
     if not is_loopback_or_empty_ip(resolved_ip):
         record_known_user_ip(raw_uid, resolved_ip)
         record_known_user_ip(resolve_audit_user_label(raw_uid), resolved_ip)
@@ -128,6 +146,41 @@ async def audit_client_ip_middleware(request: Request, call_next):
         return await call_next(request)
     finally:
         current_request_ip_ctx.reset(token)
+
+@app.middleware("http")
+async def security_auth_middleware(request: Request, call_next):
+    """
+    SEC-01 Central Authentication Guard:
+    Verifies cryptographically signed NSESS cookie / Bearer token for all non-exempt API routes.
+    Runs inside CORSMiddleware (so 401 responses receive valid CORS headers) and after
+    auto_api_prefix_middleware (so paths are already normalized to /api/...).
+    """
+    from backend.services.auth_service import (
+        extract_session_token_from_request,
+        verify_session_token,
+        is_path_exempt_from_session_auth,
+    )
+    from backend.services.setup_wizard_service import is_setup_completed
+
+    token = extract_session_token_from_request(request)
+    auth_payload = verify_session_token(token) if token else None
+    request.state.auth_user = auth_payload
+
+    if auth_payload is not None:
+        return await call_next(request)
+
+    try:
+        setup_done = is_setup_completed(settings_db)
+    except Exception:
+        setup_done = True
+
+    if is_path_exempt_from_session_auth(request, setup_completed=setup_done):
+        return await call_next(request)
+
+    return JSONResponse(
+        status_code=401,
+        content={"detail": "Yetkisiz erişim: Geçerli bir oturum gerekli (Unauthorized)."},
+    )
 
 from backend.routers import sip_debugger, workspace_enhancements
 from backend.services.federation_service import federation_router, start_federation_sync_worker
@@ -161,12 +214,24 @@ async def on_startup_telemetry():
     except Exception as e_fed:
         print(f"[Federation Worker Startup Info]: {e_fed}")
 
-# Enable CORS for frontend development
+# SEC-04: Strict CORS policy (no wildcard origin with allow_credentials=True)
+_EXTRA_CORS_ORIGINS = [
+    o.strip()
+    for o in (os.getenv("NORNIA_CORS_ORIGINS") or "").split(",")
+    if o.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_EXTRA_CORS_ORIGINS,
+    allow_origin_regex=(
+        r"^https?://(localhost|127\.0\.0\.1|"
+        r"10\.\d{1,3}\.\d{1,3}\.\d{1,3}|"
+        r"172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|"
+        r"192\.168\.\d{1,3}\.\d{1,3})(:\d+)?$"
+        r"|^https://([a-z0-9-]+\.)?nornia\.com\.tr$"
+    ),
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -12419,12 +12484,18 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
         user["password_expiry_months"] = payload.password_expiry_months
 
     if payload.new_password:
-        existing_pass = user.get("password") or "admin"
+        from backend.services.auth_service import verify_password as _verify_pw, hash_password as _hash_pw
+        existing_pass = user.get("password") or ""
         if payload.current_password:
-            valid_passes = {existing_pass, "admin", user.get("sip_password", ""), "123456"}
-            if payload.current_password not in valid_passes:
+            ok_pw, _ = _verify_pw(payload.current_password, existing_pass) if existing_pass else (False, False)
+            if not ok_pw and user.get("sip_password") and hmac.compare_digest(str(payload.current_password), str(user.get("sip_password"))):
+                ok_pw = True
+            if not ok_pw and not existing_pass and str(user.get("role") or "").lower() == "admin" and hmac.compare_digest(str(payload.current_password), "admin"):
+                ok_pw = True
+            if not ok_pw:
                 raise HTTPException(status_code=400, detail="Mevcut şifreniz hatalı.")
-        user["password"] = payload.new_password
+        hashed_new_pw = _hash_pw(str(payload.new_password))
+        user["password"] = hashed_new_pw
         user["password_last_updated"] = datetime.datetime.now().isoformat()
 
     # Propagate profile & forwarding updates across any duplicate/aliased user entries in settings_db["users"]
@@ -12490,7 +12561,7 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
 
             def _apply_profile_fields(target_db_u):
                 if payload.new_password:
-                    target_db_u.password = payload.new_password
+                    target_db_u.password = user["password"]
                 if payload.avatar is not None:
                     target_db_u.avatar = payload.avatar
                 if payload.theme_color is not None:
@@ -12884,7 +12955,7 @@ def _synthesize_tts_mp3_bytes(text: str, voice: str = "tr-TR-EmelNeural") -> byt
     if cur:
         chunks.append(cur)
 
-    ssl_ctx = ssl._create_unverified_context()
+    ssl_ctx = ssl.create_default_context()
 
     # 1. Try Google Translate TTS endpoints (tw-ob and gtx)
     for client_id in ["tw-ob", "gtx"]:
@@ -22056,10 +22127,320 @@ async def generate_license_key_endpoint(payload: LicenseGenerateSchema):
     }
 
 
+class AuthLoginSchema(BaseModel):
+    username: str
+    password: str
+    remember_me: Optional[bool] = False
+    device_key: Optional[str] = None
+    client_type: Optional[str] = "web"
+    device_name: Optional[str] = None
+
+
+def _collect_all_users_for_auth() -> List[Dict[str, Any]]:
+    """Loads users from PostgreSQL + settings_db for server-side credential verification."""
+    disk_users = list(settings_db.get("users") or [])
+    by_key: Dict[str, Dict[str, Any]] = {}
+    ordered: List[Dict[str, Any]] = []
+
+    def _add_u(u_obj: Dict[str, Any]):
+        if not isinstance(u_obj, dict):
+            return
+        k = str(u_obj.get("id") or u_obj.get("extension") or u_obj.get("email") or len(ordered))
+        if k not in by_key:
+            by_key[k] = u_obj
+            ordered.append(u_obj)
+
+    try:
+        from backend.database.config import SyncSessionLocal
+        from backend.database.models import SystemUser
+        with SyncSessionLocal() as session:
+            db_rows = session.query(SystemUser).order_by(SystemUser.id.asc()).all()
+            for r in db_rows:
+                d = {c.name: getattr(r, c.name) for c in r.__table__.columns}
+                # Merge disk-only fields (e.g. username, device_lock_enabled, trusted_devices)
+                for du in disk_users:
+                    if isinstance(du, dict) and (
+                        str(du.get("id") or "") == str(d.get("id") or "")
+                        or (d.get("extension") and str(du.get("extension") or "") == str(d.get("extension")))
+                    ):
+                        merged = {**du, **{k: v for k, v in d.items() if v is not None}}
+                        if not merged.get("password") and du.get("password"):
+                            merged["password"] = du["password"]
+                        d = merged
+                        break
+                _add_u(d)
+    except Exception as e_auth_db:
+        print(f"[Auth DB Lookup Notice]: {e_auth_db}")
+
+    for du in disk_users:
+        _add_u(du)
+    return ordered
+
+
+def _persist_rehashed_password(user_obj: Dict[str, Any], hashed_pw: str) -> None:
+    """Transparently upgrades a user's legacy plaintext password to bcrypt in settings_db and PostgreSQL."""
+    try:
+        uid_s = str(user_obj.get("id") or "")
+        ext_s = str(user_obj.get("extension") or "")
+        email_s = str(user_obj.get("email") or "").strip().lower()
+        for du in (settings_db.get("users") or []):
+            if not isinstance(du, dict):
+                continue
+            if (
+                (uid_s and str(du.get("id") or "") == uid_s)
+                or (ext_s and str(du.get("extension") or "") == ext_s)
+                or (email_s and str(du.get("email") or "").strip().lower() == email_s)
+            ):
+                du["password"] = hashed_pw
+        save_settings(settings_db)
+    except Exception as e_rh_disk:
+        print(f"[Password Rehash Disk Notice]: {e_rh_disk}")
+
+    try:
+        from backend.database.config import SyncSessionLocal
+        from backend.database.models import SystemUser
+        with SyncSessionLocal() as session:
+            db_u = None
+            uid_s = str(user_obj.get("id") or "")
+            if uid_s.isdigit() and uid_s != "9999":
+                db_u = session.query(SystemUser).filter(SystemUser.id == int(uid_s)).first()
+            if not db_u and user_obj.get("extension"):
+                db_u = session.query(SystemUser).filter(SystemUser.extension == str(user_obj.get("extension"))).first()
+            if not db_u and user_obj.get("email"):
+                db_u = session.query(SystemUser).filter(func.lower(SystemUser.email) == str(user_obj.get("email")).lower()).first()
+            if db_u:
+                db_u.password = hashed_pw
+                session.commit()
+    except Exception as e_rh_db:
+        print(f"[Password Rehash DB Notice]: {e_rh_db}")
+
+
+@app.post("/api/auth/login")
+@app.post("/auth/login")
+async def auth_login_endpoint(request: Request, response: Response, payload: AuthLoginSchema):
+    """
+    SEC-01 & SEC-05: Server-side credential verification with bcrypt password hashing,
+    sliding-window rate limiting, trusted-device check, 2FA gating, and signed NSESS cookie/token.
+    """
+    from backend.services.auth_service import (
+        verify_password,
+        hash_password,
+        create_session_token,
+        create_2fa_challenge_token,
+        set_session_cookie,
+        check_login_rate_limit,
+        record_login_failure,
+        clear_login_failures,
+        sanitize_user_for_client,
+    )
+
+    clean_user = str(payload.username or "").strip()
+    clean_pass = str(payload.password or "")
+    client_ip = extract_client_ip(request)
+
+    if not clean_user or not clean_pass:
+        raise HTTPException(status_code=400, detail="Kullanıcı adı ve şifre gereklidir.")
+
+    allowed, retry_after = check_login_rate_limit(client_ip, clean_user)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Çok fazla başarısız giriş denemesi. Lütfen {retry_after} saniye sonra tekrar deneyin.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+    lower_u = clean_user.lower()
+    all_users = _collect_all_users_for_auth()
+
+    matched_user: Optional[Dict[str, Any]] = None
+    password_ok = False
+    needs_rehash = False
+
+    # 1. Match against real users (SystemUser + settings.json)
+    for u in all_users:
+        cands = {
+            str(u.get("username") or "").strip().lower(),
+            str(u.get("email") or "").strip().lower(),
+            str(u.get("extension") or "").strip().lower(),
+            str(u.get("sip_username") or "").strip().lower(),
+            str(u.get("full_name") or "").strip().lower(),
+            str(u.get("name") or "").strip().lower(),
+        }
+        cands.discard("")
+        if lower_u == "admin" and str(u.get("role") or "").lower() == "admin":
+            cands.add("admin")
+        if lower_u not in cands:
+            continue
+
+        stored_pw = u.get("password") or ""
+        if stored_pw:
+            ok, rehash = verify_password(clean_pass, stored_pw)
+            if ok:
+                matched_user = u
+                password_ok = True
+                needs_rehash = rehash
+                break
+        else:
+            # Legacy user with no web password yet: check sip_password or initial admin default once
+            sip_pw = u.get("sip_password") or ""
+            if sip_pw and hmac.compare_digest(clean_pass.encode("utf-8"), str(sip_pw).encode("utf-8")):
+                matched_user = u
+                password_ok = True
+                needs_rehash = True
+                break
+            if lower_u == "admin" and str(u.get("role") or "").lower() == "admin" and hmac.compare_digest(clean_pass, "admin"):
+                matched_user = u
+                password_ok = True
+                needs_rehash = True
+                break
+
+    # 2. Virtual bootstrap admin fallback ONLY if no admin user exists with a custom password
+    if not password_ok and lower_u == "admin":
+        existing_admin = next((u for u in all_users if str(u.get("role") or "").lower() == "admin" or str(u.get("id") or "") in ("admin", "9999")), None)
+        if not existing_admin and hmac.compare_digest(clean_pass, "admin"):
+            matched_user = {
+                "id": "admin",
+                "username": "admin",
+                "full_name": "Sistem Yöneticisi",
+                "name": "Sistem Yöneticisi",
+                "role": "admin",
+                "extension": "1000",
+                "tenant_id": "tenant-default",
+                "is_active": True,
+                "two_factor_enabled": False,
+            }
+            password_ok = True
+            needs_rehash = False
+
+    if not password_ok or not matched_user:
+        record_login_failure(client_ip, clean_user)
+        raise HTTPException(status_code=401, detail="Kullanıcı adı veya şifre hatalı.")
+
+    if matched_user.get("is_active") is False:
+        raise HTTPException(status_code=403, detail="Bu kullanıcı hesabı pasif durumdadır.")
+
+    # Transparently upgrade plaintext web password -> bcrypt(cost=12)
+    if needs_rehash and matched_user.get("id") != "admin":
+        new_hash = hash_password(clean_pass)
+        matched_user["password"] = new_hash
+        _persist_rehashed_password(matched_user, new_hash)
+    elif needs_rehash and matched_user.get("id") == "admin" and any(str(u.get("id") or "") in ("admin", "9999") for u in (settings_db.get("users") or [])):
+        new_hash = hash_password(clean_pass)
+        matched_user["password"] = new_hash
+        _persist_rehashed_password(matched_user, new_hash)
+
+    # Check Trusted Device Binding
+    req_dk = _normalize_device_key(
+        payload.device_key
+        or request.headers.get("X-Device-Key")
+        or request.headers.get("x-device-key")
+        or ""
+    )
+    allowed_dev, lock_on, norm_dk, _ = _verify_user_device_access(matched_user, req_dk)
+    if lock_on and not allowed_dev:
+        from backend.services.ami_manager import parse_browser_and_os_from_ua
+        b_ua, o_ua = parse_browser_and_os_from_ua(request.headers.get("user-agent") or "")
+        _log_device_key_blocked_event(
+            matched_user,
+            ip=client_ip,
+            browser=b_ua,
+            os_name=o_ua,
+            device_key=norm_dk,
+            source_label="Web/Uygulama Girişi",
+        )
+        raise HTTPException(
+            status_code=403,
+            detail=f"Bu cihaz ({norm_dk or 'Tanımsız'}) hesabınız için yetkilendirilmemiş. Lütfen Cihaz Anahtarınızı sistem yöneticinize iletin.",
+        )
+
+    clear_login_failures(client_ip, clean_user)
+
+    uid_val = str(matched_user.get("id") or matched_user.get("extension") or "admin")
+    role_val = str(matched_user.get("role") or "agent")
+    tenant_val = str(matched_user.get("tenant_id") or "tenant-default")
+    clean_user_resp = sanitize_user_for_client(matched_user, include_sip_password=False)
+
+    # Check 2FA requirement
+    if bool(matched_user.get("two_factor_enabled", False)):
+        t2fa = create_2fa_challenge_token(uid_val, tenant_id=tenant_val, remember_me=bool(payload.remember_me))
+        return {
+            "status": "2fa_required",
+            "requires_2fa": True,
+            "two_factor_token": t2fa,
+            "two_factor_method": matched_user.get("two_factor_method") or "google_auth",
+            "two_factor_enrolled": bool(matched_user.get("two_factor_enrolled", False)),
+            "two_factor_active_methods": matched_user.get("two_factor_active_methods") or [matched_user.get("two_factor_method") or "google_auth"],
+            "two_factor_multi_mode": matched_user.get("two_factor_multi_mode") or "single",
+            "user": clean_user_resp,
+        }
+
+    # Issue signed session token + HttpOnly cookie
+    is_root_flag = role_val.lower() in ("admin", "superadmin")
+    sess_token = create_session_token(
+        user_id=uid_val,
+        role=role_val,
+        tenant_id=tenant_val,
+        is_root=is_root_flag,
+        remember_me=bool(payload.remember_me),
+    )
+    set_session_cookie(response, sess_token, request, remember_me=bool(payload.remember_me))
+
+    return {
+        "status": "ok",
+        "requires_2fa": False,
+        "access_token": sess_token,
+        "token_type": "Bearer",
+        "tenant_id": tenant_val,
+        "user": clean_user_resp,
+    }
+
+
+@app.post("/api/auth/logout")
+@app.post("/auth/logout")
+async def auth_logout_endpoint(request: Request, response: Response):
+    from backend.services.auth_service import clear_session_cookie
+    clear_session_cookie(response, request)
+    return {"status": "ok", "message": "Oturum kapatıldı."}
+
+
+@app.get("/api/auth/me")
+@app.get("/auth/me")
+async def auth_me_endpoint(request: Request):
+    from backend.services.auth_service import (
+        extract_session_token_from_request,
+        verify_session_token,
+        sanitize_user_for_client,
+    )
+    tok = extract_session_token_from_request(request)
+    payload = verify_session_token(tok) if tok else None
+    if not payload:
+        raise HTTPException(status_code=401, detail="Aktif oturum bulunamadı.")
+    uid_s = str(payload.get("uid") or "")
+    all_users = _collect_all_users_for_auth()
+    matched = next(
+        (u for u in all_users if str(u.get("id") or "") == uid_s or str(u.get("extension") or "") == uid_s),
+        None,
+    )
+    if matched:
+        return {"status": "ok", "authenticated": True, "session": payload, "user": sanitize_user_for_client(matched, include_sip_password=False)}
+    return {
+        "status": "ok",
+        "authenticated": True,
+        "session": payload,
+        "user": {
+            "id": uid_s,
+            "role": payload.get("role") or "admin",
+            "tenant_id": payload.get("tid") or "tenant-default",
+            "is_nornia_root": bool(payload.get("root")),
+        },
+    }
+
+
 @app.post("/api/auth/sso-verify")
-async def verify_root_sso_login_endpoint(request: Request, payload: dict = Body(...)):
+async def verify_root_sso_login_endpoint(request: Request, response: Response, payload: dict = Body(...)):
     """Verifies a short-lived Nornia Cloud Center Root SSO token and returns a Service Provider Super-Admin session."""
     from backend.services.license_service import verify_nornia_root_sso_token
+    from backend.services.auth_service import create_session_token, set_session_cookie
 
     token = str(payload.get("sso_token") or "").strip()
     res = verify_nornia_root_sso_token(token)
@@ -22076,6 +22457,16 @@ async def verify_root_sso_login_endpoint(request: Request, payload: dict = Body(
         ),
         tenants[0] if tenants else {"id": "tenant-default", "name": "Ana Müşteri"},
     )
+    matched_tid = matched_t.get("id", "tenant-default")
+
+    sess_token = create_session_token(
+        user_id="admin",
+        role="admin",
+        tenant_id=matched_tid,
+        is_root=True,
+        remember_me=False,
+    )
+    set_session_cookie(response, sess_token, request, remember_me=False)
 
     await log_event(
         user_id="admin",
@@ -22086,7 +22477,9 @@ async def verify_root_sso_login_endpoint(request: Request, payload: dict = Body(
 
     return {
         "status": "ok",
-        "tenant_id": matched_t.get("id", "tenant-default"),
+        "access_token": sess_token,
+        "token_type": "Bearer",
+        "tenant_id": matched_tid,
         "tenant_name": matched_t.get("name", "Ana Müşteri"),
         "user": {
             "id": "admin",
@@ -36145,6 +36538,8 @@ class Verify2FASchema(BaseModel):
     secret: Optional[str] = None
     phone: Optional[str] = None
     device_key: Optional[str] = None
+    two_factor_token: Optional[str] = None
+    remember_me: Optional[bool] = False
 
 class Setup2FASchema(BaseModel):
     reset: Optional[bool] = False
@@ -36589,6 +36984,8 @@ async def save_2fa_config_endpoint(payload: Save2FAConfigSchema):
 
 @app.post("/api/auth/2fa/send-email-otp")
 @app.post("/auth/2fa/send-email-otp")
+@app.post("/api/auth/send_2fa_email")
+@app.post("/auth/send_2fa_email")
 async def send_email_otp_endpoint(payload: SendEmailOTPSchema, request: Request):
     tenant_id = request.headers.get("X-Tenant-ID") or request.headers.get("Tenant-ID") or "tenant-default"
     uid_str = str(payload.user_id or "").strip()
@@ -36648,6 +37045,8 @@ async def send_email_otp_endpoint(payload: SendEmailOTPSchema, request: Request)
 
 @app.post("/api/auth/2fa/send-whatsapp-otp")
 @app.post("/auth/2fa/send-whatsapp-otp")
+@app.post("/api/auth/send_2fa_whatsapp")
+@app.post("/auth/send_2fa_whatsapp")
 async def send_whatsapp_otp_endpoint(payload: SendWhatsAppOTPSchema):
     from backend.services.whatsapp_service import send_whatsapp_message
     uid_str = str(payload.user_id or "").strip()
@@ -36822,7 +37221,35 @@ async def verify_user_device_endpoint(request: Request, payload: dict):
 
 @app.post("/api/auth/verify_2fa")
 @app.post("/auth/verify_2fa")
-async def verify_2fa(request: Request, payload: Verify2FASchema):
+async def verify_2fa(request: Request, response: Response, payload: Verify2FASchema):
+    from backend.services.auth_service import (
+        create_session_token as _create_2fa_sess,
+        set_session_cookie as _set_2fa_cookie,
+        verify_2fa_challenge_token as _verify_2fa_chal,
+    )
+
+    def _issue_2fa_session_fields(u_obj: dict) -> dict:
+        if payload.secret:
+            return {}
+        rem_flag = bool(payload.remember_me)
+        if payload.two_factor_token:
+            chal = _verify_2fa_chal(payload.two_factor_token)
+            if not chal:
+                raise HTTPException(status_code=401, detail="2FA doğrulama oturumu süresi dolmuş. Lütfen tekrar giriş yapın.")
+            rem_flag = bool(chal.get("rem", rem_flag))
+        uid_s = str(u_obj.get("id") or u_obj.get("extension") or "admin")
+        role_s = str(u_obj.get("role") or "agent")
+        tid_s = str(u_obj.get("tenant_id") or "tenant-default")
+        tok = _create_2fa_sess(
+            user_id=uid_s,
+            role=role_s,
+            tenant_id=tid_s,
+            is_root=role_s.lower() in ("admin", "superadmin"),
+            remember_me=rem_flag,
+        )
+        _set_2fa_cookie(response, tok, request, remember_me=rem_flag)
+        return {"access_token": tok, "token_type": "Bearer"}
+
     uid_str = str(payload.user_id or "").strip()
     code = str(payload.code or "").strip()
 
@@ -36954,6 +37381,7 @@ async def verify_2fa(request: Request, payload: Verify2FASchema):
                 "active_methods": user.get("two_factor_active_methods", ["email"]),
                 "multi_mode": user.get("two_factor_multi_mode", "single"),
                 "methods": methods_map_v,
+                **_issue_2fa_session_fields(user),
             }
         raise HTTPException(status_code=401, detail="Geçersiz veya süresi dolmuş E-Posta doğrulama kodu.")
 
@@ -36998,6 +37426,7 @@ async def verify_2fa(request: Request, payload: Verify2FASchema):
                 "active_methods": user.get("two_factor_active_methods", ["whatsapp"]),
                 "multi_mode": user.get("two_factor_multi_mode", "single"),
                 "methods": methods_map_v,
+                **_issue_2fa_session_fields(user),
             }
         raise HTTPException(
             status_code=401,
@@ -37080,6 +37509,7 @@ async def verify_2fa(request: Request, payload: Verify2FASchema):
             "active_methods": user.get("two_factor_active_methods", [eff_method]),
             "multi_mode": user.get("two_factor_multi_mode", "single"),
             "methods": methods_map_v,
+            **_issue_2fa_session_fields(user),
         }
     else:
         raise HTTPException(status_code=401, detail="Geçersiz 6 haneli doğrulama kodu. Lütfen uygulamadaki güncel kodu giriniz.")
@@ -37313,8 +37743,10 @@ async def confirm_password_reset_endpoint(payload: PasswordResetConfirmSchema):
     if not ok_full:
         raise HTTPException(status_code=400, detail=err_full)
 
+    from backend.services.auth_service import hash_password as _hash_reset_pw
+    hashed_reset_pw = _hash_reset_pw(new_pw)
     now_iso = datetime.datetime.now().isoformat()
-    user["password"] = new_pw
+    user["password"] = hashed_reset_pw
     user["password_last_updated"] = now_iso
     save_settings(settings_db)
 
@@ -37330,7 +37762,7 @@ async def confirm_password_reset_endpoint(payload: PasswordResetConfirmSchema):
             if not db_u and user.get("extension"):
                 db_u = session.query(SystemUser).filter(SystemUser.extension == str(user.get("extension"))).first()
             if db_u:
-                db_u.password = new_pw
+                db_u.password = hashed_reset_pw
                 session.commit()
     except Exception as e_pw_db:
         print(f"[Password Reset DB Sync Error]: {e_pw_db}")
@@ -38084,6 +38516,7 @@ async def send_user_welcome_email_endpoint(user_id: str, payload: UserWelcomeEma
 @app.get("/auth/app-magic-login")
 async def verify_app_magic_login_endpoint(
     request: Request,
+    response: Response,
     token: Optional[str] = None,
     url: Optional[str] = None,
     platform: Optional[str] = "desktop",
@@ -38201,8 +38634,22 @@ async def verify_app_magic_login_endpoint(
     uid_val = str(resolved_id if resolved_id is not None else (user.get("id") or user.get("extension") or "admin"))
     server_origin = _resolve_server_origin_from_request(request)
 
+    from backend.services.auth_service import create_session_token as _create_ml_sess, set_session_cookie as _set_ml_cookie
+    ml_role = str(user.get("role") or "agent")
+    ml_tid = str(user.get("tenant_id") or "tenant-default")
+    ml_sess_token = _create_ml_sess(
+        user_id=uid_val,
+        role=ml_role,
+        tenant_id=ml_tid,
+        is_root=ml_role.lower() in ("admin", "superadmin"),
+        remember_me=True,
+    )
+    _set_ml_cookie(response, ml_sess_token, request, remember_me=True)
+
     return {
         "status": "success",
+        "access_token": ml_sess_token,
+        "token_type": "Bearer",
         "server_origin": server_origin,
         "user": {
             "id": uid_val,
@@ -39501,7 +39948,8 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
             u["omnichannel_label"] = None
             u["omnichannel_active_chats"] = 0
 
-    return raw_users
+    from backend.services.auth_service import sanitize_user_for_client
+    return [sanitize_user_for_client(u, include_sip_password=True) for u in raw_users]
 
 
 @app.get("/api/settings/users/{user_id}/connection-history")
@@ -40141,6 +40589,19 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                     adv_sec["quarantined_subscribers"].pop(ext_str, None)
                 _SUBSCRIBER_OUTBOUND_VIOLATION_TIMESTAMPS.pop(ext_str, None)
 
+            # SEC-05: Preserve existing password hash & TOTP secret if omitted/blank; bcrypt-hash newly provided passwords
+            from backend.services.auth_service import hash_password as _hash_user_pw, is_password_hashed as _is_user_pw_hashed
+            incoming_pw = data.get("password")
+            if incoming_pw is None or str(incoming_pw).strip() == "":
+                prev_pw = (getattr(target_user, "password", None) if target_user else None) or prev_disk.get("password") or ""
+                data["password"] = prev_pw
+            elif not _is_user_pw_hashed(str(incoming_pw)):
+                data["password"] = _hash_user_pw(str(incoming_pw))
+            if not data.get("two_factor_secret"):
+                prev_t2s = (getattr(target_user, "two_factor_secret", None) if target_user else None) or prev_disk.get("two_factor_secret")
+                if prev_t2s:
+                    data["two_factor_secret"] = prev_t2s
+
             if ext_str:
                 saved_payload_by_ext[ext_str] = data
             if data.get("id") is not None:
@@ -40525,7 +40986,13 @@ async def cti_customer_lookup_endpoint(payload: CtiLookupRequest, user_info: dic
 
         try:
             import httpx
-            async with httpx.AsyncClient(timeout=4.5, verify=False) as client:
+            from backend.services.auth_service import validate_outbound_url
+            ok_cti, err_cti = validate_outbound_url(resolved_api_url, allow_private=True)
+            if not ok_cti:
+                external_crm_error = f"SSRF Koruması: {err_cti}"
+                raise ValueError(external_crm_error)
+            verify_tls = os.getenv("NORNIA_ALLOW_INSECURE_TLS", "0") != "1"
+            async with httpx.AsyncClient(timeout=4.5, verify=verify_tls) as client:
                 if api_method == "POST":
                     headers["Content-Type"] = "application/json"
                     if req_body_tpl:
@@ -42945,7 +43412,8 @@ async def _query_central_panel_for_updates() -> dict:
         "current_version": cur_ver,
     }
     last_err = ""
-    async with httpx.AsyncClient(timeout=6.0, verify=False) as client:
+    verify_tls = os.getenv("NORNIA_ALLOW_INSECURE_TLS", "0") != "1"
+    async with httpx.AsyncClient(timeout=6.0, verify=verify_tls) as client:
         for base in candidate_bases:
             try:
                 resp = await client.get(f"{base}/api/v1/updates/check", params=params)
@@ -52931,6 +53399,6 @@ async def save_agent_shifts_settings(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, reload=False)
+    uvicorn.run("backend.main:app", host=os.getenv("NORNIA_BIND_HOST", "127.0.0.1"), port=int(os.getenv("NORNIA_PORT", "8000")), reload=False)
 
 

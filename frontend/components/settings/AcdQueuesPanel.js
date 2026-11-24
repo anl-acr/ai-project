@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Users, Search, Plus, Trash2, Edit2, CheckCircle, HeadphonesIcon, ShieldAlert, X, Settings, Download, Upload, Shuffle, Star, Sliders, LogOut } from "lucide-react";
-import * as XLSX from "xlsx";
+import * as XLSX from "../../utils/excelHelper";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import QueueEditModal from "./QueueEditModal";
 import TablePagination from "../ui/TablePagination";
@@ -196,11 +196,7 @@ export default function AcdQueuesPanel({ backendHost }) {
     reader.onload = async (evt) => {
       setLoading(true);
       try {
-        const bstr = evt.target.result;
-        const workbook = XLSX.read(bstr, { type: 'binary' });
-        const wsname = workbook.SheetNames[0];
-        const ws = workbook.Sheets[wsname];
-        const data = XLSX.utils.sheet_to_json(ws);
+        const data = await XLSX.readFileToJson(file);
 
         let newQueues = [...queues];
         let nextId = queues.length > 0 ? Math.max(...queues.map(q => q.id || 0)) + 1 : 1;

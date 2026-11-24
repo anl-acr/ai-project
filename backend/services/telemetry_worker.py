@@ -224,7 +224,8 @@ async def send_single_telemetry_heartbeat(override_tenants: list = None) -> bool
         }
 
         target_hb_url = _resolve_heartbeat_url(current_settings)
-        async with httpx.AsyncClient(timeout=8.0, verify=False) as client:
+        verify_tls = os.getenv("NORNIA_ALLOW_INSECURE_TLS", "0") != "1"
+        async with httpx.AsyncClient(timeout=8.0, verify=verify_tls) as client:
             resp = await client.post(target_hb_url, json=payload)
             if resp.status_code == 200:
                 data = resp.json()

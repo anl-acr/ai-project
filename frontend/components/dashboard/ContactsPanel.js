@@ -21,7 +21,7 @@ import {
   Copy,
   Check,
 } from "lucide-react";
-import * as XLSX from "xlsx";
+import * as XLSX from "../../utils/excelHelper";
 import ConfirmDeleteModal from "./ConfirmDeleteModal";
 import TablePagination from "../ui/TablePagination";
 import { useTheme } from "../../utils/theme";
@@ -721,11 +721,7 @@ export default function ContactsPanel({ backendHost }) {
     reader.onload = async (evt) => {
       setLoading(true);
       try {
-        const bstr = evt.target.result;
-        const workbook = XLSX.read(bstr, { type: "binary" });
-        const wsname = workbook.SheetNames[0];
-        const ws = workbook.Sheets[wsname];
-        const data = XLSX.utils.sheet_to_json(ws);
+        const data = await XLSX.readFileToJson(file);
 
         for (const row of data) {
           let first_name = String(row["Ad"] || row["İsim"] || "").trim();

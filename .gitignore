@@ -8,6 +8,25 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .env
+.env.*
+!.env.example
+
+# Security & Sensitive Runtime Files (SEC-02)
+asterisk_config/keys/*.key
+asterisk_config/keys/*.pem
+asterisk_config/keys/*.crt
+backend/settings.json
+backend/data.db
+backend/.session_secret
+backend/.license_secret
+license_center/backend/.master_session_secret
+license_center/backend/.license_secret
+*.db
+*.sqlite3
+docs/Nornia-Guvenlik-Denetim-Raporu*.pdf
+security_reports/
+scripts/portals/build_security_report_pdf.py
+scripts/portals/build_security_retest_pdf.py
 
 # Python
 __pycache__/

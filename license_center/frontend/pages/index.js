@@ -4654,13 +4654,13 @@ export default function MasterDashboard() {
                 </div>
                 <div className="flex items-center justify-between bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 font-mono text-[11px] text-emerald-300">
                   <span className="truncate">
-                    {`ssh -o ProxyCommand='python3 -c "import urllib.request; exec(urllib.request.urlopen(\\"https://connect.nornia.com.tr/ssh/${sshModalClient.connect_subdomain}\\").read())"' ${sshUsername || "aida"}@${sshModalClient.connect_subdomain}.nornia.com.tr`}
+                    {`ssh -o ProxyCommand="websocat -b wss://connect.nornia.com.tr/api/v1/connect/tcp-relay/${sshModalClient.connect_subdomain}/22" ${sshUsername || "aida"}@${sshModalClient.connect_subdomain}.nornia.com.tr`}
                   </span>
                   <button
                     type="button"
                     onClick={() =>
                       handleCopyText(
-                        `ssh -o ProxyCommand='python3 -c "import urllib.request; exec(urllib.request.urlopen(\\"https://connect.nornia.com.tr/ssh/${sshModalClient.connect_subdomain}\\").read())"' ${sshUsername || "aida"}@${sshModalClient.connect_subdomain}.nornia.com.tr`,
+                        `ssh -o ProxyCommand="websocat -b wss://connect.nornia.com.tr/api/v1/connect/tcp-relay/${sshModalClient.connect_subdomain}/22" ${sshUsername || "aida"}@${sshModalClient.connect_subdomain}.nornia.com.tr`,
                         "ssh-ext-cmd"
                       )
                     }

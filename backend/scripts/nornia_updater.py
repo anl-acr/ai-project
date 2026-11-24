@@ -97,7 +97,7 @@ def _report_status_to_hub(hub_url: str, hardware_id: str, state: dict):
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        ctx = ssl._create_unverified_context()
+        ctx = ssl.create_default_context()
         with urllib.request.urlopen(req, timeout=4.0, context=ctx):
             pass
     except Exception:

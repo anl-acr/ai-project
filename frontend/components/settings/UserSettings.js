@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Plus, Trash2, Edit2, X, User, Mail, Phone, Shield, Check, CheckCircle, ToggleLeft, ToggleRight, Search, Copy, RefreshCw, KeyRound, PhoneCall, Settings, Image as ImageIcon, Monitor, Smartphone, AlertTriangle, PhoneOutgoing, Users, Forward, Mic, MicOff, Download, Upload, Building2, Eye, EyeOff, Cable, ExternalLink, Database, Play, LayoutGrid, ChevronRight, Lock, Unlock, Terminal, Wifi, Cpu, ArrowUp, ArrowDown, Power, Sparkles, Layers, Sliders, Palette, Sun, Moon, Clock, Volume2, Square, BellRing, GripVertical, RotateCcw, List, PanelTop, Keyboard, Pin } from "lucide-react";
-import * as XLSX from "xlsx";
+import * as XLSX from "../../utils/excelHelper";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import {
   useTheme,
@@ -961,11 +961,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     reader.onload = async (evt) => {
       setLoading(true);
       try {
-        const bstr = evt.target.result;
-        const workbook = XLSX.read(bstr, { type: 'binary' });
-        const wsname = workbook.SheetNames[0];
-        const ws = workbook.Sheets[wsname];
-        const data = XLSX.utils.sheet_to_json(ws);
+        const data = await XLSX.readFileToJson(file);
 
         let successCount = 0;
         let errorCount = 0;

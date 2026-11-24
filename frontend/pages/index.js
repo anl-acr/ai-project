@@ -6,7 +6,8 @@ import {
   saveRememberedCredentials,
   loadCachedUserProfile,
   clearAuthenticatedSession,
-  updateRememberedPasswordIfSaved
+  updateRememberedPasswordIfSaved,
+  setAuthToken
 } from "../utils/authStorage";
 import {
   getDeviceKeySync,
@@ -2596,6 +2597,9 @@ export default function Home() {
             });
             if (ssoRes.ok) {
               const ssoData = await ssoRes.json();
+              if (ssoData.access_token) {
+                setAuthToken(ssoData.access_token, false);
+              }
               sessionStorage.setItem("is_logged_in", "true");
               sessionStorage.setItem("current_user_id", "admin");
               sessionStorage.setItem("is_nornia_root", "true");
@@ -3137,157 +3141,69 @@ export default function Home() {
   const handleLogin = async (username, password, rememberMe = true) => {
     setLoginError("");
     const cleanUsername = (username || "").trim();
-    let usersToSearch = systemUsers;
-    let backendReachable = false;
-    let backendStatus = null;
     try {
       const protocol = window.location.protocol === "https:" ? "https:" : "http:";
-      const resUsers = await fetch(`${protocol}//${backendHost}/api/settings/users?tenant_id=all`);
-      backendStatus = resUsers.status;
-      if (resUsers.ok) {
-        backendReachable = true;
-        const freshUsers = await resUsers.json();
-        if (Array.isArray(freshUsers) && freshUsers.length > 0) {
-          usersToSearch = freshUsers;
-          setSystemUsers(freshUsers);
-        }
-      }
-    } catch (err) {
-      console.error("Login user fetch error:", err);
-    }
-
-    const checkDeviceLockForUser = async (uObj) => {
-      if (!uObj) return { allowed: true };
       const curDk = getDeviceKeySync();
-      const envInfo = getClientBrowserAndOs();
-      const localCheck = verifyUserDeviceAccess(uObj, curDk);
-      try {
-        const protocol = window.location.protocol === "https:" ? "https:" : "http:";
-        const vRes = await fetch(`${protocol}//${backendHost}/api/auth/verify-device`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(curDk ? { "X-Device-Key": curDk } : {})
-          },
-          body: JSON.stringify({
-            user_id: uObj.id ?? uObj.extension ?? uObj.username,
-            extension: uObj.extension || "",
-            device_key: curDk,
-            client_browser: envInfo.browser,
-            client_os: envInfo.os
-          })
-        });
-        if (vRes.ok) {
-          const vData = await vRes.json();
-          if (vData && vData.allowed === false) {
-            return {
-              allowed: false,
-              error:
-                vData.detail ||
-                `Bu bilgisayar (${curDk}) hesabınız için yetkilendirilmemiş. Lütfen Cihaz Anahtarınızı sistem yöneticinize iletin.`
-            };
-          }
-          return { allowed: true };
-        }
-      } catch (_) {}
-      if (!localCheck.allowed) {
-        return {
-          allowed: false,
-          error: `Bu bilgisayar (${curDk}) hesabınız için yetkilendirilmemiş. Lütfen Cihaz Anahtarınızı sistem yöneticinize iletin.`
-        };
+      const res = await fetch(`${protocol}//${backendHost}/api/auth/login`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          ...(curDk ? { "X-Device-Key": curDk } : {})
+        },
+        body: JSON.stringify({
+          username: cleanUsername,
+          password: password || "",
+          remember_me: Boolean(rememberMe),
+          device_key: curDk || undefined,
+          client_type: "web"
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const errMsg = data?.detail || "Geçersiz kullanıcı adı veya şifre.";
+        setLoginError(errMsg);
+        return { success: false, error: errMsg };
       }
-      return { allowed: true };
-    };
 
-    const adminUserFromDb =
-      (usersToSearch || []).find(u => u.username === 'admin' || u.email === 'admin@localhost' || u.id === 1) ||
-      (usersToSearch || []).find(u => u.role === 'admin');
-    const hasCustomAdminPwd = Boolean(adminUserFromDb?.password && String(adminUserFromDb.password).trim());
-    const validAdminPassword = hasCustomAdminPwd ? String(adminUserFromDb.password) : (SUPER_ADMIN.password || "admin");
-
-    if (cleanUsername.toLowerCase() === "admin" && password === validAdminPassword) { // Admin login
-      const activeAdminUser = adminUserFromDb ? { ...SUPER_ADMIN, ...adminUserFromDb } : SUPER_ADMIN;
-      const admDev = await checkDeviceLockForUser(activeAdminUser);
-      if (!admDev.allowed) {
-        setLoginError(admDev.error);
-        return { success: false, error: admDev.error };
-      }
-      if (activeAdminUser.two_factor_enabled) {
-        const normAdminMethod = (!activeAdminUser.two_factor_method || activeAdminUser.two_factor_method === "app") ? "google_auth" : activeAdminUser.two_factor_method;
+      if (data.requires_2fa && data.user) {
+        const uObj = data.user;
+        const rawM = data.two_factor_method || uObj.two_factor_method || "google_auth";
+        const normMethod = (!rawM || rawM === "app") ? "google_auth" : rawM;
         return {
           success: true,
           requires2fa: true,
-          user_id: (activeAdminUser.id || "admin").toString(),
-          method: normAdminMethod,
-          enrolled: Boolean(activeAdminUser.two_factor_enrolled),
-          email: activeAdminUser.email || "",
-          phone: activeAdminUser.gsm_number || activeAdminUser.follow_me?.mobile_number || "",
-          full_name: activeAdminUser.full_name || "Sistem Yöneticisi"
-        };
-      }
-      persistAuthenticatedSession("admin", rememberMe, activeAdminUser);
-      saveRememberedCredentials(cleanUsername, password, rememberMe);
-      setIsAuthChecking(true);
-      await checkRolePermissions(activeAdminUser);
-      sendUserAuditActivity("LOGIN", "Auth", "Web Paneli Girişi", `${activeAdminUser.full_name || "Sistem Yöneticisi"} web yönetim paneline giriş yaptı.`, activeAdminUser);
-      return { success: true };
-    }
-
-    const cleanLower = cleanUsername.toLowerCase();
-    const foundUser = (usersToSearch || []).find(u => {
-      const matchesIdentity = (
-        u.username === cleanUsername ||
-        (u.username && String(u.username).toLowerCase() === cleanLower) ||
-        u.email === cleanUsername ||
-        (u.email && String(u.email).toLowerCase() === cleanLower) ||
-        String(u.extension || "") === cleanUsername ||
-        u.full_name === cleanUsername ||
-        (u.sip_username && u.sip_username === cleanUsername)
-      );
-      const matchesMainPassword = (u.password === password || u.sip_password === password);
-      const matchesSipDevice = Array.isArray(u.sip_devices) && u.sip_devices.some(d =>
-        d &&
-        String(d.sip_username || "") === cleanUsername &&
-        (u.password === password || String(d.sip_password || "") === password)
-      );
-      return (matchesIdentity && matchesMainPassword) || matchesSipDevice;
-    });
-    if (foundUser) {
-      const usrDev = await checkDeviceLockForUser(foundUser);
-      if (!usrDev.allowed) {
-        setLoginError(usrDev.error);
-        return { success: false, error: usrDev.error };
-      }
-      if (foundUser.two_factor_enabled) {
-        const normMethod = (!foundUser.two_factor_method || foundUser.two_factor_method === "app") ? "google_auth" : foundUser.two_factor_method;
-        return {
-          success: true,
-          requires2fa: true,
-          user_id: foundUser.id.toString(),
+          two_factor_token: data.two_factor_token || "",
+          user_id: String(uObj.id ?? "admin"),
           method: normMethod,
-          enrolled: Boolean(foundUser.two_factor_enrolled),
-          email: foundUser.email || "",
-          phone: foundUser.gsm_number || foundUser.follow_me?.mobile_number || "",
-          full_name: foundUser.full_name || ""
+          enrolled: Boolean(data.two_factor_enrolled ?? uObj.two_factor_enrolled),
+          email: uObj.email || "",
+          phone: uObj.gsm_number || uObj.follow_me?.mobile_number || "",
+          full_name: uObj.full_name || "Sistem Yöneticisi"
         };
       }
 
-      persistAuthenticatedSession(foundUser.id.toString(), rememberMe, foundUser);
-      saveRememberedCredentials(cleanUsername, password, rememberMe);
-      setIsAuthChecking(true);
-      await checkRolePermissions(foundUser);
-      sendUserAuditActivity("LOGIN", "Auth", "Web Paneli Girişi", `${foundUser.full_name || foundUser.username || "Kullanıcı"} (Dahili: ${foundUser.extension || "-"}) sisteme giriş yaptı.`, foundUser);
-      return { success: true };
-    } else {
-      if (!backendReachable && (!usersToSearch || usersToSearch.length === 0)) {
-        const svcMsg = backendStatus
-          ? `Sunucu kullanıcı servisi yanıt vermedi (HTTP ${backendStatus}). Lütfen aida-backend servisini kontrol edin.`
-          : "Sunucu servisine (aida-backend) ulaşılamıyor. Lütfen sunucu servislerinin çalıştığını kontrol edin.";
-        setLoginError(svcMsg);
-        return { success: false, error: svcMsg };
+      const loggedUser = data.user || SUPER_ADMIN;
+      if (data.access_token) {
+        setAuthToken(data.access_token, rememberMe);
       }
-      setLoginError("Geçersiz kullanıcı adı veya şifre.");
-      return { success: false, error: "Geçersiz kullanıcı adı veya şifre." };
+      const storeId = String(loggedUser.id ?? "admin");
+      persistAuthenticatedSession(storeId, rememberMe, loggedUser);
+      saveRememberedCredentials(cleanUsername, "", rememberMe);
+      setIsAuthChecking(true);
+      await checkRolePermissions(loggedUser);
+      sendUserAuditActivity(
+        "LOGIN",
+        "Auth",
+        "Web Paneli Girişi",
+        `${loggedUser.full_name || loggedUser.username || "Kullanıcı"} (Dahili: ${loggedUser.extension || "-"}) sisteme giriş yaptı.`,
+        loggedUser
+      );
+      return { success: true };
+    } catch (err) {
+      const svcMsg = "Sunucu servisine (aida-backend) ulaşılamıyor. Lütfen sunucu servislerinin çalıştığını kontrol edin.";
+      setLoginError(svcMsg);
+      return { success: false, error: svcMsg };
     }
   };
 
@@ -3676,6 +3592,10 @@ export default function Home() {
           })
         }).catch(() => {});
       }
+      await fetch(`${protocol}//${backendHost}/api/auth/logout`, {
+        method: "POST",
+        credentials: "include"
+      }).catch(() => {});
     } catch (e) {
       console.error("Logout error:", e);
     } finally {

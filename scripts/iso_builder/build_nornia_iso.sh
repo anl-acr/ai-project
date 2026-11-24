@@ -87,8 +87,8 @@ apt-get install -y \
   xorriso dpkg-dev apt-rdepends wget curl openssl python3 python3-pip python3-venv \
   rsync squashfs-tools ca-certificates gnupg
 
-# Node.js 20 yoksa NodeSource'tan kur (Frontend build + pm2 paketleme için)
-if ! command -v node >/dev/null 2>&1 || [[ "$(node -v | sed 's/v//' | cut -d. -f1)" -lt 18 ]]; then
+# Node.js 20 yoksa NodeSource'tan kur (Next.js 16.4.6 + pm2 paketleme için Node >= 20 zorunlu)
+if ! command -v node >/dev/null 2>&1 || [[ "$(node -v | sed 's/v//' | cut -d. -f1)" -lt 20 ]]; then
   echo "[1b] Node.js 20 LTS kuruluyor..."
   curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
   apt-get install -y nodejs
@@ -234,7 +234,15 @@ rsync -a \
   --exclude='scratch' \
   --exclude='backend/settings.json' \
   --exclude='backend/.env' \
+  --exclude='backend/.session_secret' \
+  --exclude='backend/.license_secret' \
   --exclude='backend/*.db' \
+  --exclude='asterisk_config/keys/*.key' \
+  --exclude='asterisk_config/keys/*.pem' \
+  --exclude='asterisk_config/keys/*.crt' \
+  --exclude='portals' \
+  --exclude='security_reports' \
+  --exclude='docs/Nornia-Guvenlik-Denetim-Raporu*.pdf' \
   --exclude='__pycache__' \
   --exclude='*.pyc' \
   "${REPO_ROOT}/" "${APP_STAGE}/"
