@@ -4,12 +4,12 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3050",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start -p 3050"
   },
   "dependencies": {
     "lucide-react": "^0.378.0",
-    "next": "14.2.35",
+    "next": "16.4.6",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
