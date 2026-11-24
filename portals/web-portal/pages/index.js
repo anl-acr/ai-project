@@ -30,6 +30,7 @@ import {
   Radio,
 } from "lucide-react";
 import HeroProductPreview from "../components/HeroProductPreview";
+import LiveTranslateShowcase from "../components/LiveTranslateShowcase";
 import DemoRequestForm from "../components/DemoRequestForm";
 import {
   SITE_CONFIG,
@@ -460,6 +461,11 @@ export default function NorniaHomePage() {
               </div>
             </div>
           </section>
+
+          {/* ============================================================
+              SECTION 3A — AI REAL-TIME ÇAĞRI ÇEVİRİSİ (SİMULTANE TERCÜMAN)
+             ============================================================ */}
+          <LiveTranslateShowcase />
 
           {/* ============================================================
               SECTION 3B — RUNA MOBİL & RUNA MASAÜSTÜ UYGULAMALARI
