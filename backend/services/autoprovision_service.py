@@ -258,6 +258,7 @@ def build_system_default_templates() -> List[Dict[str, Any]]:
     <P64>TZT-3</P64>
     <P30>pool.ntp.org</P30>
     <P122>{{TIME_FORMAT_24_BIT}}</P122>
+    <P1362>{{GS_LANGUAGE_CODE}}</P1362>
     <P334>{{BACKLIGHT_ACTIVE_PCT}}</P334>
     <P330>1</P330>
     <P331>{{PHONEBOOK_URL_NO_SCHEME}}</P331>
@@ -265,6 +266,7 @@ def build_system_default_templates() -> List[Dict[str, Any]]:
 {{SYNC_FEATURE_BLOCK}}
 {{DSS_KEYS_BLOCK}}
 {{EXPANSION_MODULES_BLOCK}}
+{{SOFTKEYS_BLOCK}}
   </config>
 </gs_provision>
 """
@@ -1682,6 +1684,99 @@ def generate_yealink_common_boot_cfg(settings_db: Optional[dict] = None) -> str:
     )
 
 
+def _resolve_grandstream_lang_code(eff_language: str) -> str:
+    """Maps Nornia language preference to official Grandstream P1362 language code (defaults to Turkish `tr`)."""
+    low = str(eff_language or "Turkish").strip().lower()
+    if low.startswith("en"):
+        return "en"
+    if low.startswith("de") or low.startswith("ger"):
+        return "de"
+    if low.startswith("fr"):
+        return "fr"
+    if low.startswith("es") or low.startswith("spa"):
+        return "es"
+    if low.startswith("ru"):
+        return "ru"
+    if low.startswith("ar"):
+        return "ar"
+    return "tr"
+
+
+def _build_grandstream_softkeys_xml_lines(
+    soft_list: List[Dict[str, Any]],
+    model_name: str = "",
+    pickup_group: str = "*8",
+) -> List[str]:
+    """
+    Generates official Grandstream GRP260x (GRP2601/GRP2602/GRP2603/GRP2604) Idle Screen Softkeys XML:
+      - `<P2939>1</P2939>`: Custom Idle Screen Softkey Layout = Yes
+      - `<P8348>...</P8348>`: Comma-separated left-to-right softkey tokens matching the visual UI bar
+        (default: `Custom-History,Custom-Contacts,Custom-IdleForwardAll,Custom-Menu` -> Geçmiş | Rehber | Yönlendir | Menü)
+      - `<P2987>..<P2998>`: Custom Softkey 1..3 definitions when SpeedDial / Voicemail softkeys are chosen.
+    """
+    m_low = str(model_name or "").strip().lower()
+    # GRP261x/262x/263x use P8348 for "Hide System Softkey on Idle Page" rather than custom layout string;
+    # GRP260x (GRP2601/2602/2603/2604) uses P2939=1 + P8348 for the exact Custom Idle Screen Softkey Layout.
+    is_grp260x = any(tag in m_low for tag in ("grp2601", "grp2602", "grp2603", "grp2604"))
+    if not is_grp260x:
+        return []
+
+    effective_softs = soft_list if soft_list else [
+        {"key_index": 1, "type": "history", "label": "Geçmiş", "value": ""},
+        {"key_index": 2, "type": "directory", "label": "Rehber", "value": ""},
+        {"key_index": 3, "type": "forward", "label": "Yönlendir", "value": ""},
+        {"key_index": 4, "type": "menu", "label": "Menü", "value": ""},
+    ]
+    ordered = sorted(effective_softs, key=lambda s: int(s.get("key_index") or 99))[:4]
+
+    token_map = {
+        "history": "Custom-History",
+        "directory": "Custom-Contacts",
+        "forward": "Custom-IdleForwardAll",
+        "menu": "Custom-Menu",
+        "dnd": "Custom-DND",
+        "redial": "Custom-Redial",
+        "pickup": "BLF-Pickup",
+        "transfer": "Custom-CallSettings",
+    }
+
+    out_lines: List[str] = [
+        "    <!-- Ekran Alti Softkeys (GRP260x Custom Idle Screen Softkey Layout) -->",
+        "    <P2939>1</P2939>",
+    ]
+    layout_tokens: List[str] = []
+    custom_slot = 0  # Custom1 (P2987..2990), Custom2 (P2991..2994), Custom3 (P2995..2998)
+
+    for sk in ordered:
+        st = str(sk.get("type") or "history").strip().lower()
+        lbl = str(sk.get("label") or "").strip()
+        val = str(sk.get("value") or "").strip()
+        if st in token_map:
+            layout_tokens.append(token_map[st])
+        elif st in ("speed_dial", "voicemail") and custom_slot < 3:
+            custom_slot += 1
+            base_p = 2987 + ((custom_slot - 1) * 4)
+            mode_val = "6" if st == "voicemail" else "0"
+            eff_val = val or ("*97" if st == "voicemail" else pickup_group)
+            eff_lbl = lbl or ("Sesli Mesaj" if st == "voicemail" else "Hızlı Ara")
+            out_lines.extend([
+                f"    <P{base_p}>{mode_val}</P{base_p}>",
+                f"    <P{base_p + 1}>0</P{base_p + 1}>",
+                f"    <P{base_p + 2}>{html.escape(eff_lbl)}</P{base_p + 2}>",
+                f"    <P{base_p + 3}>{html.escape(eff_val)}</P{base_p + 3}>",
+            ])
+            layout_tokens.append(f"Custom{custom_slot}")
+
+    # Disable unused Custom1..3 slots cleanly
+    for unused_idx in range(custom_slot + 1, 4):
+        base_p = 2987 + ((unused_idx - 1) * 4)
+        out_lines.append(f"    <P{base_p}>-1</P{base_p}>")
+
+    if layout_tokens:
+        out_lines.append(f"    <P8348>{','.join(layout_tokens)}</P8348>")
+    return out_lines
+
+
 def generate_provisioning_config(
     ext: str,
     sip_username: str,
@@ -1903,6 +1998,13 @@ def generate_provisioning_config(
                         f"    <P{pb + 2}>{html.escape(str(ek.get('label') or ''))}</P{pb + 2}>",
                         f"    <P{pb + 3}>{html.escape(str(ek.get('value') or ''))}</P{pb + 3}>",
                     ])
+            soft_block_lines.extend(
+                _build_grandstream_softkeys_xml_lines(
+                    soft_list,
+                    model_name=str(template_obj.get("model") or model or ""),
+                    pickup_group=pickup_group,
+                )
+            )
         elif "fanvil" in tpl_b_low:
             for k in dss_list:
                 idx = int(k.get("key_index") or 1)
@@ -2017,6 +2119,7 @@ def generate_provisioning_config(
             "{BACKLIGHT_ACTIVE}": str(prefs["backlight_active"]),
             "{BACKLIGHT_ACTIVE_PCT}": str(max(10, min(100, prefs["backlight_active"] * 10))),
             "{LANGUAGE}": eff_language,
+            "{GS_LANGUAGE_CODE}": _resolve_grandstream_lang_code(eff_language),
             "{TIMEZONE}": str(timezone or "+3").strip() or "+3",
             "{TIMEZONE_NAME}": "Turkey(Ankara)" if str(timezone or "+3").strip() in ("+3", "Europe/Istanbul") else str(timezone or "+3"),
             "{NTP_SERVER}": str(ntp_server or "pool.ntp.org").strip() or "pool.ntp.org",
@@ -2048,8 +2151,12 @@ def generate_provisioning_config(
                     inject_gs.append("    <P240>0</P240>")
                 if "<P4428>" not in rendered:
                     inject_gs.append("    <P4428>1</P4428>")
+                if "<P1362>" not in rendered:
+                    inject_gs.append(f"    <P1362>{_resolve_grandstream_lang_code(eff_language)}</P1362>")
                 if "{SYNC_FEATURE_BLOCK}" not in raw_tpl:
                     inject_gs.append(grandstream_sync_block)
+                if "{SOFTKEYS_BLOCK}" not in raw_tpl and soft_block_lines:
+                    inject_gs.append("\n".join(soft_block_lines))
                 if inject_gs:
                     rendered = rendered.replace("</config>", "\n".join(inject_gs) + "\n  </config>", 1)
         elif "fanvil" in tpl_b_low:
@@ -2157,7 +2264,8 @@ def generate_provisioning_config(
                 gs_ext_lines.append(f"    <P{p_b + 2}>{ek_lbl}</P{p_b + 2}>")
                 gs_ext_lines.append(f"    <P{p_b + 3}>{ek_val}</P{p_b + 3}>")
 
-        mpk_block = "\n".join(gs_mpk_lines + gs_ext_lines)
+        gs_soft_lines = _build_grandstream_softkeys_xml_lines(soft_list, model_name=model, pickup_group=pickup_group)
+        mpk_block = "\n".join(gs_mpk_lines + gs_ext_lines + gs_soft_lines)
         gs_prov_url = html.escape(provision_server_url.replace("http://", "").replace("https://", "")) if provision_server_url else ""
         gs_prov_proto = "2" if provision_server_url.startswith("https://") else "1"
         gs_time_fmt = "1" if prefs["time_format"] == "24" else "0"
@@ -2165,7 +2273,7 @@ def generate_provisioning_config(
         gs_aa = "1" if eff_auto_answer else "0"
         gs_bl_active = str(max(10, min(100, prefs["backlight_active"] * 10)))
         gs_bl_idle = str(max(0, min(100, prefs["backlight_inactive"] * 10)))
-        gs_lang_code = "tr" if eff_language.lower().startswith("turk") else ("de" if eff_language.lower().startswith("ger") or eff_language.lower().startswith("deut") else "en")
+        gs_lang_code = _resolve_grandstream_lang_code(eff_language)
         gs_prov_lines = (
             f"    <P212>{gs_prov_proto}</P212>\n    <P237>{gs_prov_url}</P237>\n    <P194>1</P194>\n    <P240>0</P240>\n    <P4428>1</P4428>\n    <P95030>0</P95030>\n    <P22421>0</P22421>\n    <P6752>1</P6752>\n"
             if gs_prov_url
