@@ -3467,10 +3467,44 @@ async def get_nat_settings():
 @app.post("/api/settings/nat")
 @app.post("/settings/nat")
 async def save_nat_settings(payload: NATSettingsSchema, background_tasks: BackgroundTasks):
-    settings_db["nat"] = payload.model_dump()
+    prev_nat = settings_db.get("nat") or {}
+    new_nat = payload.model_dump()
+    transport_changed = (
+        bool(prev_nat.get("enabled", False)) != bool(new_nat.get("enabled", False))
+        or str(prev_nat.get("extern_ip") or "").strip() != str(new_nat.get("extern_ip") or "").strip()
+        or list(prev_nat.get("local_nets") or []) != list(new_nat.get("local_nets") or [])
+    )
+    settings_db["nat"] = new_nat
     save_settings(settings_db)
     regenerate_pjsip_custom_conf(background_tasks)
-    return {"status": "success", "message": "NAT ve Dış IP ayarları başarıyla kaydedildi ve Asterisk'e uygulandı."}
+    if transport_changed:
+        def _apply_pjsip_transport_restart():
+            try:
+                import subprocess as _sp
+                res = _sp.run(
+                    ["asterisk", "-rx", "core restart when convenient"],
+                    capture_output=True,
+                    text=True,
+                    timeout=2.0,
+                )
+                if res.returncode != 0:
+                    _sp.run(
+                        ["docker", "exec", "ai_pbx_asterisk", "asterisk", "-rx", "core restart when convenient"],
+                        capture_output=True,
+                        text=True,
+                        timeout=2.0,
+                    )
+            except Exception as _e:
+                print(f"[NAT Settings] Asterisk transport restart skipped/failed: {_e}")
+        background_tasks.add_task(_apply_pjsip_transport_restart)
+    return {
+        "status": "success",
+        "message": (
+            "NAT ve Dış IP ayarları kaydedildi; PJSIP transport değişikliği için Asterisk uygun anda otomatik yenilenecek."
+            if transport_changed
+            else "NAT ve Dış IP ayarları başarıyla kaydedildi ve Asterisk'e uygulandı."
+        ),
+    }
 
 @app.get("/api/system/public-ip")
 @app.get("/system/public-ip")
@@ -4612,7 +4646,7 @@ def regenerate_pjsip_custom_conf(background_tasks: Optional[BackgroundTasks] = N
         local_nets.append("10.200.0.0/16")
 
     nat_lines = ""
-    if extern_ip:
+    if nat_enabled and extern_ip:
         nat_lines += f"external_media_address={extern_ip}\nexternal_signaling_address={extern_ip}\n"
         for net in local_nets:
             net_clean = str(net).strip()
@@ -5092,7 +5126,7 @@ outbound_auth={name}-auth
 server_uri=sip:{host}:{port}
 client_uri=sip:{username}@{host}:{port}
 retry_interval=60
-expiration=3600
+expiration=120
 auth_rejection_permanent=no
 {contact_user_line}
 [{name}-aor]

@@ -390,7 +390,7 @@ stunaddr=stun.l.google.com:19302
         name_1000 = (user_1000.get("full_name") or user_1000.get("username") or "Temsilci 1000") if user_1000 else "Temsilci 1000"
 
         nat_lines = ""
-        if extern_ip:
+        if nat_enabled and extern_ip:
             nat_lines += f"external_media_address={extern_ip}\nexternal_signaling_address={extern_ip}\n"
             for net in local_nets:
                 net_clean = str(net).strip()
@@ -785,7 +785,7 @@ outbound_auth={name}-auth
 server_uri=sip:{host}:{port}
 client_uri=sip:{username}@{host}:{port}
 retry_interval=60
-expiration=3600
+expiration=120
 auth_rejection_permanent=no
 {contact_user_line}
 [{name}-aor]
