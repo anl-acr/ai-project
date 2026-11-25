@@ -31,6 +31,7 @@ import SearchableSelect from "../ui/SearchableSelect";
 import TablePagination from "../ui/TablePagination";
 import BulkConfigPanel from "./BulkConfigPanel";
 import UserApplicationsPanel from "./UserApplicationsPanel";
+import AdminDeskphoneVisualEditor from "./AdminDeskphoneVisualEditor";
 
 import { getApiBaseUrl, tenantFetch } from "../../utils/apiHost";
 import { webphoneManager } from "../../utils/webphoneManager";
@@ -1199,15 +1200,26 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       ntp_server: overrides.ntp_server || "pool.ntp.org",
       auto_answer: Boolean(overrides.auto_answer),
       direct_ip_call_block: overrides.direct_ip_call_block !== false,
-      dss_keys: Array.isArray(overrides.dss_keys) ? overrides.dss_keys.map((k, idx) => ({ ...k, key: Number(k.key) || idx + 1 })) : [],
+      dss_keys: Array.isArray(overrides.dss_keys)
+        ? overrides.dss_keys.map((k, idx) => {
+            const kNum = Number(k.key_index || k.key) || idx + 1;
+            const pCode = k.pickup_code || k.extension || "*8";
+            return { ...k, key: kNum, key_index: kNum, pickup_code: pCode, extension: pCode };
+          })
+        : [],
       soft_keys: Array.isArray(overrides.soft_keys) && overrides.soft_keys.length > 0
-        ? overrides.soft_keys.map((sk, idx) => ({ ...sk, key: Number(sk.key) || idx + 1 }))
+        ? overrides.soft_keys.map((sk, idx) => {
+            const sNum = Number(sk.key_index || sk.key) || idx + 1;
+            return { ...sk, key: sNum, key_index: sNum };
+          })
         : [
-            { key: 1, type: "history", label: "Geçmiş" },
-            { key: 2, type: "directory", label: "Rehber" },
-            { key: 3, type: "forward", label: "Yönlendir" },
-            { key: 4, type: "menu", label: "Menü" }
-          ]
+            { key: 1, key_index: 1, type: "history", label: "Geçmiş", value: "" },
+            { key: 2, key_index: 2, type: "directory", label: "Rehber", value: "" },
+            { key: 3, key_index: 3, type: "forward", label: "Yönlendir", value: "" },
+            { key: 4, key_index: 4, type: "menu", label: "Menü", value: "" }
+          ],
+      expansion_modules: Array.isArray(overrides.expansion_modules) ? overrides.expansion_modules : [],
+      ...(overrides.phone_prefs && typeof overrides.phone_prefs === "object" ? { phone_prefs: { ...overrides.phone_prefs } } : {})
     };
   };
 
@@ -9969,7 +9981,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
           e.currentTarget.returnValue = "";
           setIsSipDeviceInspectOpen(false);
         }}
-        className="m-auto w-full max-w-4xl rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 p-0 shadow-2xl overscroll-contain backdrop:bg-slate-950/60 backdrop:backdrop-blur-sm backdrop:overflow-hidden backdrop:overscroll-contain"
+        className={`m-auto w-full ${inspectTab === "blf" ? "max-w-6xl" : "max-w-4xl"} transition-[max-width] duration-200 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 p-0 shadow-2xl overscroll-contain backdrop:bg-slate-950/60 backdrop:backdrop-blur-sm backdrop:overflow-hidden backdrop:overscroll-contain`}
       >
         {inspectDraft && (() => {
           const isWebInspect = inspectDraft.device_type === "web_phone";
@@ -9979,6 +9991,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
           const isOnlineNow = Boolean(inspectLiveInfo?.is_online || pjsipData.registered || inspectDraft.is_online);
           const brandModels = SIP_PHONE_MODELS[inspectDraft.brand] || ["Standart SIP"];
           const provUrl = inspectLiveInfo?.prov_url || "";
+          const assignedDssCount = (inspectDraft.dss_keys || []).filter((k) => k && k.type && k.type !== "none").length;
           const visibleInspectTabs = isWebInspect
             ? [
                 { id: "overview", label: "WebRTC & Bağlantı Özeti", icon: Wifi },
@@ -9986,39 +9999,11 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
               ]
             : [
                 { id: "overview", label: "Cihaz & Ağ Detayları", icon: Wifi },
-                { id: "blf", label: `BLF & Tuş Tanımları (${(inspectDraft.dss_keys || []).length})`, icon: LayoutGrid },
+                { id: "blf", label: `BLF & Tuş Tanımları (${assignedDssCount})`, icon: LayoutGrid },
                 { id: "phone_settings", label: "Diğer Telefon Ayarları", icon: Settings },
                 { id: "pjsip", label: "PJSIP Dahili Detay", icon: Terminal }
               ];
           const visibleInspectTabIds = visibleInspectTabs.map((t) => t.id);
-
-          const addDssKeyRow = () => {
-            const cur = Array.isArray(inspectDraft.dss_keys) ? inspectDraft.dss_keys : [];
-            const usedNums = new Set(cur.map((k) => Number(k.key)));
-            let nextKey = 1;
-            while (usedNums.has(nextKey) && nextKey <= 48) nextKey += 1;
-            setInspectDraft((prev) => ({
-              ...prev,
-              dss_keys: [
-                ...(prev.dss_keys || []),
-                { key: nextKey, type: "blf", label: "", value: "", extension: "**" }
-              ]
-            }));
-          };
-
-          const autoFillDirectoryBlf = () => {
-            const peerUsers = users
-              .filter((u) => u.extension && String(u.extension) !== String(extension) && u.is_active !== false)
-              .slice(0, 12);
-            const autoKeys = peerUsers.map((u, idx) => ({
-              key: idx + 1,
-              type: "blf",
-              label: (u.full_name || u.extension).slice(0, 18),
-              value: String(u.extension),
-              extension: "**"
-            }));
-            setInspectDraft((prev) => ({ ...prev, dss_keys: autoKeys }));
-          };
 
           const toggleCodec = (codecId) => {
             setInspectDraft((prev) => {
@@ -10404,226 +10389,19 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                   </div>
                 )}
 
-                {/* TAB 2: BLF & TUŞ TANIMLARI */}
+                {/* TAB 2: BLF & TUŞ TANIMLARI — CANLI GÖRSEL TELEFON TASARIMCISI */}
                 {inspectTab === "blf" && (
-                  <div id="inspect-panel-blf" role="tabpanel" aria-labelledby="inspect-tab-blf" className="space-y-5">
-                    <div className="p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/40 space-y-4">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                          <h3 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
-                            BLF &amp; Programlanabilir DSS Tuşları (1–24)
-                          </h3>
-                          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                            Masa telefonunun yan ekran tuşlarına dahili meşguliyet izleme (BLF), hızlı arama veya DND atayın.
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={autoFillDirectoryBlf}
-                            className={`px-3 py-1.5 rounded-xl text-xs font-bold border ${borderLight} ${lightBg} ${text} hover:opacity-90 transition-all`}
-                          >
-                            Rehberden Otomatik BLF Doldur
-                          </button>
-                          <button
-                            type="button"
-                            onClick={addDssKeyRow}
-                            className="bg-rose-600 hover:bg-rose-500 text-white rounded-xl h-8 w-8 flex items-center justify-center shrink-0 transition-all shadow-sm"
-                            title="Yeni BLF / Tuş Tanımı Ekle"
-                            aria-label="Yeni BLF veya Tuş Tanımı Ekle"
-                          >
-                            <Plus size={16} />
-                          </button>
-                        </div>
-                      </div>
-
-                      {(!inspectDraft.dss_keys || inspectDraft.dss_keys.length === 0) ? (
-                        <div className="p-6 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 text-center text-xs text-slate-500">
-                          Henüz BLF tuşu tanımlanmadı. Sağ üstteki artı (+) butonundan ekleyebilir veya &ldquo;Rehberden Otomatik BLF Doldur&rdquo; ile tek tıkla oluşturabilirsiniz.
-                        </div>
-                      ) : (
-                        <div className="space-y-2.5">
-                          {inspectDraft.dss_keys.map((row, rIdx) => (
-                            <div
-                              key={`dss-${rIdx}`}
-                              className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-center p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900"
-                            >
-                              <div className="sm:col-span-2">
-                                <label htmlFor={`dss-key-${rIdx}`} className="block text-[9px] font-bold text-slate-400 uppercase mb-1">
-                                  Tuş No
-                                </label>
-                                <select
-                                  id={`dss-key-${rIdx}`}
-                                  value={row.key || rIdx + 1}
-                                  onChange={(e) => {
-                                    const val = Number(e.target.value);
-                                    setInspectDraft((prev) => ({
-                                      ...prev,
-                                      dss_keys: prev.dss_keys.map((it, i) => (i === rIdx ? { ...it, key: val } : it))
-                                    }));
-                                  }}
-                                  className="w-full text-xs font-bold px-2.5 py-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
-                                >
-                                  {Array.from({ length: 24 }, (_, idx) => idx + 1).map((n) => (
-                                    <option key={n} value={n}>Tuş {n}</option>
-                                  ))}
-                                </select>
-                              </div>
-
-                              <div className="sm:col-span-3">
-                                <label htmlFor={`dss-type-${rIdx}`} className="block text-[9px] font-bold text-slate-400 uppercase mb-1">
-                                  Tuş Tipi
-                                </label>
-                                <select
-                                  id={`dss-type-${rIdx}`}
-                                  value={row.type || "blf"}
-                                  onChange={(e) => {
-                                    const newType = e.target.value;
-                                    setInspectDraft((prev) => ({
-                                      ...prev,
-                                      dss_keys: prev.dss_keys.map((it, i) => (i === rIdx ? { ...it, type: newType } : it))
-                                    }));
-                                  }}
-                                  className="w-full text-xs font-semibold px-2.5 py-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
-                                >
-                                  {DSS_KEY_TYPES.map((kt) => (
-                                    <option key={kt.id} value={kt.id}>{kt.label}</option>
-                                  ))}
-                                </select>
-                              </div>
-
-                              <div className="sm:col-span-3">
-                                <label htmlFor={`dss-target-${rIdx}`} className="block text-[9px] font-bold text-slate-400 uppercase mb-1">
-                                  Dahili / Hedef Değeri
-                                </label>
-                                {row.type === "blf" ? (
-                                  <select
-                                    id={`dss-target-${rIdx}`}
-                                    value={row.value || ""}
-                                    onChange={(e) => {
-                                      const selExt = e.target.value;
-                                      const peer = users.find((u) => String(u.extension) === String(selExt));
-                                      setInspectDraft((prev) => ({
-                                        ...prev,
-                                        dss_keys: prev.dss_keys.map((it, i) =>
-                                          i === rIdx
-                                            ? {
-                                                ...it,
-                                                value: selExt,
-                                                label: it.label || (peer?.full_name || selExt)
-                                              }
-                                            : it
-                                        )
-                                      }));
-                                    }}
-                                    className="w-full text-xs font-semibold px-2.5 py-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
-                                  >
-                                    <option value="">Dahili Seçiniz...</option>
-                                    {users
-                                      .filter((u) => u.extension && String(u.extension) !== String(extension))
-                                      .map((u) => (
-                                        <option key={u.id || u.extension} value={u.extension}>
-                                          {u.full_name} ({u.extension})
-                                        </option>
-                                      ))}
-                                  </select>
-                                ) : (
-                                  <input
-                                    id={`dss-target-${rIdx}`}
-                                    type="text"
-                                    placeholder={row.type === "voicemail" ? "*97" : "Numara / Kod"}
-                                    value={row.value || ""}
-                                    onChange={(e) => {
-                                      const v = e.target.value;
-                                      setInspectDraft((prev) => ({
-                                        ...prev,
-                                        dss_keys: prev.dss_keys.map((it, i) => (i === rIdx ? { ...it, value: v } : it))
-                                      }));
-                                    }}
-                                    className="w-full text-xs px-2.5 py-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
-                                  />
-                                )}
-                              </div>
-
-                              <div className="sm:col-span-3">
-                                <label htmlFor={`dss-label-${rIdx}`} className="block text-[9px] font-bold text-slate-400 uppercase mb-1">
-                                  Ekran Etiketi
-                                </label>
-                                <input
-                                  id={`dss-label-${rIdx}`}
-                                  type="text"
-                                  placeholder="Örn: Muhasebe"
-                                  value={row.label || ""}
-                                  onChange={(e) => {
-                                    const lbl = e.target.value;
-                                    setInspectDraft((prev) => ({
-                                      ...prev,
-                                      dss_keys: prev.dss_keys.map((it, i) => (i === rIdx ? { ...it, label: lbl } : it))
-                                    }));
-                                  }}
-                                  className="w-full text-xs px-2.5 py-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
-                                />
-                              </div>
-
-                              <div className="sm:col-span-1 flex sm:justify-end pt-4">
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setInspectDraft((prev) => ({
-                                      ...prev,
-                                      dss_keys: prev.dss_keys.filter((_, i) => i !== rIdx)
-                                    }))
-                                  }
-                                  className="p-2 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
-                                  title="Tuş Tanımını Kaldır"
-                                  aria-label={`${row.key || rIdx + 1}. BLF Tuş Tanımını Kaldır`}
-                                >
-                                  <Trash2 size={14} />
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Softkeys F1-F4 */}
-                    <div className="p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/40 space-y-3">
-                      <h3 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
-                        Ekran Altı Esnek Tuşlar (Softkeys F1–F4)
-                      </h3>
-                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                        {[0, 1, 2, 3].map((skIdx) => {
-                          const skItem = (inspectDraft.soft_keys || [])[skIdx] || { key: skIdx + 1, type: "history", label: "" };
-                          return (
-                            <div key={`sk-${skIdx}`} className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-2">
-                              <label htmlFor={`softkey-type-${skIdx}`} className="block text-[10px] font-extrabold text-slate-500 uppercase">
-                                F{skIdx + 1} Tuşu
-                              </label>
-                              <select
-                                id={`softkey-type-${skIdx}`}
-                                value={skItem.type || "history"}
-                                onChange={(e) => {
-                                  const nextType = e.target.value;
-                                  const defLbl = SOFTKEY_ACTIONS.find((a) => a.id === nextType)?.label || nextType;
-                                  setInspectDraft((prev) => {
-                                    const copy = [...(prev.soft_keys || [])];
-                                    while (copy.length < 4) copy.push({ key: copy.length + 1, type: "history", label: "Geçmiş" });
-                                    copy[skIdx] = { key: skIdx + 1, type: nextType, label: defLbl };
-                                    return { ...prev, soft_keys: copy };
-                                  });
-                                }}
-                                className="w-full text-xs font-semibold px-2.5 py-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
-                              >
-                                {SOFTKEY_ACTIONS.map((act) => (
-                                  <option key={act.id} value={act.id}>{act.label}</option>
-                                ))}
-                              </select>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
+                  <div id="inspect-panel-blf" role="tabpanel" aria-labelledby="inspect-tab-blf">
+                    <AdminDeskphoneVisualEditor
+                      inspectDraft={inspectDraft}
+                      setInspectDraft={setInspectDraft}
+                      extension={extension}
+                      fullName={fullName}
+                      users={users}
+                      departments={departments}
+                      safeFetch={safeFetch}
+                      isOnline={isOnlineNow}
+                    />
                   </div>
                 )}
 

@@ -40974,6 +40974,36 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                 dp_Configs,
                 fallback_password_fn=resolve_secure_sip_password,
             )
+            # Sync Admin-edited DSS/Softkey/Expansion changes into user_deskphone_configs so Masa Telefonum & .cfg stay identical
+            if ext_str and isinstance(data.get("sip_devices"), list):
+                phys_saved = [
+                    d_s for d_s in data["sip_devices"]
+                    if isinstance(d_s, dict)
+                    and str(d_s.get("device_type") or "").strip().lower() not in ("web_phone", "virtual_subscriber")
+                    and d_s.get("sip_username")
+                ]
+                for p_idx, d_s in enumerate(phys_saved):
+                    su_s = str(d_s.get("sip_username") or "").strip()
+                    if not su_s:
+                        continue
+                    dp_key_pair = f"{ext_str}::{su_s}"
+                    prev_dp_entry = dp_Configs.get(dp_key_pair) if isinstance(dp_Configs.get(dp_key_pair), dict) else {}
+                    merged_dp_entry = {
+                        **prev_dp_entry,
+                        "extension": ext_str,
+                        "sip_username": su_s,
+                        "brand": d_s.get("brand") or prev_dp_entry.get("brand") or "Yealink",
+                        "model": d_s.get("model") or prev_dp_entry.get("model") or "T46U",
+                        "dss_keys": d_s.get("dss_keys") if isinstance(d_s.get("dss_keys"), list) else prev_dp_entry.get("dss_keys", []),
+                        "soft_keys": d_s.get("soft_keys") if isinstance(d_s.get("soft_keys"), list) else prev_dp_entry.get("soft_keys", []),
+                        "expansion_modules": d_s.get("expansion_modules") if isinstance(d_s.get("expansion_modules"), list) else prev_dp_entry.get("expansion_modules", []),
+                    }
+                    if isinstance(d_s.get("phone_prefs"), dict) and d_s["phone_prefs"]:
+                        merged_dp_entry["phone_prefs"] = d_s["phone_prefs"]
+                    dp_Configs[dp_key_pair] = merged_dp_entry
+                    if p_idx == 0:
+                        dp_Configs[ext_str] = merged_dp_entry
+                settings_db["user_deskphone_configs"] = dp_Configs
             if data["sip_devices"]:
                 first_real_dev = next(
                     (
