@@ -29,7 +29,10 @@ import {
   FileDown,
   Layers,
 } from "lucide-react";
-import HeroProductPreview from "../components/HeroProductPreview";
+import {
+  HeroPanoramicStage,
+  HeroIsometricShowcase,
+} from "../components/HeroYeastarVisuals";
 import LiveTranslateShowcase from "../components/LiveTranslateShowcase";
 import { RunaMobileVisual, RunaDesktopVisual } from "../components/RunaAppVisuals";
 import PlanComparisonSection from "../components/PlanComparisonSection";
@@ -455,87 +458,90 @@ export default function NorniaHomePage() {
 
         <main id="main-content">
           {/* ============================================================
-              SECTION 1 — YEASTAR "PBX PLUS MORE" HERO BANNER
+              SECTION 1 — YEASTAR-STYLE CENTERED HERO + PANORAMIC VISUAL STAGE
              ============================================================ */}
           <section className="hero-prism-bg relative overflow-hidden border-b border-slate-200/70">
-            <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pb-20 pt-12 sm:pt-16 lg:pb-24 lg:pt-20">
-              <div className="grid grid-cols-1 items-center gap-12 lg:grid-cols-12 lg:gap-10">
-                {/* Left Column */}
-                <div className="lg:col-span-6">
-                  <div className="prism-pill-border inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-xs font-semibold text-indigo-950 shadow-sm">
-                    <Sparkles className="h-3.5 w-3.5 text-indigo-600" aria-hidden="true" />
-                    <span>Yapay Zeka Doğuşlu Kurumsal Santral • On-Premise &amp; Bulut</span>
-                  </div>
+            <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pb-16 pt-10 sm:pt-14 lg:pb-20 lg:pt-16">
+              {/* Centered Editorial Headline & CTAs */}
+              <div className="mx-auto max-w-3xl text-center">
+                <div className="prism-pill-border inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-xs font-semibold text-indigo-950 shadow-sm">
+                  <Sparkles className="h-3.5 w-3.5 text-indigo-600" aria-hidden="true" />
+                  <span>Yapay Zeka Doğuşlu Kurumsal Santral • On-Premise &amp; Bulut</span>
+                </div>
 
-                  <h1 className="mt-5 text-4xl font-extrabold tracking-tight text-slate-950 sm:text-5xl lg:text-[3.15rem] lg:leading-[1.1]">
-                    IP Santralden Fazlası: Ses, Yapay Zeka ve Omnichannel Tek Platformda
-                  </h1>
+                <h1 className="mt-5 text-4xl font-extrabold tracking-tight text-slate-950 sm:text-5xl lg:text-[3.35rem] lg:leading-[1.08]">
+                  IP Santralden Fazlası: Ses, Yapay Zeka ve Omnichannel Tek Platformda
+                </h1>
 
-                  <p className="mt-5 max-w-xl text-base leading-relaxed text-slate-600 sm:text-lg">
-                    Asterisk PJSIP gücü, 7/24 Türkçe AI Sesli Asistan, 6 dilde canlı çağrı
-                    çevirisi, Runa Mobil/Masaüstü, WhatsApp/Instagram gelen kutusu ve 44+
-                    canlı raporu tek güvenli mimaride birleştirin.
-                  </p>
+                <p className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-slate-600 sm:text-lg">
+                  Asterisk PJSIP gücü, 7/24 Türkçe AI Sesli Asistan, 6 dilde canlı çağrı
+                  çevirisi, Runa Mobil/Masaüstü, WhatsApp/Instagram gelen kutusu ve 44+
+                  canlı raporu tek güvenli mimaride birleştirin.
+                </p>
 
-                  {/* Primary & Secondary CTAs */}
-                  <div className="mt-8 flex flex-wrap items-center gap-3">
-                    <a
-                      href="#demo"
-                      className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-950 px-6 py-3.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-900 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 min-h-[48px]"
+                {/* Primary & Secondary CTAs */}
+                <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
+                  <a
+                    href="#demo"
+                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-950 px-6 py-3.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-900 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 min-h-[48px]"
+                  >
+                    30 Gün Ücretsiz Dene
+                    <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                  </a>
+                  <a
+                    href="#planlar"
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50/70 px-5 py-3.5 text-sm font-semibold text-indigo-950 hover:bg-indigo-100/80 transition min-h-[48px]"
+                  >
+                    <Layers className="h-4 w-4 text-indigo-600" aria-hidden="true" />
+                    Planları Karşılaştır
+                  </a>
+                  <a
+                    href={SITE_CONFIG.catalogUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-300 bg-white px-4 py-3.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition min-h-[48px]"
+                  >
+                    <FileDown className="h-4 w-4 text-slate-500" aria-hidden="true" />
+                    Katalog (PDF)
+                  </a>
+                </div>
+              </div>
+
+              {/* Signature Wide Panoramic Visual Banner */}
+              <HeroPanoramicStage />
+
+              {/* 4 Crisp KPI Metric Strip under Panoramic Stage */}
+              <div className="mx-auto mt-12 grid max-w-5xl grid-cols-2 gap-3 sm:grid-cols-4">
+                {HERO_METRICS.map((m) => (
+                  <div
+                    key={m.value}
+                    className="flex items-center gap-3.5 rounded-2xl border border-slate-200/90 bg-white px-4 py-3.5 shadow-sm hover:border-indigo-200 transition"
+                  >
+                    <div
+                      className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ring-1 ring-inset ${MetricBadgeBg(
+                        { tone: m.tone }
+                      )}`}
                     >
-                      30 Gün Ücretsiz Dene
-                      <ArrowRight className="h-4 w-4" aria-hidden="true" />
-                    </a>
-                    <a
-                      href="#planlar"
-                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50/70 px-5 py-3.5 text-sm font-semibold text-indigo-950 hover:bg-indigo-100/80 transition min-h-[48px]"
-                    >
-                      <Layers className="h-4 w-4 text-indigo-600" aria-hidden="true" />
-                      Planları Karşılaştır
-                    </a>
-                    <a
-                      href={SITE_CONFIG.catalogUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-300 bg-white px-4 py-3.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition min-h-[48px]"
-                    >
-                      <FileDown className="h-4 w-4 text-slate-500" aria-hidden="true" />
-                      Katalog
-                    </a>
-                  </div>
-
-                  {/* 4 Crisp KPI Metric Cards */}
-                  <div className="mt-10 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                    {HERO_METRICS.map((m) => (
-                      <div
-                        key={m.value}
-                        className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm hover:border-indigo-200 transition"
-                      >
-                        <div
-                          className={`inline-flex h-8 w-8 items-center justify-center rounded-lg ring-1 ring-inset ${MetricBadgeBg(
-                            { tone: m.tone }
-                          )}`}
-                        >
-                          <MetricIcon tone={m.tone} />
-                        </div>
-                        <div className="mt-3 text-xl font-extrabold tracking-tight text-slate-950">
-                          {m.value}
-                        </div>
-                        <div className="mt-0.5 text-xs font-medium text-slate-500 leading-snug">
-                          {m.label}
-                        </div>
+                      <MetricIcon tone={m.tone} />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-lg font-extrabold tracking-tight text-slate-950 leading-tight">
+                        {m.value}
                       </div>
-                    ))}
+                      <div className="text-xs font-medium text-slate-500 truncate">
+                        {m.label}
+                      </div>
+                    </div>
                   </div>
-                </div>
-
-                {/* Right Column: Interactive Product Preview */}
-                <div className="lg:col-span-6">
-                  <HeroProductPreview />
-                </div>
+                ))}
               </div>
             </div>
           </section>
+
+          {/* ============================================================
+              SECTION 1B — YEASTAR 2-COL 3D ISOMETRIC SOFTWARE SHOWCASE
+             ============================================================ */}
+          <HeroIsometricShowcase />
 
           {/* ============================================================
               SECTION 2 — COMPACT DEPLOYMENT STRIP & ECOSYSTEM COMPATIBILITY

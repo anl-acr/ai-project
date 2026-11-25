@@ -528,3 +528,55 @@ dialog.nornia-sizing-dialog::backdrop {
   overflow: hidden;
   overscroll-behavior: contain;
 }
+
+/* ==========================================================================
+   YEASTAR-INSPIRED HERO PANORAMIC & 3D ISOMETRIC SHOWCASE POLISH
+   ========================================================================== */
+.nornia-iso-group {
+  perspective: 1400px;
+}
+
+.nornia-iso-desktop {
+  transform: rotateY(-8deg) rotateX(4deg);
+  transition: transform 0.35s ease;
+}
+
+.nornia-iso-mobile {
+  transform: rotateY(10deg) rotateX(4deg) translateZ(12px);
+  transition: transform 0.35s ease;
+}
+
+.nornia-iso-callcard {
+  transform: rotateY(-4deg) rotateX(2deg) translateZ(24px);
+  transition: transform 0.35s ease;
+}
+
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .nornia-iso-stage:hover .nornia-iso-desktop {
+    transform: rotateY(-4deg) rotateX(2deg);
+  }
+  .nornia-iso-stage:hover .nornia-iso-mobile {
+    transform: rotateY(5deg) rotateX(2deg) translateY(-4px);
+  }
+  .nornia-iso-stage:hover .nornia-iso-callcard {
+    transform: rotateY(-2deg) rotateX(1deg) translateY(-4px);
+  }
+}
+
+@keyframes nornia-gentle-float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .nornia-float-slow {
+    animation: nornia-gentle-float 5.5s ease-in-out infinite;
+  }
+  .nornia-float-delayed {
+    animation: nornia-gentle-float 6.2s ease-in-out 1.2s infinite;
+  }
+}
