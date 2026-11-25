@@ -17,11 +17,15 @@ const TEAM_SIZES = [
   { value: "1000+", label: "1.000+ Kullanıcı / Operatör" },
 ];
 
-export default function DemoRequestForm({ preselectedDeployment = "cloud" }) {
+export default function DemoRequestForm({
+  preselectedDeployment = "cloud",
+  preselectedPlan = "",
+}) {
   const formRef = useRef(null);
   const announcerRef = useRef(null);
 
   const [deployment, setDeployment] = useState(preselectedDeployment);
+  const [selectedPlanLabel, setSelectedPlanLabel] = useState(preselectedPlan);
   const [submitting, setSubmitting] = useState(false);
   const [submittedInfo, setSubmittedInfo] = useState(null);
   const [serverError, setServerError] = useState("");
@@ -31,6 +35,12 @@ export default function DemoRequestForm({ preselectedDeployment = "cloud" }) {
       setDeployment(preselectedDeployment);
     }
   }, [preselectedDeployment]);
+
+  useEffect(() => {
+    if (preselectedPlan !== undefined) {
+      setSelectedPlanLabel(preselectedPlan);
+    }
+  }, [preselectedPlan]);
 
   // Consistent ARIA sync + :user-invalid fallback (modern-web-guidance: validate-input-after-interaction)
   useEffect(() => {
@@ -182,14 +192,19 @@ export default function DemoRequestForm({ preselectedDeployment = "cloud" }) {
     }
 
     const fd = new FormData(form);
+    const rawNotes = String(fd.get("notes") || "").trim();
+    const mergedNotes = selectedPlanLabel
+      ? `[İlgilenilen Plan: ${selectedPlanLabel}]${rawNotes ? " " + rawNotes : ""}`
+      : rawNotes;
     const payload = {
       full_name: String(fd.get("full_name") || "").trim(),
       company: String(fd.get("company") || "").trim(),
       email: String(fd.get("email") || "").trim(),
       phone: String(fd.get("phone") || "").trim(),
       deployment: String(fd.get("deployment") || deployment),
+      plan_interest: selectedPlanLabel || undefined,
       team_size: String(fd.get("team_size") || "21-50"),
-      notes: String(fd.get("notes") || "").trim(),
+      notes: mergedNotes,
       website_hp: String(fd.get("website_hp") || "").trim(),
       source: "www.nornia.com.tr",
     };
@@ -303,6 +318,19 @@ export default function DemoRequestForm({ preselectedDeployment = "cloud" }) {
           <p className="mt-1 text-sm text-slate-600">
             İhtiyacınıza özel canlı Nornia ortamı ve kapasite önerisi hazırlayalım.
           </p>
+          {selectedPlanLabel && (
+            <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-800">
+              <span>Seçilen Paket: {selectedPlanLabel}</span>
+              <button
+                type="button"
+                onClick={() => setSelectedPlanLabel("")}
+                aria-label="Seçilen paketi temizle"
+                className="ml-1 text-indigo-500 hover:text-indigo-900"
+              >
+                ×
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Accessible spam honeypot hidden from keyboard and assistive technology */}

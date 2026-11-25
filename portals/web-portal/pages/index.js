@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Head from "next/head";
 import {
   Sparkles,
@@ -16,26 +16,28 @@ import {
   Code2,
   ExternalLink,
   BookOpen,
-  Calculator,
   Phone,
   Mail,
   MessageSquare,
   MapPin,
   Menu,
-  X,
   Building2,
   Check,
   Lock,
   Monitor,
   Radio,
+  FileDown,
+  Layers,
 } from "lucide-react";
 import HeroProductPreview from "../components/HeroProductPreview";
 import LiveTranslateShowcase from "../components/LiveTranslateShowcase";
 import { RunaMobileVisual, RunaDesktopVisual } from "../components/RunaAppVisuals";
+import PlanComparisonSection from "../components/PlanComparisonSection";
 import DemoRequestForm from "../components/DemoRequestForm";
 import {
   SITE_CONFIG,
   HERO_METRICS,
+  DEPLOYMENT_EDITIONS,
   COMPATIBILITY_BADGES,
   PLATFORM_TABS,
   CLIENT_APPS,
@@ -43,18 +45,17 @@ import {
   TUNNEL_PILLARS,
   ARCHITECTURE_CARDS,
   SECTOR_SOLUTIONS,
-  DEPLOYMENT_PLANS,
   FAQ_ITEMS,
 } from "../data/siteContent";
 
 const NAV_LINKS = [
+  { label: "Kurulum", href: "#kurulum" },
   { label: "Platform", href: "#platform" },
   { label: "Uygulamalar", href: "#uygulamalar" },
   { label: "Tünel", href: "#tunel" },
   { label: "Çözümler", href: "#cozumler" },
-  { label: "Modeller", href: "#modeller" },
+  { label: "Planlar & Farklar", href: "#planlar", highlight: true },
   { label: "Doküman", href: SITE_CONFIG.docsUrl, external: true },
-  { label: "API", href: SITE_CONFIG.apiUrl, external: true },
 ];
 
 function MetricIcon({ tone }) {
@@ -92,20 +93,196 @@ export default function NorniaHomePage() {
   const [activeTabId, setActiveTabId] = useState(PLATFORM_TABS[0].id);
   const [activeSectorId, setActiveSectorId] = useState(SECTOR_SOLUTIONS[0].id);
   const [selectedDeployment, setSelectedDeployment] = useState("cloud");
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [selectedPlanLabel, setSelectedPlanLabel] = useState("");
+  const [fallbackMenuOpen, setFallbackMenuOpen] = useState(false);
+
+  const headerRef = useRef(null);
+  const headerInnerRef = useRef(null);
+  const siteMenuRef = useRef(null);
+  const tablistRef = useRef(null);
+  const tabPanelRefs = useRef({});
 
   const activeTab =
     PLATFORM_TABS.find((t) => t.id === activeTabId) || PLATFORM_TABS[0];
   const activeSector =
     SECTOR_SOLUTIONS.find((s) => s.id === activeSectorId) || SECTOR_SOLUTIONS[0];
 
-  const handlePlanSelect = (planName) => {
-    if (planName.toLowerCase().includes("on-premise")) {
+  // Single-<nav> responsive layout measurement & popover synchronization (modern-web-guidance: navbar)
+  useEffect(() => {
+    const header = headerRef.current;
+    const inner = headerInnerRef.current;
+    const menu = siteMenuRef.current;
+    if (!header || !inner || !menu || typeof window === "undefined") return undefined;
+
+    const supportsPopover = Object.hasOwn(HTMLElement.prototype, "popover");
+    let lastMeasuredWidth = 0;
+
+    const syncNavbarLayout = () => {
+      const currentlyWide = header.classList.contains("is-wide");
+      const currentW = header.clientWidth;
+      if (!currentlyWide && lastMeasuredWidth > 0 && currentW <= lastMeasuredWidth) {
+        return;
+      }
+
+      const wasOpen =
+        supportsPopover && typeof menu.matches === "function"
+          ? menu.matches(":popover-open")
+          : fallbackMenuOpen;
+
+      header.classList.add("is-measuring");
+      header.classList.add("is-wide");
+      menu.removeAttribute("popover");
+
+      const fitsInline = inner.scrollWidth <= inner.clientWidth + 1;
+      lastMeasuredWidth = currentW;
+
+      if (!fitsInline) {
+        header.classList.remove("is-wide");
+        menu.setAttribute("popover", "auto");
+        if (wasOpen && supportsPopover && typeof menu.showPopover === "function") {
+          try {
+            menu.showPopover();
+          } catch {}
+        }
+      } else {
+        setFallbackMenuOpen(false);
+      }
+
+      window.requestAnimationFrame(() => {
+        header.classList.remove("is-measuring");
+      });
+    };
+
+    syncNavbarLayout();
+    const ro = new ResizeObserver(syncNavbarLayout);
+    ro.observe(header);
+    ro.observe(menu);
+
+    return () => ro.disconnect();
+  }, []);
+
+  // Scrollability fade fallback for horizontal tablist (modern-web-guidance: tabs)
+  useEffect(() => {
+    const scroller = tablistRef.current;
+    if (!scroller || typeof window === "undefined") return undefined;
+    if (typeof CSS !== "undefined" && CSS.supports("animation-timeline", "scroll()")) {
+      return undefined;
+    }
+    const first = scroller.firstElementChild;
+    const last = scroller.lastElementChild;
+    if (!first || !last) return undefined;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const { target, intersectionRatio } of entries) {
+          scroller.classList.toggle(
+            target === first ? "more-start" : "more-end",
+            intersectionRatio < 1
+          );
+        }
+      },
+      { root: scroller, threshold: 1, rootMargin: "1px" }
+    );
+    observer.observe(first);
+    observer.observe(last);
+    return () => observer.disconnect();
+  }, []);
+
+  // Sync hidden="until-found" attribute (React 18 coerces JSX hidden to boolean) & beforematch find-in-page sync
+  useEffect(() => {
+    PLATFORM_TABS.forEach((tab) => {
+      const panelEl = tabPanelRefs.current[tab.id];
+      if (!panelEl) return;
+      if (tab.id === activeTabId) {
+        panelEl.removeAttribute("hidden");
+      } else {
+        panelEl.setAttribute("hidden", "until-found");
+      }
+    });
+  }, [activeTabId]);
+
+  useEffect(() => {
+    const cleanups = [];
+    PLATFORM_TABS.forEach((tab) => {
+      const panelEl = tabPanelRefs.current[tab.id];
+      if (!panelEl) return;
+      const onBeforeMatch = () => {
+        setActiveTabId(tab.id);
+      };
+      panelEl.addEventListener("beforematch", onBeforeMatch);
+      cleanups.push(() => panelEl.removeEventListener("beforematch", onBeforeMatch));
+    });
+    return () => cleanups.forEach((fn) => fn());
+  }, []);
+
+  const selectPlatformTab = (tabId, buttonEl) => {
+    setActiveTabId(tabId);
+    if (buttonEl && typeof buttonEl.scrollIntoView === "function") {
+      try {
+        buttonEl.scrollIntoView({ block: "nearest", inline: "nearest" });
+      } catch {}
+    }
+  };
+
+  const handlePlatformTabKeyDown = (e, idx) => {
+    let nextIdx = null;
+    if (e.key === "ArrowRight") nextIdx = (idx + 1) % PLATFORM_TABS.length;
+    else if (e.key === "ArrowLeft")
+      nextIdx = (idx - 1 + PLATFORM_TABS.length) % PLATFORM_TABS.length;
+    else if (e.key === "Home") nextIdx = 0;
+    else if (e.key === "End") nextIdx = PLATFORM_TABS.length - 1;
+    if (nextIdx === null) return;
+
+    e.preventDefault();
+    const nextTab = PLATFORM_TABS[nextIdx];
+    setActiveTabId(nextTab.id);
+    const nextBtn = document.getElementById(`tab-${nextTab.id}`);
+    if (nextBtn) {
+      nextBtn.focus();
+      try {
+        nextBtn.scrollIntoView({ block: "nearest", inline: "nearest" });
+      } catch {}
+    }
+  };
+
+  const closeMobileMenu = () => {
+    setFallbackMenuOpen(false);
+    const menu = siteMenuRef.current;
+    if (menu && typeof menu.hidePopover === "function") {
+      try {
+        menu.hidePopover();
+      } catch {}
+    }
+  };
+
+  const handleMenuBtnClick = () => {
+    if (typeof window !== "undefined" && !Object.hasOwn(HTMLElement.prototype, "popover")) {
+      setFallbackMenuOpen((v) => !v);
+    }
+  };
+
+  const handleDeploymentSelect = (editionId) => {
+    if (editionId === "onprem") {
       setSelectedDeployment("onprem");
-    } else if (planName.toLowerCase().includes("bulut")) {
+      setSelectedPlanLabel("Kurumsal On-Premise");
+    } else if (editionId === "cloud") {
       setSelectedDeployment("cloud");
+      setSelectedPlanLabel("Nornia Bulut (Yönetilen)");
     } else {
       setSelectedDeployment("hybrid");
+      setSelectedPlanLabel("Enterprise & Multi-Tenant");
+    }
+    if (typeof document !== "undefined") {
+      document.getElementById("demo")?.scrollIntoView({ behavior: "smooth" });
+    }
+  };
+
+  const handlePlanSelect = (tierId, tierLabel) => {
+    setSelectedPlanLabel(tierLabel);
+    if (tierId === "enterprise" || tierId === "unlimited") {
+      setSelectedDeployment("hybrid");
+    } else {
+      setSelectedDeployment("cloud");
     }
     if (typeof document !== "undefined") {
       document.getElementById("demo")?.scrollIntoView({ behavior: "smooth" });
@@ -118,18 +295,18 @@ export default function NorniaHomePage() {
         <title>Nornia — Kurumsal Yapay Zeka Santral ve İletişim Platformu</title>
         <meta
           name="description"
-          content="Nornia ile yapay zeka destekli kurumsal IP santral, 7/24 sesli asistan, WhatsApp/Instagram Omnichannel gelen kutusu, Runa Mobil ve 44+ canlı raporu tek güvenli mimaride yönetin."
+          content="Nornia ile yapay zeka destekli kurumsal IP santral, 7/24 sesli asistan, 6 dil canlı çağrı çevirisi, WhatsApp/Instagram Omnichannel, Runa Mobil ve 44+ canlı raporu On-Premise veya Bulut'ta yönetin."
         />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta property="og:type" content="website" />
         <meta property="og:url" content={SITE_CONFIG.domain} />
         <meta
           property="og:title"
-          content="Nornia — Kurumsal Yapay Zeka Santral ve İletişim Platformu"
+          content="Nornia — IP Santralden Fazlası: Kurumsal AI Santral & Çağrı Merkezi"
         />
         <meta
           property="og:description"
-          content="7/24 AI Sesli Asistan, Temsilci Çağrı Paneli, Omnichannel WhatsApp/Instagram ve On-Premise & Bulut kurumsal santral altyapısı."
+          content="Starter, Professional ve Enterprise planları: 7/24 AI Sesli Asistan, 6 Dil Canlı Çeviri, Omnichannel, Runa Mobil/Masaüstü ve Tam İzole Bulut Multi-Tenant."
         />
         <meta property="og:image" content={`${SITE_CONFIG.domain}/apple-touch-icon.png`} />
         <link rel="canonical" href={`${SITE_CONFIG.domain}/`} />
@@ -145,13 +322,64 @@ export default function NorniaHomePage() {
         </a>
 
         {/* ============================================================
-            STICKY CORPORATE NAVBAR (Seçenek 2 Pure Light)
+            TOP UTILITY BAR (Yeastar Enterprise Style)
            ============================================================ */}
-        <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/90 backdrop-blur-md">
-          <div className="mx-auto flex max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8 h-[72px]">
+        <div className="hidden lg:block border-b border-slate-200/80 bg-slate-950 text-slate-300">
+          <div className="mx-auto flex max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8 h-9 text-xs">
+            <div className="flex items-center gap-3">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-500/20 px-2.5 py-0.5 text-[11px] font-semibold text-indigo-300 ring-1 ring-inset ring-indigo-400/30">
+                <Sparkles className="h-3 w-3" aria-hidden="true" />
+                Nornia v3.11
+              </span>
+              <span className="text-slate-300">
+                Tam İzole Bulut (Multi-Tenant) &amp; On-Premise Kurumsal AI Santral
+              </span>
+            </div>
+            <div className="flex items-center gap-5">
+              <a
+                href={SITE_CONFIG.apiUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 hover:text-white transition"
+              >
+                REST API
+                <ExternalLink className="h-3 w-3 opacity-60" aria-hidden="true" />
+              </a>
+              <a
+                href={SITE_CONFIG.catalogUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 hover:text-white transition"
+              >
+                <FileDown className="h-3.5 w-3.5 text-indigo-300" aria-hidden="true" />
+                Tanıtım Kataloğu (PDF)
+              </a>
+              <a
+                href={SITE_CONFIG.phoneHref}
+                className="inline-flex items-center gap-1.5 font-semibold text-white hover:text-indigo-200 transition"
+              >
+                <Phone className="h-3 w-3 text-emerald-400" aria-hidden="true" />
+                {SITE_CONFIG.phoneDisplay}
+              </a>
+            </div>
+          </div>
+        </div>
+
+        {/* ============================================================
+            STICKY SINGLE-<nav> CORPORATE HEADER (modern-web-guidance: navbar)
+           ============================================================ */}
+        <header
+          ref={headerRef}
+          className="nornia-site-header sticky top-0 z-40 border-b border-slate-200/80 bg-white/95 backdrop-blur-md"
+        >
+          <div
+            ref={headerInnerRef}
+            className="nornia-header-inner mx-auto flex max-w-7xl items-center justify-between gap-5 px-4 sm:px-6 lg:px-8 h-[72px]"
+          >
             {/* Brand Logo */}
             <a
               href="#"
+              aria-current="page"
               className="flex items-center gap-2.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-indigo-600 rounded-lg"
             >
               <img
@@ -164,123 +392,124 @@ export default function NorniaHomePage() {
               </span>
             </a>
 
-            {/* Desktop Navigation */}
-            <nav aria-label="Ana gezinme" className="hidden lg:flex items-center gap-7">
-              {NAV_LINKS.map((item) => (
-                <a
-                  key={item.label}
-                  href={item.href}
-                  target={item.external ? "_blank" : undefined}
-                  rel={item.external ? "noopener noreferrer" : undefined}
-                  className="inline-flex items-center gap-1 text-sm font-medium text-slate-600 hover:text-indigo-950 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-indigo-600 rounded"
-                >
-                  {item.label}
-                  {item.external && (
-                    <ExternalLink className="h-3 w-3 text-slate-400" aria-hidden="true" />
-                  )}
-                </a>
-              ))}
-            </nav>
-
-            {/* Right CTA & Mobile Menu Button */}
-            <div className="flex items-center gap-3">
-              <a
-                href="#demo"
-                className="hidden sm:inline-flex items-center justify-center rounded-xl bg-indigo-950 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-900 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
-              >
-                Demo Talep Et
-              </a>
-
+            {/* Single semantic <nav> for both wide inline and narrow popover layouts */}
+            <nav aria-label="Ana gezinme" className="flex items-center gap-3">
               <button
                 type="button"
-                aria-expanded={mobileMenuOpen}
-                aria-controls="mobile-nav-drawer"
-                aria-label={mobileMenuOpen ? "Menüyü kapat" : "Menüyü aç"}
-                onClick={() => setMobileMenuOpen((v) => !v)}
-                className="inline-flex lg:hidden h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                className="nornia-menu-btn inline-flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                popovertarget="site-menu"
+                popovertargetaction="toggle"
+                aria-controls="site-menu"
+                onClick={handleMenuBtnClick}
               >
-                {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+                <Menu className="h-5 w-5" aria-hidden="true" />
+                <span>Menü</span>
               </button>
+
+              <ul
+                ref={siteMenuRef}
+                id="site-menu"
+                popover="auto"
+                className={`nornia-site-menu list-none ${
+                  fallbackMenuOpen ? "popover-open-fallback" : ""
+                }`}
+              >
+                {NAV_LINKS.map((item) => (
+                  <li key={item.label}>
+                    <a
+                      href={item.href}
+                      target={item.external ? "_blank" : undefined}
+                      rel={item.external ? "noopener noreferrer" : undefined}
+                      onClick={closeMobileMenu}
+                      className={`inline-flex w-full items-center justify-between gap-1 rounded-lg px-2 py-2 text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 ${
+                        item.highlight
+                          ? "font-bold text-indigo-700 hover:text-indigo-950"
+                          : "font-medium text-slate-600 hover:text-indigo-950"
+                      }`}
+                    >
+                      <span>{item.label}</span>
+                      {item.external && (
+                        <ExternalLink
+                          className="h-3 w-3 text-slate-400"
+                          aria-hidden="true"
+                        />
+                      )}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+
+            {/* Right CTAs */}
+            <div className="flex items-center gap-2.5">
+              <a
+                href="#planlar"
+                className="hidden sm:inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 hover:border-indigo-200 hover:bg-indigo-50/50 transition"
+              >
+                Planları İncele
+              </a>
+              <a
+                href="#demo"
+                className="inline-flex items-center justify-center rounded-xl bg-indigo-950 px-4 sm:px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-900 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+              >
+                Ücretsiz Demo
+              </a>
             </div>
           </div>
-
-          {/* Mobile Nav Drawer */}
-          {mobileMenuOpen && (
-            <nav
-              id="mobile-nav-drawer"
-              aria-label="Mobil menü"
-              className="lg:hidden border-t border-slate-200 bg-white px-4 pb-5 pt-3 shadow-lg"
-            >
-              <div className="flex flex-col gap-1">
-                {NAV_LINKS.map((item) => (
-                  <a
-                    key={item.label}
-                    href={item.href}
-                    target={item.external ? "_blank" : undefined}
-                    rel={item.external ? "noopener noreferrer" : undefined}
-                    onClick={() => setMobileMenuOpen(false)}
-                    className="flex items-center justify-between rounded-xl px-3 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                  >
-                    <span>{item.label}</span>
-                    {item.external && (
-                      <ExternalLink className="h-3.5 w-3.5 text-slate-400" aria-hidden="true" />
-                    )}
-                  </a>
-                ))}
-                <a
-                  href="#demo"
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="mt-2 inline-flex items-center justify-center rounded-xl bg-indigo-950 px-4 py-3 text-sm font-semibold text-white"
-                >
-                  Demo Talep Et
-                </a>
-              </div>
-            </nav>
-          )}
         </header>
 
         <main id="main-content">
           {/* ============================================================
-              SECTION 1 — ASYMMETRIC EDITORIAL HERO (Seçenek 2 Signature)
+              SECTION 1 — YEASTAR "PBX PLUS MORE" HERO BANNER
              ============================================================ */}
           <section className="hero-prism-bg relative overflow-hidden border-b border-slate-200/70">
             <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pb-20 pt-12 sm:pt-16 lg:pb-24 lg:pt-20">
               <div className="grid grid-cols-1 items-center gap-12 lg:grid-cols-12 lg:gap-10">
-                {/* Left Column: Headline, CTAs & 4 KPI Cards */}
+                {/* Left Column */}
                 <div className="lg:col-span-6">
                   <div className="prism-pill-border inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-xs font-semibold text-indigo-950 shadow-sm">
                     <Sparkles className="h-3.5 w-3.5 text-indigo-600" aria-hidden="true" />
-                    <span>Kurumsal AI Santral Platformu</span>
+                    <span>Yapay Zeka Doğuşlu Kurumsal Santral • On-Premise &amp; Bulut</span>
                   </div>
 
-                  <h1 className="mt-5 text-4xl font-extrabold tracking-tight text-slate-950 sm:text-5xl lg:text-[3.25rem] lg:leading-[1.1]">
-                    Tüm Kurumsal İletişiminiz Tek Akıllı Platformda
+                  <h1 className="mt-5 text-4xl font-extrabold tracking-tight text-slate-950 sm:text-5xl lg:text-[3.15rem] lg:leading-[1.1]">
+                    IP Santralden Fazlası: Ses, Yapay Zeka ve Omnichannel Tek Platformda
                   </h1>
 
                   <p className="mt-5 max-w-xl text-base leading-relaxed text-slate-600 sm:text-lg">
-                    Yapay zeka destekli kurumsal santral, 7/24 Türkçe sesli asistan,
-                    WhatsApp/Instagram omnichannel gelen kutusu ve 44+ canlı analitik
-                    raporunu yüksek güvenlikli tek bir mimaride yönetin.
+                    Asterisk PJSIP gücü, 7/24 Türkçe AI Sesli Asistan, 6 dilde canlı çağrı
+                    çevirisi, Runa Mobil/Masaüstü, WhatsApp/Instagram gelen kutusu ve 44+
+                    canlı raporu tek güvenli mimaride birleştirin.
                   </p>
 
                   {/* Primary & Secondary CTAs */}
-                  <div className="mt-8 flex flex-wrap items-center gap-3.5">
+                  <div className="mt-8 flex flex-wrap items-center gap-3">
                     <a
                       href="#demo"
                       className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-950 px-6 py-3.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-900 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 min-h-[48px]"
                     >
-                      Demo Talep Et
+                      30 Gün Ücretsiz Dene
                       <ArrowRight className="h-4 w-4" aria-hidden="true" />
                     </a>
                     <a
-                      href="#platform"
-                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-6 py-3.5 text-sm font-semibold text-slate-800 shadow-sm hover:border-slate-400 hover:bg-slate-50 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 min-h-[48px]"
+                      href="#planlar"
+                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50/70 px-5 py-3.5 text-sm font-semibold text-indigo-950 hover:bg-indigo-100/80 transition min-h-[48px]"
                     >
-                      Platformu İncele
+                      <Layers className="h-4 w-4 text-indigo-600" aria-hidden="true" />
+                      Planları Karşılaştır
+                    </a>
+                    <a
+                      href={SITE_CONFIG.catalogUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-300 bg-white px-4 py-3.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition min-h-[48px]"
+                    >
+                      <FileDown className="h-4 w-4 text-slate-500" aria-hidden="true" />
+                      Katalog
                     </a>
                   </div>
 
-                  {/* 4 Crisp KPI Metric Cards (Seçenek 2 Signature) */}
+                  {/* 4 Crisp KPI Metric Cards */}
                   <div className="mt-10 grid grid-cols-2 gap-3 sm:grid-cols-4">
                     {HERO_METRICS.map((m) => (
                       <div
@@ -305,7 +534,7 @@ export default function NorniaHomePage() {
                   </div>
                 </div>
 
-                {/* Right Column: Interactive Light SaaS Product Window */}
+                {/* Right Column: Interactive Product Preview */}
                 <div className="lg:col-span-6">
                   <HeroProductPreview />
                 </div>
@@ -314,15 +543,100 @@ export default function NorniaHomePage() {
           </section>
 
           {/* ============================================================
-              SECTION 2 — COMPATIBILITY & ECOSYSTEM STRIP
+              SECTION 2 — YEASTAR-STYLE 3 DEPLOYMENT EDITIONS + ECOSYSTEM
              ============================================================ */}
           <section
-            aria-label="Donanım ve protokol uyumluluğu"
-            className="border-b border-slate-200/70 bg-slate-50/70 py-7"
+            id="kurulum"
+            aria-labelledby="deployment-editions-heading"
+            className="border-b border-slate-200/80 bg-slate-50/70 py-16 sm:py-20"
           >
             <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-              <div className="flex flex-col items-center gap-4 lg:flex-row lg:justify-between">
-                <span className="shrink-0 text-xs font-semibold uppercase tracking-wider text-slate-500">
+              <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+                <div className="max-w-2xl">
+                  <span className="inline-flex items-center rounded-full bg-white px-3 py-1 text-xs font-semibold text-indigo-700 border border-slate-200">
+                    Esnek Dağıtım Seçenekleri
+                  </span>
+                  <h2
+                    id="deployment-editions-heading"
+                    className="mt-2.5 text-2xl font-extrabold tracking-tight text-slate-950 sm:text-3xl"
+                  >
+                    Tek Çekirdek, Üç Farklı Kurulum Modeli
+                  </h2>
+                </div>
+                <p className="max-w-md text-sm text-slate-600">
+                  Yerel tek santral olarak kendi sunucunuzda çalıştırın ya da yönetilen
+                  Nornia Bulut ve Multi-Tenant mimarisiyle ölçeklenin.
+                </p>
+              </div>
+
+              <div className="mt-8 grid grid-cols-1 gap-5 lg:grid-cols-3">
+                {DEPLOYMENT_EDITIONS.map((ed) => (
+                  <article
+                    key={ed.id}
+                    className={`flex flex-col justify-between rounded-3xl p-6 transition ${
+                      ed.featured
+                        ? "border-2 border-indigo-600 bg-white shadow-card ring-4 ring-indigo-50"
+                        : "border border-slate-200 bg-white shadow-2xs hover:border-indigo-200"
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span
+                          className={`inline-flex rounded-full px-3 py-1 text-[11px] font-bold ${
+                            ed.featured
+                              ? "bg-indigo-600 text-white"
+                              : "bg-slate-100 text-slate-700"
+                          }`}
+                        >
+                          {ed.badge}
+                        </span>
+                        <span className="text-[11px] font-semibold text-slate-500">
+                          {ed.subtitle}
+                        </span>
+                      </div>
+
+                      <h3 className="mt-4 text-xl font-extrabold text-slate-950">
+                        {ed.title}
+                      </h3>
+                      <p className="mt-2 text-sm leading-relaxed text-slate-600">
+                        {ed.description}
+                      </p>
+
+                      <ul className="mt-4 space-y-2 border-t border-slate-100 pt-4">
+                        {ed.highlights.map((item) => (
+                          <li
+                            key={item}
+                            className="flex items-start gap-2 text-xs sm:text-sm text-slate-700"
+                          >
+                            <CheckCircle2
+                              className="h-4 w-4 shrink-0 text-emerald-600 mt-0.5"
+                              aria-hidden="true"
+                            />
+                            <span>{item}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleDeploymentSelect(ed.id)}
+                      className={`mt-6 inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition ${
+                        ed.featured
+                          ? "bg-indigo-950 text-white hover:bg-indigo-900"
+                          : "border border-slate-300 bg-white text-slate-900 hover:bg-slate-50"
+                      }`}
+                    >
+                      {ed.cta}
+                      <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  </article>
+                ))}
+              </div>
+
+              {/* Ecosystem & Compatibility Strip */}
+              <div className="mt-10 flex flex-col items-center gap-4 border-t border-slate-200/80 pt-7 lg:flex-row lg:justify-between">
+                <span className="shrink-0 text-xs font-bold uppercase tracking-wider text-slate-500">
                   Tam Uyumlu Ekosistem
                 </span>
                 <div className="flex flex-wrap items-center justify-center gap-2 lg:justify-end">
@@ -340,7 +654,7 @@ export default function NorniaHomePage() {
           </section>
 
           {/* ============================================================
-              SECTION 3 — INTERACTIVE PLATFORM SHOWCASE (REAL SCREENSHOTS)
+              SECTION 3 — INTERACTIVE PLATFORM SHOWCASE (modern-web-guidance: tabs)
              ============================================================ */}
           <section id="platform" className="py-20 sm:py-24 bg-white">
             <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -357,13 +671,14 @@ export default function NorniaHomePage() {
                 </p>
               </div>
 
-              {/* Tab Switcher */}
+              {/* Single-row horizontally scrollable tablist with fade edges & underline */}
               <div
+                ref={tablistRef}
                 role="tablist"
                 aria-label="Nornia platform modülleri"
-                className="mt-8 flex flex-wrap gap-2"
+                className="nornia-tablist mt-8"
               >
-                {PLATFORM_TABS.map((tab) => {
+                {PLATFORM_TABS.map((tab, idx) => {
                   const isActive = tab.id === activeTab.id;
                   return (
                     <button
@@ -371,14 +686,11 @@ export default function NorniaHomePage() {
                       role="tab"
                       id={`tab-${tab.id}`}
                       type="button"
+                      tabIndex={isActive ? 0 : -1}
                       aria-selected={isActive}
-                      aria-controls={`panel-${tab.id}`}
-                      onClick={() => setActiveTabId(tab.id)}
-                      className={`rounded-xl px-4 py-2.5 text-sm font-semibold transition min-h-[44px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 ${
-                        isActive
-                          ? "bg-indigo-950 text-white shadow-sm"
-                          : "border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
-                      }`}
+                      onClick={(e) => selectPlatformTab(tab.id, e.currentTarget)}
+                      onKeyDown={(e) => handlePlatformTabKeyDown(e, idx)}
+                      className="nornia-tab-btn"
                     >
                       {tab.label}
                     </button>
@@ -386,90 +698,109 @@ export default function NorniaHomePage() {
                 })}
               </div>
 
-              {/* Active Tab Panel */}
-              <div
-                role="tabpanel"
-                id={`panel-${activeTab.id}`}
-                aria-labelledby={`tab-${activeTab.id}`}
-                className="mt-8 grid grid-cols-1 items-center gap-8 rounded-3xl border border-slate-200/90 bg-slate-50/70 p-6 sm:p-8 lg:grid-cols-12 lg:p-10"
-              >
-                {/* Text & Bullets */}
-                <div className="lg:col-span-5">
-                  <span className="inline-flex items-center rounded-lg bg-white px-2.5 py-1 text-xs font-semibold text-indigo-700 border border-indigo-100 shadow-2xs">
-                    {activeTab.badge}
-                  </span>
-                  <h3 className="mt-4 text-2xl font-bold tracking-tight text-slate-950">
-                    {activeTab.title}
-                  </h3>
-                  <p className="mt-3 text-sm leading-relaxed text-slate-600 sm:text-base">
-                    {activeTab.description}
-                  </p>
-
-                  <ul className="mt-6 space-y-3">
-                    {activeTab.bullets.map((b) => (
-                      <li key={b} className="flex items-start gap-2.5 text-sm text-slate-700">
-                        <CheckCircle2
-                          className="h-4 w-4 shrink-0 text-emerald-600 mt-0.5"
-                          aria-hidden="true"
-                        />
-                        <span>{b}</span>
-                      </li>
-                    ))}
-                  </ul>
-
-                  <div className="mt-7 flex flex-wrap items-center gap-3">
-                    <a
-                      href="#demo"
-                      className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-950 px-4 py-2.5 text-xs font-semibold text-white hover:bg-indigo-900 transition"
+              {/* Tab Panels: hidden="until-found", zero styles on panel element itself */}
+              <div className="nornia-tabpanels-grid mt-8">
+                {PLATFORM_TABS.map((tab) => {
+                  const isSelected = tab.id === activeTab.id;
+                  return (
+                    <div
+                      key={tab.id}
+                      ref={(el) => {
+                        tabPanelRefs.current[tab.id] = el;
+                      }}
+                      role="tabpanel"
+                      id={`panel-${tab.id}`}
+                      aria-labelledby={`tab-${tab.id}`}
+                      hidden={isSelected ? undefined : "until-found"}
                     >
-                      Canlı Demo İste
-                      <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
-                    </a>
-                    <a
-                      href={activeTab.docUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:bg-slate-50 transition"
-                    >
-                      <BookOpen className="h-3.5 w-3.5 text-indigo-600" aria-hidden="true" />
-                      Kullanım Kılavuzunu Aç
-                    </a>
-                  </div>
-                </div>
+                      <div className="grid grid-cols-1 items-center gap-8 rounded-3xl border border-slate-200/90 bg-slate-50/70 p-6 sm:p-8 lg:grid-cols-12 lg:p-10">
+                        {/* Text & Bullets */}
+                        <div className="lg:col-span-5">
+                          <span className="inline-flex items-center rounded-lg bg-white px-2.5 py-1 text-xs font-semibold text-indigo-700 border border-indigo-100 shadow-2xs">
+                            {tab.badge}
+                          </span>
+                          <h3 className="mt-4 text-2xl font-bold tracking-tight text-slate-950">
+                            {tab.title}
+                          </h3>
+                          <p className="mt-3 text-sm leading-relaxed text-slate-600 sm:text-base">
+                            {tab.description}
+                          </p>
 
-                {/* Real Nornia Product Screenshot Frame */}
-                <div className="lg:col-span-7">
-                  <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-card">
-                    <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-4 py-2.5">
-                      <div className="flex items-center gap-1.5" aria-hidden="true">
-                        <span className="h-2.5 w-2.5 rounded-full bg-slate-300" />
-                        <span className="h-2.5 w-2.5 rounded-full bg-slate-300" />
-                        <span className="h-2.5 w-2.5 rounded-full bg-slate-300" />
+                          <ul className="mt-6 space-y-3">
+                            {tab.bullets.map((b) => (
+                              <li
+                                key={b}
+                                className="flex items-start gap-2.5 text-sm text-slate-700"
+                              >
+                                <CheckCircle2
+                                  className="h-4 w-4 shrink-0 text-emerald-600 mt-0.5"
+                                  aria-hidden="true"
+                                />
+                                <span>{b}</span>
+                              </li>
+                            ))}
+                          </ul>
+
+                          <div className="mt-7 flex flex-wrap items-center gap-3">
+                            <a
+                              href="#demo"
+                              className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-950 px-4 py-2.5 text-xs font-semibold text-white hover:bg-indigo-900 transition"
+                            >
+                              Canlı Demo İste
+                              <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+                            </a>
+                            <a
+                              href={tab.docUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:bg-slate-50 transition"
+                            >
+                              <BookOpen
+                                className="h-3.5 w-3.5 text-indigo-600"
+                                aria-hidden="true"
+                              />
+                              Kullanım Kılavuzunu Aç
+                            </a>
+                          </div>
+                        </div>
+
+                        {/* Real Nornia Product Screenshot Frame */}
+                        <div className="lg:col-span-7">
+                          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-card">
+                            <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-4 py-2.5">
+                              <div className="flex items-center gap-1.5" aria-hidden="true">
+                                <span className="h-2.5 w-2.5 rounded-full bg-slate-300" />
+                                <span className="h-2.5 w-2.5 rounded-full bg-slate-300" />
+                                <span className="h-2.5 w-2.5 rounded-full bg-slate-300" />
+                              </div>
+                              <span className="font-mono text-[11px] text-slate-500">
+                                sirketiniz.nornia.com.tr — {tab.label}
+                              </span>
+                              <span className="w-10" aria-hidden="true" />
+                            </div>
+                            <img
+                              src={tab.screenshot}
+                              alt={tab.screenshotAlt}
+                              loading="lazy"
+                              className="block w-full h-auto object-cover"
+                            />
+                          </div>
+                        </div>
                       </div>
-                      <span className="font-mono text-[11px] text-slate-500">
-                        sirketiniz.nornia.com.tr — {activeTab.label}
-                      </span>
-                      <span className="w-10" aria-hidden="true" />
                     </div>
-                    <img
-                      src={activeTab.screenshot}
-                      alt={activeTab.screenshotAlt}
-                      loading="lazy"
-                      className="block w-full h-auto object-cover"
-                    />
-                  </div>
-                </div>
+                  );
+                })}
               </div>
             </div>
           </section>
 
           {/* ============================================================
-              SECTION 3A — AI REAL-TIME ÇAĞRI ÇEVİRİSİ (SİMULTANE TERCÜMAN)
+              SECTION 4 — AI REAL-TIME ÇAĞRI ÇEVİRİSİ
              ============================================================ */}
           <LiveTranslateShowcase />
 
           {/* ============================================================
-              SECTION 3B — RUNA MOBİL & RUNA MASAÜSTÜ UYGULAMALARI
+              SECTION 5 — RUNA MOBİL & MASAÜSTÜ (Linkus UC Clients Equivalent)
              ============================================================ */}
           <section
             id="uygulamalar"
@@ -507,7 +838,6 @@ export default function NorniaHomePage() {
                     key={app.id}
                     className="flex flex-col overflow-hidden rounded-3xl border border-slate-200/90 bg-white shadow-card hover:border-indigo-200 transition"
                   >
-                    {/* Real App Screenshot Composite Visual with Crisp Feature Cards */}
                     <div className="border-b border-slate-100">
                       {app.id === "runa-mobile" ? (
                         <RunaMobileVisual />
@@ -516,7 +846,6 @@ export default function NorniaHomePage() {
                       )}
                     </div>
 
-                    {/* Content & Features */}
                     <div className="flex flex-1 flex-col justify-between p-6 sm:p-8">
                       <div>
                         <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700 ring-1 ring-inset ring-indigo-100">
@@ -581,7 +910,7 @@ export default function NorniaHomePage() {
           </section>
 
           {/* ============================================================
-              SECTION 3C — NORNIA CONNECT (SIFIR-PORT GÜVENLİ TÜNEL MİMARİSİ)
+              SECTION 6 — NORNIA CONNECT (Yeastar RAS Equivalent)
              ============================================================ */}
           <section
             id="tunel"
@@ -604,7 +933,6 @@ export default function NorniaHomePage() {
                 </p>
               </div>
 
-              {/* 4-Step Visual Architecture Flow Bar */}
               <div className="mt-10 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 {TUNNEL_FLOW_STEPS.map((node, idx) => (
                   <div
@@ -635,7 +963,6 @@ export default function NorniaHomePage() {
                 ))}
               </div>
 
-              {/* Split: 4 Technical Pillars + Real Nornia Connect Screenshot */}
               <div className="mt-10 grid grid-cols-1 items-center gap-8 lg:grid-cols-12">
                 <div className="lg:col-span-5 space-y-4">
                   {TUNNEL_PILLARS.map((pillar) => (
@@ -698,7 +1025,7 @@ export default function NorniaHomePage() {
           </section>
 
           {/* ============================================================
-              SECTION 4 — 6-CARD ARCHITECTURE & SECURITY PILLARS
+              SECTION 7 — 6-CARD ARCHITECTURE + SECTOR SOLUTIONS
              ============================================================ */}
           <section
             id="mimari"
@@ -757,9 +1084,6 @@ export default function NorniaHomePage() {
             </div>
           </section>
 
-          {/* ============================================================
-              SECTION 5 — SECTORAL SOLUTIONS
-             ============================================================ */}
           <section id="cozumler" className="py-20 sm:py-24 bg-white">
             <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
               <div className="max-w-3xl">
@@ -776,7 +1100,6 @@ export default function NorniaHomePage() {
               </div>
 
               <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-12">
-                {/* Sector selector buttons */}
                 <div
                   role="tablist"
                   aria-label="Sektörel çözümler"
@@ -817,7 +1140,6 @@ export default function NorniaHomePage() {
                   })}
                 </div>
 
-                {/* Active sector detail card */}
                 <div className="lg:col-span-8 rounded-3xl border border-slate-200 bg-slate-50/60 p-6 sm:p-8 flex flex-col justify-between">
                   <div>
                     <div className="text-xs font-semibold uppercase tracking-wider text-indigo-700">
@@ -869,123 +1191,12 @@ export default function NorniaHomePage() {
           </section>
 
           {/* ============================================================
-              SECTION 6 — DEPLOYMENT & LICENSING MODELS + SIZING CALCULATOR CTA
+              SECTION 8 — YEASTAR-STYLE PLAN OVERVIEW & FEATURE COMPARISON MATRIX
              ============================================================ */}
-          <section
-            id="modeller"
-            className="border-y border-slate-200/80 bg-slate-50/70 py-20 sm:py-24"
-          >
-            <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-              <div className="mx-auto max-w-3xl text-center">
-                <span className="inline-flex items-center rounded-full bg-white px-3 py-1 text-xs font-semibold text-indigo-700 border border-slate-200">
-                  Esnek Kurulum &amp; Lisanslama
-                </span>
-                <h2 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl">
-                  Altyapınıza En Uygun Kurulum Modelini Seçin
-                </h2>
-                <p className="mt-3 text-base text-slate-600">
-                  Kendi sunucunuzda tam bağımsız On-Premise, yönetilen Nornia Bulut veya
-                  çoklu kiracılı Enterprise mimarisi — tüm modellerde aynı güçlü Nornia
-                  çekirdeği.
-                </p>
-              </div>
-
-              <div className="mt-12 grid grid-cols-1 gap-6 lg:grid-cols-3">
-                {DEPLOYMENT_PLANS.map((plan) => (
-                  <div
-                    key={plan.name}
-                    className={`flex flex-col justify-between rounded-3xl p-7 transition ${
-                      plan.featured
-                        ? "border-2 border-indigo-600 bg-white shadow-floating ring-4 ring-indigo-50"
-                        : "border border-slate-200 bg-white shadow-sm"
-                    }`}
-                  >
-                    <div>
-                      <div className="flex items-center justify-between gap-2">
-                        <span
-                          className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
-                            plan.featured
-                              ? "bg-indigo-600 text-white"
-                              : "bg-slate-100 text-slate-700"
-                          }`}
-                        >
-                          {plan.badge}
-                        </span>
-                      </div>
-
-                      <h3 className="mt-4 text-xl font-extrabold text-slate-950">
-                        {plan.name}
-                      </h3>
-                      <p className="mt-2 text-sm leading-relaxed text-slate-600">
-                        {plan.description}
-                      </p>
-
-                      <ul className="mt-6 space-y-3 border-t border-slate-100 pt-6">
-                        {plan.features.map((feat) => (
-                          <li
-                            key={feat}
-                            className="flex items-start gap-2.5 text-sm text-slate-700"
-                          >
-                            <CheckCircle2
-                              className={`h-4 w-4 shrink-0 mt-0.5 ${
-                                plan.featured ? "text-indigo-600" : "text-emerald-600"
-                              }`}
-                              aria-hidden="true"
-                            />
-                            <span>{feat}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => handlePlanSelect(plan.name)}
-                      className={`mt-8 inline-flex w-full items-center justify-center gap-2 rounded-xl px-5 py-3.5 text-sm font-semibold transition min-h-[48px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 ${
-                        plan.featured
-                          ? "bg-indigo-950 text-white hover:bg-indigo-900 shadow-sm"
-                          : "border border-slate-300 bg-white text-slate-900 hover:bg-slate-50"
-                      }`}
-                    >
-                      {plan.cta}
-                      <ArrowRight className="h-4 w-4" aria-hidden="true" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-
-              {/* Interactive Server Sizing Calculator Banner */}
-              <div className="mt-10 flex flex-col items-start justify-between gap-5 rounded-2xl border border-indigo-200/80 bg-white p-6 sm:flex-row sm:items-center shadow-sm">
-                <div className="flex items-start gap-4">
-                  <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-700 border border-indigo-100">
-                    <Calculator className="h-6 w-6" aria-hidden="true" />
-                  </span>
-                  <div>
-                    <h3 className="text-base font-bold text-slate-950">
-                      On-Premise için ne kadar sunucu kaynağı gerekir?
-                    </h3>
-                    <p className="mt-1 text-sm text-slate-600">
-                      Kullanıcı adedini, eş zamanlı çağrı sayısını, yerel LLM ve ses kayıt
-                      süresini girin; ihtiyacınız olan vCPU, RAM, NVMe ve ağ bant genişliğini
-                      anında hesaplayın.
-                    </p>
-                  </div>
-                </div>
-                <a
-                  href={SITE_CONFIG.sizingCalcUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-5 py-3 text-sm font-semibold text-indigo-950 hover:bg-indigo-100 transition min-h-[48px]"
-                >
-                  Kapasite Hesaplayıcıyı Aç
-                  <ExternalLink className="h-4 w-4" aria-hidden="true" />
-                </a>
-              </div>
-            </div>
-          </section>
+          <PlanComparisonSection onSelectPlan={handlePlanSelect} />
 
           {/* ============================================================
-              SECTION 7 — NATIVE ACCESSIBLE FAQ ACCORDION
+              SECTION 9 — NATIVE ACCESSIBLE FAQ ACCORDION
              ============================================================ */}
           <section
             id="sss"
@@ -1019,7 +1230,7 @@ export default function NorniaHomePage() {
           </section>
 
           {/* ============================================================
-              SECTION 8 — DEMO & CONSULTATION FORM
+              SECTION 10 — DEMO & CONSULTATION FORM
              ============================================================ */}
           <section
             id="demo"
@@ -1027,35 +1238,34 @@ export default function NorniaHomePage() {
           >
             <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
               <div className="grid grid-cols-1 gap-10 lg:grid-cols-12 lg:items-start">
-                {/* Left Column: Consultation Steps & Direct Contact */}
                 <div className="lg:col-span-5">
                   <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700 ring-1 ring-inset ring-indigo-100">
-                    Canlı Demo &amp; Mimari Danışmanlık
+                    Canlı Demo &amp; 30 Gün Trial
                   </span>
                   <h2 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl">
                     Nornia&apos;yı Kendi Senaryonuzla Canlı Test Edin
                   </h2>
                   <p className="mt-3 text-base leading-relaxed text-slate-600">
                     Formu doldurun; mühendislik ekibimiz aynı gün dönüş yaparak size özel
-                    canlı demo ortamını ve kurulum planını paylaşsın.
+                    canlı demo ortamını, 30 günlük Trial lisansını ve paket teklifini paylaşsın.
                   </p>
 
                   <ol className="mt-7 space-y-4">
                     {[
                       {
                         step: "01",
-                        title: "15 Dakikalık İhtiyaç Analizi",
-                        desc: "Abone sayınız, çağrı hacminiz, mevcut IP telefonlarınız ve AI hedefleriniz netleştirilir.",
+                        title: "15 Dakikalık İhtiyaç & Plan Analizi",
+                        desc: "Abone sayınız, çağrı hacminiz, mevcut IP telefonlarınız ve Starter / Professional / Enterprise ihtiyacınız netleştirilir.",
                       },
                       {
                         step: "02",
-                        title: "Canlı Ürün Gösterimi",
-                        desc: "AI Sesli Asistan, Temsilci Paneli, Omnichannel ve 44+ rapor gerçek çağrıyla canlı gösterilir.",
+                        title: "Canlı Ürün & AI Gösterimi",
+                        desc: "AI Sesli Asistan, 6 Dil Canlı Çeviri, Temsilci Paneli, Omnichannel ve 44+ rapor gerçek çağrıyla gösterilir.",
                       },
                       {
                         step: "03",
-                        title: "Özel Mimari & Lisans Teklifi",
-                        desc: "On-Premise veya Bulut seçeneğine göre donanım önerisi ve şeffaf teklif sunulur.",
+                        title: "Özel Mimari & Şeffaf Teklif",
+                        desc: "On-Premise, Nornia Bulut veya Multi-Tenant seçiminize göre donanım önerisi ve lisans teklifi sunulur.",
                       },
                     ].map((s) => (
                       <li key={s.step} className="flex items-start gap-3.5">
@@ -1070,7 +1280,6 @@ export default function NorniaHomePage() {
                     ))}
                   </ol>
 
-                  {/* Direct Contact Box */}
                   <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-2xs space-y-3">
                     <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">
                       Doğrudan İletişim
@@ -1096,7 +1305,10 @@ export default function NorniaHomePage() {
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-2.5 font-semibold text-emerald-700 hover:text-emerald-800"
                       >
-                        <MessageSquare className="h-4 w-4 text-emerald-600" aria-hidden="true" />
+                        <MessageSquare
+                          className="h-4 w-4 text-emerald-600"
+                          aria-hidden="true"
+                        />
                         WhatsApp Kurumsal Destek Hattı
                       </a>
                       <div className="inline-flex items-center gap-2.5 text-slate-500">
@@ -1107,9 +1319,11 @@ export default function NorniaHomePage() {
                   </div>
                 </div>
 
-                {/* Right Column: Accessible Demo Request Form */}
                 <div className="lg:col-span-7">
-                  <DemoRequestForm preselectedDeployment={selectedDeployment} />
+                  <DemoRequestForm
+                    preselectedDeployment={selectedDeployment}
+                    preselectedPlan={selectedPlanLabel}
+                  />
                 </div>
               </div>
             </div>
@@ -1117,12 +1331,11 @@ export default function NorniaHomePage() {
         </main>
 
         {/* ============================================================
-            SECTION 9 — CLEAN LIGHT CORPORATE FOOTER
+            SECTION 11 — CLEAN LIGHT CORPORATE FOOTER
            ============================================================ */}
         <footer className="border-t border-slate-200 bg-white">
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-14">
             <div className="grid grid-cols-1 gap-10 md:grid-cols-2 lg:grid-cols-12">
-              {/* Brand */}
               <div className="lg:col-span-4">
                 <a href="#" className="inline-flex items-center gap-2.5">
                   <img
@@ -1140,25 +1353,19 @@ export default function NorniaHomePage() {
                 </p>
               </div>
 
-              {/* Platform */}
               <div className="lg:col-span-3">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900">
-                  Platform
+                  Platform &amp; Paketler
                 </h3>
                 <ul className="mt-3.5 space-y-2.5 text-sm text-slate-600">
                   <li>
-                    <a href="#platform" className="hover:text-indigo-700">
-                      AI Sesli Asistan
+                    <a href="#kurulum" className="hover:text-indigo-700">
+                      On-Premise, Bulut &amp; Multi-Tenant
                     </a>
                   </li>
                   <li>
                     <a href="#platform" className="hover:text-indigo-700">
-                      Temsilci Çağrı Paneli
-                    </a>
-                  </li>
-                  <li>
-                    <a href="#platform" className="hover:text-indigo-700">
-                      Omnichannel Gelen Kutusu
+                      AI Sesli Asistan &amp; Canlı Çeviri
                     </a>
                   </li>
                   <li>
@@ -1172,14 +1379,13 @@ export default function NorniaHomePage() {
                     </a>
                   </li>
                   <li>
-                    <a href="#modeller" className="hover:text-indigo-700">
-                      On-Premise &amp; Bulut Modelleri
+                    <a href="#planlar" className="font-semibold text-indigo-700 hover:text-indigo-950">
+                      Plan Karşılaştırma Matrisi
                     </a>
                   </li>
                 </ul>
               </div>
 
-              {/* Resources */}
               <div className="lg:col-span-3">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900">
                   Kaynaklar &amp; Geliştiriciler
@@ -1209,6 +1415,17 @@ export default function NorniaHomePage() {
                   </li>
                   <li>
                     <a
+                      href={SITE_CONFIG.catalogUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 hover:text-indigo-700"
+                    >
+                      Kurumsal Tanıtım Kataloğu (PDF)
+                      <ExternalLink className="h-3 w-3 text-slate-400" aria-hidden="true" />
+                    </a>
+                  </li>
+                  <li>
+                    <a
                       href={SITE_CONFIG.sizingCalcUrl}
                       target="_blank"
                       rel="noopener noreferrer"
@@ -1226,7 +1443,6 @@ export default function NorniaHomePage() {
                 </ul>
               </div>
 
-              {/* Contact */}
               <div className="lg:col-span-2">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900">
                   İletişim
@@ -1253,7 +1469,10 @@ export default function NorniaHomePage() {
                     </a>
                   </li>
                   <li>
-                    <a href="#demo" className="font-semibold text-indigo-700 hover:text-indigo-900">
+                    <a
+                      href="#demo"
+                      className="font-semibold text-indigo-700 hover:text-indigo-900"
+                    >
                       Demo Talep Et →
                     </a>
                   </li>

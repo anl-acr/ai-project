@@ -196,3 +196,321 @@ input[type="radio"],
 input[type="checkbox"] {
   accent-color: #312e81;
 }
+
+/* ==========================================================================
+   MODERN WEB GUIDANCE: RESPONSIVE SITE NAVBAR (SINGLE <nav> + POPOVER)
+   ========================================================================== */
+.nornia-header-inner > * {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.nornia-site-header.is-measuring * {
+  transition: none !important;
+}
+
+.nornia-site-header .nornia-menu-btn {
+  anchor-name: --nornia-menu-btn;
+}
+
+.nornia-site-header .nornia-site-menu {
+  position: fixed;
+  inset: auto;
+  inset-block-start: 4.5rem;
+  inset-block-start: anchor(--nornia-menu-btn bottom);
+  inset-inline-end: 1rem;
+  inline-size: min(86dvw, 22rem);
+  max-inline-size: calc(100dvw - 2rem);
+  block-size: fit-content;
+  max-block-size: calc(100dvh - 6rem);
+  margin-block-start: 0.5rem;
+  padding: 0.75rem;
+  overflow: auto;
+  border-radius: 1rem;
+  border: 1px solid #e2e8f0;
+  background-color: #ffffff;
+  box-shadow: 0 24px 60px -16px rgba(15, 23, 42, 0.2);
+}
+
+.nornia-site-header .nornia-site-menu[popover]:not(:is(:popover-open, .\:popover-open, .popover-open-fallback)) {
+  display: none;
+}
+
+.nornia-site-header .nornia-site-menu[popover]:is(:popover-open, .\:popover-open, .popover-open-fallback) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.nornia-site-header.is-wide .nornia-menu-btn {
+  display: none;
+}
+
+.nornia-site-header.is-wide .nornia-site-menu {
+  position: static;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 1.5rem;
+  inline-size: auto;
+  max-inline-size: none;
+  block-size: auto;
+  max-block-size: none;
+  overflow: visible;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.nornia-site-header.is-wide .nornia-site-menu::backdrop {
+  display: none;
+}
+
+/* ==========================================================================
+   MODERN WEB GUIDANCE: SINGLE-ROW SCROLLING TABS WITH FADE EDGES & UNDERLINE
+   ========================================================================== */
+@property --fade-start {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --fade-end {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+.nornia-tablist {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 0.5rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+  scroll-snap-type: inline proximity;
+  scroll-padding-inline: 2.5rem;
+  border-block-end: 1px solid #e2e8f0;
+  padding-block-end: 0;
+  --fade-size: 2.5rem;
+  --fade-dir: right;
+  --fade-start-pos: 0;
+  --fade-end-pos: 100%;
+  mask:
+    linear-gradient(black, black) no-clip subtract,
+    linear-gradient(to var(--fade-dir), black, transparent) var(--fade-start-pos) 0 / var(--fade-start) 100% no-repeat no-clip,
+    linear-gradient(to var(--fade-dir), transparent, black) var(--fade-end-pos) 0 / var(--fade-end) 100% no-repeat no-clip;
+  animation: nornia-reveal-fade-start linear both, nornia-hide-fade-end linear both;
+  animation-timeline: scroll(self inline);
+  animation-range: 0 var(--fade-size), calc(100% - var(--fade-size)) 100%;
+  transition: --fade-start 0.2s, --fade-end 0.2s;
+}
+
+.nornia-tablist::-webkit-scrollbar {
+  display: none;
+}
+
+.nornia-tablist.more-start {
+  --fade-start: var(--fade-size);
+}
+
+.nornia-tablist.more-end {
+  --fade-end: var(--fade-size);
+}
+
+@keyframes nornia-reveal-fade-start {
+  to {
+    --fade-start: var(--fade-size);
+  }
+}
+
+@keyframes nornia-hide-fade-end {
+  from {
+    --fade-end: var(--fade-size);
+  }
+}
+
+.nornia-tab-btn {
+  position: relative;
+  flex: none;
+  scroll-snap-align: start;
+  padding: 0.85rem 1.05rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #475569;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s ease;
+}
+
+.nornia-tab-btn:hover {
+  color: #1e1b4b;
+}
+
+.nornia-tab-btn:focus-visible {
+  outline: 2px solid #4f46e5;
+  outline-offset: -2px;
+  border-radius: 0.5rem;
+}
+
+.nornia-tab-btn[aria-selected="true"] {
+  color: #1e1b4b;
+}
+
+/* Mandatory non-color shape indicator via border (preserved in forced-colors mode) */
+.nornia-tab-btn[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  border-block-end: 3px solid #4f46e5;
+}
+
+/* Tabpanel stack: panels themselves have zero padding/background so hidden="until-found" never leaves empty strips */
+.nornia-tabpanels-grid {
+  display: grid;
+}
+
+.nornia-tabpanels-grid > [role="tabpanel"] {
+  grid-area: 1 / 1;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+}
+
+/* ==========================================================================
+   MODERN WEB GUIDANCE: RESPONSIVE COMPARISON TABLE (STICKY + @container STACK)
+   ========================================================================== */
+.nornia-plan-table-wrap {
+  overflow: auto;
+  max-inline-size: 100%;
+  max-block-size: min(760px, 82dvh);
+  container-type: inline-size;
+}
+
+.nornia-plan-table-wrap:focus-visible {
+  outline: 2px solid #4f46e5;
+  outline-offset: 2px;
+}
+
+.nornia-plan-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  --label-2: "Starter";
+  --label-3: "Professional";
+  --label-4: "Enterprise";
+}
+
+.nornia-plan-table thead {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 3;
+}
+
+.nornia-plan-table tbody tr.nornia-feat-row th[scope="row"] {
+  position: sticky;
+  inset-inline-start: 0;
+  z-index: 1;
+  background-color: #ffffff;
+}
+
+.nornia-plan-table tbody tr.nornia-feat-row:hover th[scope="row"] {
+  background-color: #f8fafc;
+}
+
+@container (width < 700px) {
+  .nornia-plan-table-wrap {
+    max-block-size: none;
+    overflow: visible;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .nornia-plan-table,
+  .nornia-plan-table thead,
+  .nornia-plan-table tbody,
+  .nornia-plan-table tr,
+  .nornia-plan-table th,
+  .nornia-plan-table td {
+    display: block;
+    inline-size: auto;
+    min-inline-size: 0;
+  }
+
+  .nornia-plan-table thead {
+    /* Hide column header from layout and screen readers when stacked */
+    display: none;
+  }
+
+  .nornia-plan-table tr.nornia-cat-row {
+    margin-block: 1rem 0.5rem;
+    border-radius: 1rem;
+    overflow: hidden;
+    border: 1px solid #cbd5e1;
+  }
+
+  .nornia-plan-table tr.nornia-cat-row th {
+    border: 0;
+    padding: 0.9rem 1rem;
+  }
+
+  .nornia-plan-table tr.nornia-feat-row {
+    margin-block-end: 0.75rem;
+    border-radius: 1rem;
+    border: 1px solid #e2e8f0;
+    background: #ffffff;
+    overflow: hidden;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  }
+
+  .nornia-plan-table tbody tr.nornia-feat-row th[scope="row"] {
+    position: sticky;
+    inset-block-start: 0;
+    inset-inline-start: auto;
+    z-index: 2;
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+    padding: 0.85rem 1rem;
+  }
+
+  .nornia-plan-table tbody tr.nornia-feat-row td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.65rem 1rem;
+    border-left: 0;
+    border-bottom: 1px solid #f1f5f9;
+    text-align: right;
+  }
+
+  .nornia-plan-table tbody tr.nornia-feat-row td:last-child {
+    border-bottom: 0;
+  }
+
+  .nornia-plan-table tbody tr.nornia-feat-row td::before {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #475569;
+  }
+
+  .nornia-plan-table tbody tr.nornia-feat-row td:nth-child(2)::before {
+    content: var(--label-2);
+  }
+
+  .nornia-plan-table tbody tr.nornia-feat-row td:nth-child(3)::before {
+    content: var(--label-3);
+    color: #3730a3;
+  }
+
+  .nornia-plan-table tbody tr.nornia-feat-row td:nth-child(4)::before {
+    content: var(--label-4);
+    color: #6d28d9;
+  }
+}
