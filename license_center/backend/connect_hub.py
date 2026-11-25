@@ -967,6 +967,18 @@ async def pbx_ras_tunnel_endpoint(websocket: WebSocket):
                     except Exception as ex_edge:
                         print(f"[Nornia SIP Edge Provision Warning]: {ex_edge}")
 
+                req_trunk_dids = msg.get("tunnel_trunk_dids") or []
+                if isinstance(req_trunk_dids, list) and sip_edge_cfg.get("pbx_tunnel_ip"):
+                    try:
+                        from license_center.backend.sip_edge_manager import sync_kamailio_did_routes_for_pbx_sync
+                        await asyncio.to_thread(
+                            sync_kamailio_did_routes_for_pbx_sync,
+                            str(sip_edge_cfg.get("pbx_tunnel_ip")),
+                            req_trunk_dids,
+                        )
+                    except Exception as ex_did_sync:
+                        print(f"[Nornia SIP Edge DID Route Sync Warning]: {ex_did_sync}")
+
                 await session.send_json({
                     "type": "RAS_WELCOME",
                     "subdomain": session.subdomain,

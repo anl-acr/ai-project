@@ -673,6 +673,8 @@ bind=0.0.0.0:8089
             op_user_s = str((primary_t_ref.get("username") or primary_t_ref.get("did_number") or "908503607390") if primary_t_ref else "908503607390").strip()
             op_host_s = str((primary_t_ref.get("host") or "ikonsip.com") if primary_t_ref else "ikonsip.com").strip()
             op_sh_s = _parse_sh(primary_t_ref) if primary_t_ref else {}
+            op_use_tunnel_s = bool(op_sh_s.get("use_tunnel_proxy"))
+            op_tunnel_line_s = "outbound_proxy=sip:10.200.0.1:5060\\;lr\n" if op_use_tunnel_s else ""
             op_realm_s = str(op_sh_s.get("realm") or "").strip()
             op_domain_s = op_realm_s if op_realm_s else (op_host_s if op_host_s != "127.0.0.1" else "ikonsip.com")
             pjsip_custom_content += f"""
@@ -685,7 +687,7 @@ disallow=all
 allow={op_allow_s}
 aors={op_ref_safe_s}-aor
 outbound_auth={op_ref_safe_s}-auth
-direct_media=no
+{op_tunnel_line_s}direct_media=no
 force_rport=yes
 rewrite_contact=yes
 rtp_symmetric=yes
@@ -704,11 +706,18 @@ from_domain={op_domain_s}
             username = str(t.get("username") or "").strip()
             password = str(t.get("password") or "").strip()
             protocol = str(t.get("protocol") or "udp").lower()
+            sh = _parse_sh(t)
+            use_tunnel_proxy_s = bool(sh.get("use_tunnel_proxy"))
             lb_s = _extract_lb_s(t)
-            if lb_s and protocol in ("udp", "tcp"):
+            if use_tunnel_proxy_s and protocol in ("udp", "tcp") and custom_bind_map_s and wg_edge_ip_s:
+                transport = f"transport-{protocol}-wgedge"
+            elif lb_s and protocol in ("udp", "tcp"):
                 transport = f"transport-{protocol}-{lb_s['safe_ip']}"
             else:
                 transport = "transport-tls" if protocol == "tls" else ("transport-tcp" if protocol == "tcp" else "transport-udp")
+
+            tunnel_proxy_line_s = "outbound_proxy=sip:10.200.0.1:5060\\;lr\n" if use_tunnel_proxy_s else ""
+            tunnel_reg_line_s = f"line=yes\nendpoint={name}\n" if use_tunnel_proxy_s else ""
 
             media_bind_s = ""
             identify_hdr_s = ""
@@ -721,7 +730,7 @@ from_domain={op_domain_s}
                     hp_s.append(did.replace("+", r"\+"))
                 if username and username != did:
                     hp_s.append(username.replace("+", r"\+"))
-                sh_ed_s = str(_parse_sh(t).get("extra_match_dids") or "").strip()
+                sh_ed_s = str(sh.get("extra_match_dids") or "").strip()
                 for ed_item in re.split(r"[,;\s\n]+", sh_ed_s):
                     ed_c = ed_item.strip()
                     if ed_c:
@@ -737,12 +746,25 @@ from_domain={op_domain_s}
                 for sn_s in lb_s.get("target_subnets", []):
                     if sn_s and sn_s != host and sn_s != f"{host}/32":
                         identify_extra_s += f"match={sn_s}\n"
+            elif use_tunnel_proxy_s:
+                identify_extra_s += "match=10.200.0.1\n"
+                tp_hp_s = []
+                if did:
+                    tp_hp_s.append(did.replace("+", r"\+"))
+                if username and username != did:
+                    tp_hp_s.append(username.replace("+", r"\+"))
+                if tp_hp_s:
+                    identify_hdr_s = (
+                        f"[{name}-identify-hdr]\n"
+                        f"type=identify\n"
+                        f"endpoint={name}\n"
+                        f"match_header=To: /({'|'.join(tp_hp_s)})/\n\n"
+                    )
 
             t_type = str(t.get("trunk_type") or "register").lower()
             if t_type == "ip":
                 t_type = "peer"
             allow_codecs = _norm_codecs(t)
-            sh = _parse_sh(t)
             realm = str(sh.get("realm") or "").strip()
             in_caller_hdr = str(sh.get("inbound_caller_header") or "default").strip()
             out_from_user = str(sh.get("outbound_from_user") or "default").strip()
@@ -784,14 +806,14 @@ transport={transport}
 outbound_auth={name}-auth
 server_uri=sip:{host}:{port}
 client_uri=sip:{username}@{host}:{port}
-retry_interval=60
+{tunnel_proxy_line_s}{tunnel_reg_line_s}retry_interval=60
 expiration=120
 auth_rejection_permanent=no
 {contact_user_line}
 [{name}-aor]
 type=aor
 contact=sip:{host}:{port}
-qualify_frequency=30
+{tunnel_proxy_line_s}qualify_frequency=30
 qualify_timeout=3.0
 
 [{name}]
@@ -802,7 +824,7 @@ disallow=all
 allow={allow_codecs}
 aors={name}-aor
 outbound_auth={name}-auth
-direct_media=no
+{tunnel_proxy_line_s}direct_media=no
 force_rport=yes
 rewrite_contact=yes
 rtp_symmetric=yes
@@ -820,7 +842,7 @@ trust_id_inbound={trust_id_in}
                 pjsip_custom_content += f"""[{name}-aor]
 type=aor
 contact=sip:{host}:{port}
-qualify_frequency=30
+{tunnel_proxy_line_s}qualify_frequency=30
 qualify_timeout=3.0
 
 [{name}]
@@ -830,7 +852,7 @@ context=from-trunk-{name}
 disallow=all
 allow={allow_codecs}
 aors={name}-aor
-direct_media=no
+{tunnel_proxy_line_s}direct_media=no
 force_rport=yes
 rewrite_contact=yes
 rtp_symmetric=yes
@@ -1965,6 +1987,34 @@ same => n(hangup_transfer),Hangup()
 ; WebRTC istemcileri ve Masa Telefonları (temsilciler) bu context üzerinden görüşme yapar
 
 __WEBRTC_FEATURES_BLOCK__
+
+; Otel / PMS Özellik Kodları: Kat Hizmetleri (*71 Temiz, *72 Kirli, *73 Arıza, *74 Onaylı) ve Uyandırma (*55 Kur, *56 İptal)
+exten => _*7[1-4],1,NoOp(Otel Kat Hizmetleri Kodu: Dahili=${CALLERID(num)} Kod=${EXTEN:1})
+same => n,Answer()
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=3)
+same => n,Set(HK_RES=${CURL(http://127.0.0.1:8000/api/hotel/dialplan/housekeeping?ext=${URIENCODE(${CALLERID(num)})}&code=${EXTEN:1})})
+same => n,Playback(${IF($["${HK_RES}" = "OK"]?beep:beeperr)})
+same => n,Hangup()
+
+exten => *55,1,NoOp(Otel Uyandirma Kurma: Dahili=${CALLERID(num)})
+same => n,Answer()
+same => n,Wait(0.3)
+same => n,Playback(beep)
+same => n,Read(WAKE_HHMM,,4,,2,8)
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=3)
+same => n,Set(WK_RES=${CURL(http://127.0.0.1:8000/api/hotel/dialplan/wakeup?ext=${URIENCODE(${CALLERID(num)})}&time=${URIENCODE(${WAKE_HHMM})})})
+same => n,Playback(${IF($["${WK_RES}" = "OK"]?beep:beeperr)})
+same => n,Hangup()
+
+exten => *56,1,NoOp(Otel Uyandirma Iptal: Dahili=${CALLERID(num)})
+same => n,Answer()
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=3)
+same => n,Set(WK_C_RES=${CURL(http://127.0.0.1:8000/api/hotel/dialplan/wakeup-cancel?ext=${URIENCODE(${CALLERID(num)})})})
+same => n,Playback(${IF($["${WK_C_RES}" = "OK"]?beep:beeperr)})
+same => n,Hangup()
 
 ; Cihaz Değiştir / Çağrı Devralma (Boştaki Cihazdan Doğrudan Çekme — __CALL_FLIP_CODE__)
 exten => __CALL_FLIP_CODE__,1,NoOp(Cihaz Degistir Dogrudan Cekme [__CALL_FLIP_CODE__]: Kanal=${CHANNEL(name)}, Arayan=${CALLERID(num)})

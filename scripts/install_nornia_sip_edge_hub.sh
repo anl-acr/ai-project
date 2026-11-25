@@ -263,6 +263,14 @@ while read -r domain target _rest; do
   [[ -z "$domain" || "$domain" == \#* || -z "$target" ]] && continue
   kamcmd htable.sets nornia_routes "$domain" "sip:${target}" >/dev/null 2>&1 || true
 done < "$MAP_FILE"
+DID_MAP_FILE="/etc/kamailio/nornia_did_routes.map"
+if [[ -f "$DID_MAP_FILE" ]]; then
+  kamcmd htable.flush nornia_did_routes >/dev/null 2>&1 || true
+  while read -r did_key target _rest; do
+    [[ -z "$did_key" || "$did_key" == \#* || -z "$target" ]] && continue
+    kamcmd htable.sets nornia_did_routes "$did_key" "sip:${target}" >/dev/null 2>&1 || true
+  done < "$DID_MAP_FILE"
+fi
 exit 0
 EOF
 chmod +x /usr/local/bin/nornia-load-kamailio-routes.sh
@@ -350,6 +358,8 @@ modparam("nathelper", "received_avp", "\$avp(RECEIVED)")
 modparam("path", "use_received", 1)
 
 modparam("htable", "htable", "nornia_routes=>size=10;autoexpire=0;")
+modparam("htable", "htable", "nornia_did_routes=>size=10;autoexpire=0;")
+modparam("htable", "htable", "nornia_line_routes=>size=10;autoexpire=86400;")
 modparam("htable", "htable", "ipban=>size=10;autoexpire=1800;")
 
 modparam("pike", "sampling_time_unit", 2)
@@ -440,11 +450,23 @@ request_route {
         t_check_trans();
     }
 
-    # 3g. ZERO-IP DROP SHIELD: Only registered customer subdomains in nornia_routes are accepted!
+    # 3g. ZERO-IP DROP SHIELD + 2-Layer DID/Line Trunk Routing:
+    # 1) Registered customer subdomains (deskphones)
     \$var(target_pbx) = \$sht(nornia_routes=>\$rd);
+    # 2) Operator trunk inbound INVITE matched by RFC 3261 ;line= param
+    if (\$var(target_pbx) == \$null && \$(ru{uri.param,line}) != "") {
+        \$var(target_pbx) = \$sht(nornia_line_routes=>\$(ru{uri.param,line}));
+    }
+    # 3) Operator trunk inbound INVITE matched by unique DID user in Request-URI or To header
+    if (\$var(target_pbx) == \$null && \$rU != \$null) {
+        \$var(target_pbx) = \$sht(nornia_did_routes=>\$rU);
+    }
+    if (\$var(target_pbx) == \$null && \$tU != \$null) {
+        \$var(target_pbx) = \$sht(nornia_did_routes=>\$tU);
+    }
     if (\$var(target_pbx) == \$null) {
         # Silent drop — scanners hitting raw IP or invalid domain receive ZERO reply
-        xlog("L_WARN", "NORNIA_SEC_DROP unknown_domain src=\$si method=\$rm rd=\$rd\n");
+        xlog("L_WARN", "NORNIA_SEC_DROP unknown_domain src=\$si method=\$rm rd=\$rd ru=\$rU\n");
         exit;
     }
 
@@ -542,6 +564,26 @@ route[FROM_PBX] {
             exit;
         }
         sl_send_reply("404", "Not Here");
+        exit;
+    }
+
+    # Outbound Trunk REGISTER from PBX -> External Operator via Kamailio Relay
+    # Dynamically learns ;line= and DID user -> PBX WireGuard IP and rewrites Contact host to Hub Public IP
+    if (is_method("REGISTER")) {
+        if (\$tU != \$null) {
+            \$sht(nornia_did_routes=>\$tU) = "sip:" + \$si + ":5060";
+        }
+        if (\$(ct{nameaddr.uri}{uri.param,line}) != "") {
+            \$sht(nornia_line_routes=>\$(ct{nameaddr.uri}{uri.param,line})) = "sip:" + \$si + ":5060";
+        }
+        if (loose_route()) {
+            \$du = \$null;
+        }
+        \$fs = "udp:${HUB_BIND_IP}:5060";
+        t_on_reply("REPLY_FROM_EXT");
+        if (!t_relay()) {
+            sl_reply_error();
+        }
         exit;
     }
 

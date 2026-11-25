@@ -85,6 +85,8 @@ const ActiveDirectorySettingsPanel = lazySub(() => import("./ActiveDirectorySett
 const CrmIntegrationsPanel = lazySub(() => import("./CrmIntegrationsPanel"));
 const KvkkConsentSettingsPanel = lazySub(() => import("./KvkkConsentSettingsPanel"));
 const DateTimeSettingsPanel = lazySub(() => import("./DateTimeSettingsPanel"));
+const OmnichannelCsatPanel = lazySub(() => import("./OmnichannelCsatPanel"));
+const HotelPmsPanel = lazySub(() => import("./HotelPmsPanel"));
 import InfoTooltip from "../common/InfoTooltip";
 
 const normalizeSubTab = (subTab) => {
@@ -531,6 +533,20 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             visible: true
           },
           {
+            id: "omnichannel-csat",
+            label: "Omnichannel Memnuniyet Anketi (CSAT)",
+            subtitle: "WhatsApp, Telegram, Meta & E-Posta otomatik anketi ve skorlar",
+            icon: Sparkles,
+            visible: true
+          },
+          {
+            id: "hotel-pms",
+            label: "Otel & PMS Yönetim Merkezi",
+            subtitle: "Check-In/Out, AI Uyandırma (*55), Kat Hizmetleri (*71-*74), Elektra & FIAS",
+            icon: Building2,
+            visible: true
+          },
+          {
             id: "crm-integrations",
             label: "Hazır CRM Entegrasyonları",
             subtitle: "Zoho, HubSpot, Salesforce, Bitrix24, Pipedrive ve Zendesk",
@@ -640,6 +656,8 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
       "voice-biometrics": "voice_biometrics",
       "roi-settings": "roi_settings",
       channels: "channels",
+      "omnichannel-csat": "omnichannel_csat",
+      "hotel-pms": "hotel_pms",
       "crm-integrations": "crm_integrations",
       "canned-responses": "canned_responses",
       "universal-api": "universal_api",
@@ -977,6 +995,12 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
               <WhisperSettings backendHost={backendHost} />
             )}
             {activeSubTab === "channels" && <ChannelSettings backendHost={backendHost} />}
+            {activeSubTab === "omnichannel-csat" && (
+              <OmnichannelCsatPanel backendHost={backendHost} userPermissions={resolvedUserPerms} />
+            )}
+            {activeSubTab === "hotel-pms" && (
+              <HotelPmsPanel backendHost={backendHost} userPermissions={resolvedUserPerms} />
+            )}
             {activeSubTab === "breaks" && <BreakDefinitions backendHost={backendHost} />}
             {activeSubTab === "roles" && <RoleSettings backendHost={backendHost} />}
             {activeSubTab === "kvkk-consent" && (

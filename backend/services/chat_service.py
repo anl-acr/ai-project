@@ -98,6 +98,21 @@ async def handle_inbound_chat_message(
                 print(f"[Abuse Shield] Ignored message from blacklisted sender: {sender_info}")
                 return "Görüşmeniz suistimal tespiti nedeniyle sistem tarafından otomatik olarak sonlandırılmıştır."
 
+            # --- OMNICHANNEL CSAT SURVEY REPLY / FEEDBACK INTERCEPTOR ---
+            try:
+                from backend.services.omnichannel_csat_service import try_handle_omnichannel_csat_reply
+                consumed_csat = await try_handle_omnichannel_csat_reply(
+                    channel=channel,
+                    sender_info=str(sender_info),
+                    text=str(text or ""),
+                    recipient_phone_id=recipient_phone_id,
+                )
+                if consumed_csat:
+                    print(f"[Omnichannel CSAT] Consumed survey reply from {sender_info} on {channel}: '{text}'")
+                    return None
+            except Exception as exc_csat:
+                print(f"[Omnichannel CSAT Interceptor Warning]: {exc_csat}")
+
             # --- WHATSAPP 2FA "GİRİŞ KODU" INTERCEPTOR (5-Minute Pre-Generated OTP) ---
             if str(channel or "").lower() == "whatsapp":
                 raw_norm = str(text or "").strip().lower()

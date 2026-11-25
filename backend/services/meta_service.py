@@ -47,3 +47,41 @@ async def send_meta_message(recipient_id: str, text: str, channel: str = "instag
         print(f"[Meta Service Exception]: {e}")
         log_event("META_EXCEPTION", "ERROR", f"Meta mesaj gönderme hatası: {e}")
         return {"status": "error", "message": str(e)}
+
+
+async def send_meta_quick_replies(recipient_id: str, text: str, buttons: list, channel: str = "instagram") -> Dict[str, Any]:
+    """
+    Sends an Instagram Direct / Facebook Messenger message with Quick Reply buttons (e.g. CSAT survey).
+    """
+    try:
+        from backend.main import settings_db
+        channels_cfg = settings_db.get("channels", {})
+        token = channels_cfg.get("instagram_token", "").strip() if channel == "instagram" else channels_cfg.get("facebook_token", "").strip()
+        if not token:
+            token = channels_cfg.get("facebook_token", "").strip() or channels_cfg.get("instagram_token", "").strip()
+        if not token:
+            return {"status": "error", "message": f"{channel.capitalize()} Token is not configured."}
+
+        url = "https://graph.facebook.com/v18.0/me/messages"
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        quick_replies = [
+            {
+                "content_type": "text",
+                "title": str(b.get("title") or "")[:20],
+                "payload": str(b.get("id") or b.get("title") or "")[:64],
+            }
+            for b in (buttons or [])[:5]
+        ]
+        payload = {
+            "recipient": {"id": recipient_id},
+            "message": {"text": text, "quick_replies": quick_replies},
+        }
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(url, json=payload, headers=headers)
+            res_data = response.json()
+            if response.status_code == 200 and "message_id" in res_data:
+                return {"status": "success", "response": res_data}
+            return {"status": "error", "message": res_data.get("error", {}).get("message", "Meta quick reply error")}
+    except Exception as e:
+        print(f"[Meta Quick Replies Exception]: {e}")
+        return {"status": "error", "message": str(e)}

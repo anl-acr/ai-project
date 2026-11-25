@@ -102,3 +102,37 @@ async def send_telegram_media(chat_id: str, media_type: str, media_url: str, cap
         print(f"[Telegram Media Exception]: {e}")
         return {"status": "error", "message": str(e)}
 
+
+async def send_telegram_buttons(chat_id: str, text: str, buttons: list) -> Dict[str, Any]:
+    """
+    Sends a Telegram message with InlineKeyboard quick-reply buttons (e.g. CSAT survey).
+    buttons: [{"id": "csat_5", "title": "Çok Memnun (5)"}]
+    """
+    try:
+        from backend.main import settings_db
+        channels_cfg = settings_db.get("channels", {})
+        telegram_token = channels_cfg.get("telegram_token", "").strip()
+        if not telegram_token:
+            return {"status": "error", "message": "Telegram Token is not configured."}
+
+        url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
+        keyboard_rows = [
+            [{"text": str(b.get("title") or b.get("id") or "")[:64], "callback_data": str(b.get("id") or "")[:64]}]
+            for b in (buttons or [])[:5]
+        ]
+        payload = {
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": "HTML",
+            "reply_markup": {"inline_keyboard": keyboard_rows},
+        }
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(url, json=payload)
+            res_data = response.json()
+            if response.status_code == 200 and res_data.get("ok"):
+                return {"status": "success", "response": res_data}
+            return {"status": "error", "message": res_data.get("description", "Telegram buttons error")}
+    except Exception as e:
+        print(f"[Telegram Buttons Exception]: {e}")
+        return {"status": "error", "message": str(e)}
+

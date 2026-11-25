@@ -261,10 +261,11 @@ async def security_auth_middleware(request: Request, call_next):
         content={"detail": "Yetkisiz erişim: Geçerli bir oturum gerekli (Unauthorized)."},
     )
 
-from backend.routers import sip_debugger, workspace_enhancements
+from backend.routers import sip_debugger, workspace_enhancements, hotel_pms
 from backend.services.federation_service import federation_router, start_federation_sync_worker
 app.include_router(sip_debugger.router)
 app.include_router(workspace_enhancements.router)
+app.include_router(hotel_pms.router)
 app.include_router(federation_router)
 
 @app.on_event("startup")
@@ -290,6 +291,12 @@ async def on_startup_telemetry():
         print(f"[Telemetry Startup Error]: {e}")
     try:
         start_federation_sync_worker()
+        try:
+            from backend.services.hotel_pms_service import start_hotel_wakeup_worker, restart_fias_bridge
+            start_hotel_wakeup_worker()
+            await restart_fias_bridge()
+        except Exception as _e_hpms:
+            print(f"[Startup] Hotel/PMS worker init warning: {_e_hpms}")
     except Exception as e_fed:
         print(f"[Federation Worker Startup Info]: {e_fed}")
 
@@ -2954,6 +2961,9 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                     new_perms.append("ai_task_routing:read")
                 if r.get("role_code") == "admin" and "ai_task_routing:write" not in new_perms:
                     new_perms.append("ai_task_routing:write")
+                for hp_perm in ["hotel_pms:read", "hotel_pms:write", "hotel_pms:delete", "omnichannel_csat:read", "omnichannel_csat:write"]:
+                    if hp_perm not in new_perms:
+                        new_perms.append(hp_perm)
                 for rep_perm in [
                     "reports_did:access", "reports_trunk_minutes:access", "reports_invalid_calls:access",
                     "reports_breaks_attendance:access", "reports_omnichannel:access", "reports_disposition:access",
@@ -4925,6 +4935,8 @@ bind=0.0.0.0:8089
         op_user = str((primary_trunk_ref.get("username") or primary_trunk_ref.get("did_number") or "908503607390") if primary_trunk_ref else "908503607390").strip()
         op_host = str((primary_trunk_ref.get("host") or "ikonsip.com") if primary_trunk_ref else "ikonsip.com").strip()
         op_sh = _parse_trunk_sip_headers(primary_trunk_ref) if primary_trunk_ref else {}
+        op_use_tunnel = bool(op_sh.get("use_tunnel_proxy"))
+        op_tunnel_line = "outbound_proxy=sip:10.200.0.1:5060\\;lr\n" if op_use_tunnel else ""
         op_realm = str(op_sh.get("realm") or "").strip()
         op_from_domain = op_realm if op_realm else (op_host if op_host != "127.0.0.1" else "ikonsip.com")
         conf_content += f"""
@@ -4937,7 +4949,7 @@ disallow=all
 allow={op_trunk_codecs}
 aors={op_ref_safe_name}-aor
 outbound_auth={op_ref_safe_name}-auth
-direct_media=no
+{op_tunnel_line}direct_media=no
 force_rport=yes
 rewrite_contact=yes
 rtp_symmetric=yes
@@ -5033,8 +5045,12 @@ qualify_frequency=30
         username = str(t.get("username") or "").strip()
         password = str(t.get("password") or "").strip()
         protocol = str(t.get("protocol") or "udp").lower()
+        sip_hdrs = _parse_trunk_sip_headers(t)
+        use_tunnel_proxy = bool(sip_hdrs.get("use_tunnel_proxy"))
         lb_info = _extract_trunk_local_bind_info(t)
-        if lb_info and protocol in ("udp", "tcp"):
+        if use_tunnel_proxy and protocol in ("udp", "tcp") and custom_bind_map and wg_edge_ip:
+            transport = f"transport-{protocol}-wgedge"
+        elif lb_info and protocol in ("udp", "tcp"):
             transport = f"transport-{protocol}-{lb_info['safe_ip']}"
         elif protocol == "tls":
             transport = "transport-tls"
@@ -5042,6 +5058,9 @@ qualify_frequency=30
             transport = "transport-tcp"
         else:
             transport = "transport-udp"
+
+        tunnel_proxy_line = "outbound_proxy=sip:10.200.0.1:5060\\;lr\n" if use_tunnel_proxy else ""
+        tunnel_reg_line_opts = f"line=yes\nendpoint={name}\n" if use_tunnel_proxy else ""
 
         media_bind_lines = ""
         identify_hdr_block = ""
@@ -5054,7 +5073,7 @@ qualify_frequency=30
                 hdr_patterns.append(did.replace("+", r"\+"))
             if username and username != did:
                 hdr_patterns.append(username.replace("+", r"\+"))
-            sh_extra_dids = str(_parse_trunk_sip_headers(t).get("extra_match_dids") or "").strip()
+            sh_extra_dids = str(sip_hdrs.get("extra_match_dids") or "").strip()
             for ed in re.split(r"[,;\s\n]+", sh_extra_dids):
                 ed_c = ed.strip()
                 if ed_c:
@@ -5071,13 +5090,26 @@ qualify_frequency=30
             for snet in lb_info.get("target_subnets", []):
                 if snet and snet != host and snet != f"{host}/32":
                     identify_extra_matches += f"match={snet}\n"
+        elif use_tunnel_proxy:
+            identify_extra_matches += "match=10.200.0.1\n"
+            tp_patterns = []
+            if did:
+                tp_patterns.append(did.replace("+", r"\+"))
+            if username and username != did:
+                tp_patterns.append(username.replace("+", r"\+"))
+            if tp_patterns:
+                identify_hdr_block = (
+                    f"[{name}-identify-hdr]\n"
+                    f"type=identify\n"
+                    f"endpoint={name}\n"
+                    f"match_header=To: /({'|'.join(tp_patterns)})/\n\n"
+                )
 
         t_type = str(t.get("trunk_type") or "register").lower()
         if t_type == "ip":
             t_type = "peer"
 
         allow_codecs = _normalize_trunk_codecs(t)
-        sip_hdrs = _parse_trunk_sip_headers(t)
 
         realm = str(sip_hdrs.get("realm") or "").strip()
         user_agent = str(sip_hdrs.get("user_agent") or "").strip()
@@ -5125,14 +5157,14 @@ transport={transport}
 outbound_auth={name}-auth
 server_uri=sip:{host}:{port}
 client_uri=sip:{username}@{host}:{port}
-retry_interval=60
+{tunnel_proxy_line}{tunnel_reg_line_opts}retry_interval=60
 expiration=120
 auth_rejection_permanent=no
 {contact_user_line}
 [{name}-aor]
 type=aor
 contact=sip:{host}:{port}
-qualify_frequency=30
+{tunnel_proxy_line}qualify_frequency=30
 qualify_timeout=3.0
 
 [{name}]
@@ -5143,7 +5175,7 @@ disallow=all
 allow={allow_codecs}
 aors={name}-aor
 outbound_auth={name}-auth
-direct_media=no
+{tunnel_proxy_line}direct_media=no
 force_rport=yes
 rewrite_contact=yes
 rtp_symmetric=yes
@@ -5168,7 +5200,7 @@ match={host}
             conf_content += f"""[{name}-aor]
 type=aor
 contact=sip:{host}:{port}
-qualify_frequency=30
+{tunnel_proxy_line}qualify_frequency=30
 qualify_timeout=3.0
 
 [{name}]
@@ -5178,7 +5210,7 @@ context=from-trunk-{name}
 disallow=all
 allow={allow_codecs}
 aors={name}-aor
-direct_media=no
+{tunnel_proxy_line}direct_media=no
 force_rport=yes
 rewrite_contact=yes
 rtp_symmetric=yes
@@ -6460,6 +6492,34 @@ same => n,Hangup()
 
 ; Çağrı Yönlendirme (Her Zaman, Meşgulde, Zaman Aşımında, İptal Kodu) Prefix'leri
 {dynamic_feature_dialplan}
+
+; Otel / PMS Özellik Kodları: Kat Hizmetleri (*71 Temiz, *72 Kirli, *73 Arıza, *74 Onaylı) ve Uyandırma (*55 Kur, *56 İptal)
+exten => _*7[1-4],1,NoOp(Otel Kat Hizmetleri Kodu: Dahili=${{CALLERID(num)}} Kod=${{EXTEN:1}})
+same => n,Answer()
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=3)
+same => n,Set(HK_RES=${{CURL(http://{backend_host}/api/hotel/dialplan/housekeeping?ext=${{URIENCODE(${{CALLERID(num)}})}}&code=${{EXTEN:1}})}})
+same => n,Playback(${{IF($["${{HK_RES}}" = "OK"]?beep:beeperr)}})
+same => n,Hangup()
+
+exten => *55,1,NoOp(Otel Uyandirma Kurma: Dahili=${{CALLERID(num)}})
+same => n,Answer()
+same => n,Wait(0.3)
+same => n,Playback(beep)
+same => n,Read(WAKE_HHMM,,4,,2,8)
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=3)
+same => n,Set(WK_RES=${{CURL(http://{backend_host}/api/hotel/dialplan/wakeup?ext=${{URIENCODE(${{CALLERID(num)}})}}&time=${{URIENCODE(${{WAKE_HHMM}})}})}})
+same => n,Playback(${{IF($["${{WK_RES}}" = "OK"]?beep:beeperr)}})
+same => n,Hangup()
+
+exten => *56,1,NoOp(Otel Uyandirma Iptal: Dahili=${{CALLERID(num)}})
+same => n,Answer()
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=3)
+same => n,Set(WK_C_RES=${{CURL(http://{backend_host}/api/hotel/dialplan/wakeup-cancel?ext=${{URIENCODE(${{CALLERID(num)}})}})}})
+same => n,Playback(${{IF($["${{WK_C_RES}}" = "OK"]?beep:beeperr)}})
+same => n,Hangup()
 
 ; Cihaz Değiştir / Çağrı Devralma (Boştaki Cihazdan Doğrudan Çekme — {call_flip_code})
 exten => {call_flip_code},1,NoOp(Cihaz Degistir Dogrudan Cekme [{call_flip_code}]: Kanal=${{CHANNEL(name)}}, Arayan=${{CALLERID(num)}})
@@ -18662,6 +18722,15 @@ async def check_subscriber_call(caller: str, callee: str, tenant_id: str = ""):
     if is_configured_emergency_number(callee_str, settings_db):
         return Response(content="ALLOW", media_type="text/plain")
 
+    try:
+        from backend.services.hotel_pms_service import check_hotel_room_call_policy
+        _hp_ok, _hp_rsn = await check_hotel_room_call_policy(caller_str, callee_str, tenant_id or "tenant-default")
+        if not _hp_ok:
+            print(f"[Hotel PMS Block] Internal room call denied: {caller_str} -> {callee_str} ({_hp_rsn})")
+            return Response(content="DENY", media_type="text/plain")
+    except Exception:
+        pass
+
     # Strict multi-tenant internal call isolation: block cross-tenant extension-to-extension calls!
     users_list_all = settings_db.get("users", []) or []
     caller_u = next(
@@ -18887,6 +18956,16 @@ async def check_outbound_call(
     if is_configured_emergency_number(callee_str, settings_db):
         add_system_log("EMERGENCY", "WARNING", f"Acil Durum Çağrısı Başlatıldı (ACL/Limit Bypass): Dahili {caller_str or '-'} -> {callee_str}")
         return Response(content="ALLOW", media_type="text/plain")
+
+    # OTEL / PMS ODA DIŞ ARAMA KİLİDİ (Check-Out sonrası oda dış arama engeli)
+    try:
+        from backend.services.hotel_pms_service import check_hotel_room_call_policy
+        _hp_ok_out, _hp_rsn_out = await check_hotel_room_call_policy(caller_str, callee_str, "tenant-default")
+        if not _hp_ok_out:
+            print(f"[Hotel PMS Block] Outbound room call denied: {caller_str} -> {callee_str} ({_hp_rsn_out})")
+            return Response(content="DENY", media_type="text/plain")
+    except Exception:
+        pass
 
     # LİSANS SÜRESİ KONTROLÜ: Süre (ve ek süre) dolduğunda masa telefonları yalnızca yukarıdaki acil durum numaralarını arayabilir!
     from backend.services.license_service import is_tenant_license_hard_expired
@@ -26563,6 +26642,24 @@ async def end_call_endpoint(
                     import asyncio
                     from backend.services.whatsapp_service import send_whatsapp_missed_call_autoresponder
                     asyncio.create_task(send_whatsapp_missed_call_autoresponder(caller_num))
+        # Hotel / PMS Outbound Call Accounting
+        try:
+            if (
+                db_call
+                and str(db_call.direction or "").lower() == "outbound"
+                and int(db_call.duration_seconds or 0) > 0
+            ):
+                from backend.services.hotel_pms_service import record_hotel_call_charge
+                asyncio.create_task(
+                    record_hotel_call_charge(
+                        extension=str(db_call.caller_number or ""),
+                        called_number=str(db_call.callee_number or ""),
+                        duration_seconds=int(db_call.duration_seconds or 0),
+                        tenant_id=getattr(db_call, "tenant_id", None) or "tenant-default",
+                    )
+                )
+        except Exception:
+            pass
     return {"status": "success", "call_status": resolved_status}
 
 
@@ -33245,7 +33342,87 @@ async def update_omnichannel_chat_status(
                 "last_message_sender": "system",
             },
         })
+        if new_status == "closed":
+            try:
+                from backend.services.omnichannel_csat_service import dispatch_omnichannel_csat_survey
+                asyncio.create_task(
+                    dispatch_omnichannel_csat_survey(
+                        session_id=session_id,
+                        tenant_id=chat.tenant_id or user_info.get("tenant_id") or "tenant-default",
+                        force=False,
+                    )
+                )
+            except Exception as e_csat_trig:
+                print(f"[Omnichannel CSAT Trigger Warning]: {e_csat_trig}")
         return {"status": "success", "chat_status": new_status, "message": sys_text}
+
+
+class OmnichannelCsatConfigSchema(BaseModel):
+    enabled: bool = True
+    trigger_on_close: bool = True
+    cooldown_hours: int = 24
+    channels: List[str] = ["whatsapp", "telegram", "instagram", "facebook", "mail"]
+    question_text: str = "Görüşmemizi nasıl değerlendirirsiniz? Geri bildiriminiz hizmet kalitemizi artırmamıza yardımcı olur."
+    low_score_followup_enabled: bool = True
+    low_score_followup_text: str = "Yaşadığınız aksaklık için üzgünüz. İyileştirebilmemiz için kısaca nedenini yazar mısınız?"
+    thank_you_text: str = "Değerlendirmeniz için çok teşekkür ederiz! Size tekrar yardımcı olmaktan mutluluk duyarız."
+    supervisor_alert_threshold: int = 2
+    public_base_url: Optional[str] = ""
+
+
+@app.get("/api/settings/omnichannel-csat")
+async def get_omnichannel_csat_settings_endpoint(user_info: dict = Depends(get_user_info)):
+    from backend.services.omnichannel_csat_service import get_omnichannel_csat_config
+    tid = user_info.get("tenant_id") or "tenant-default"
+    return get_omnichannel_csat_config(tid)
+
+
+@app.post("/api/settings/omnichannel-csat")
+async def save_omnichannel_csat_settings_endpoint(
+    payload: OmnichannelCsatConfigSchema,
+    user_info: dict = Depends(get_user_info),
+):
+    from backend.services.omnichannel_csat_service import save_omnichannel_csat_config
+    tid = user_info.get("tenant_id") or "tenant-default"
+    saved = save_omnichannel_csat_config(payload.model_dump(), tenant_id=tid)
+    return {"status": "success", "config": saved, "message": "Omnichannel memnuniyet anketi ayarları kaydedildi."}
+
+
+@app.get("/api/omnichannel/csat/stats")
+async def get_omnichannel_csat_stats_endpoint(days: int = 30, user_info: dict = Depends(get_user_info)):
+    from backend.services.omnichannel_csat_service import get_omnichannel_csat_stats
+    tid = user_info.get("tenant_id") or "tenant-default"
+    return await get_omnichannel_csat_stats(tenant_id=tid, days=days)
+
+
+@app.post("/api/omnichannel/chats/{session_id}/send-csat")
+async def trigger_manual_omnichannel_csat_endpoint(session_id: str, user_info: dict = Depends(get_user_info)):
+    from backend.services.omnichannel_csat_service import dispatch_omnichannel_csat_survey
+    tid = user_info.get("tenant_id") or "tenant-default"
+    return await dispatch_omnichannel_csat_survey(session_id=session_id, tenant_id=tid, force=True)
+
+
+@app.get("/api/omnichannel/csat/rate/{survey_id}")
+async def rate_omnichannel_csat_email_link(survey_id: str, score: int = 5):
+    from backend.services.omnichannel_csat_service import rate_survey_by_id
+    res = await rate_survey_by_id(survey_id, score)
+    if not res:
+        return Response(
+            content="<html><body style='font-family:sans-serif;text-align:center;padding:48px'><h2>Anket bulunamadı veya süresi doldu.</h2></body></html>",
+            media_type="text/html",
+            status_code=404,
+        )
+    html = (
+        "<!doctype html><html lang='tr'><head><meta charset='utf-8'/><meta name='viewport' content='width=device-width,initial-scale=1'/>"
+        "<title>Değerlendirmeniz Alındı</title></head>"
+        "<body style='font-family:system-ui,-apple-system,sans-serif;background:#f8fafc;color:#0f172a;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0'>"
+        "<div style='background:#fff;border:1px solid #e2e8f0;border-radius:20px;padding:36px;max-width:420px;text-align:center;box-shadow:0 12px 32px rgba(15,23,42,.08)'>"
+        f"<div style='font-size:40px;margin-bottom:12px'>{'🌟' if res['score'] >= 4 else '🙏'}</div>"
+        f"<h2 style='margin:0 0 8px;font-size:20px'>Değerlendirmeniz Alındı ({res['score']}/5)</h2>"
+        f"<p style='margin:0;color:#475569;font-size:14px'><strong>{res['label']}</strong> geri bildiriminiz için çok teşekkür ederiz!</p>"
+        "</div></body></html>"
+    )
+    return Response(content=html, media_type="text/html", status_code=200)
 
 
 class ChatSessionAssignSchema(BaseModel):
@@ -49546,6 +49723,20 @@ async def receive_telegram_webhook(request: Request):
     """
     try:
         body = await request.json()
+        callback_q = body.get("callback_query")
+        if callback_q and callback_q.get("data"):
+            cb_msg = callback_q.get("message") or {}
+            cb_chat = cb_msg.get("chat") or {}
+            cb_sender_id = cb_chat.get("id") or (callback_q.get("from") or {}).get("id")
+            cb_data = str(callback_q.get("data") or "").strip()
+            if cb_sender_id and cb_data:
+                asyncio.create_task(
+                    handle_inbound_chat_message(
+                        channel="telegram",
+                        sender_info=str(cb_sender_id),
+                        text=cb_data,
+                    )
+                )
         message = body.get("message")
         if message and message.get("text"):
             chat = message.get("chat", {})

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Plus, Trash2, Edit2, X, Shield, Search, Check, CheckCircle, Smartphone, Server, Coffee, User, Users, Terminal, HardDrive, Lock, Unlock, Eye, Edit3, Trash, GitBranch, Bot, MessageSquare, BookOpen, FileText, Cable, Fingerprint, Volume2, ArrowUpRight, PhoneCall, Network, Mail, RotateCcw, Activity, Monitor, Database, Sliders, Calendar, Clock, MapPin, Hash, Shuffle, Languages, Heart, Sparkles, Headphones, Mic, AlertTriangle, Power } from "lucide-react";
+import { Plus, Trash2, Edit2, X, Shield, Search, Check, CheckCircle, Smartphone, Server, Coffee, User, Users, Terminal, HardDrive, Lock, Unlock, Eye, Edit3, Trash, GitBranch, Bot, MessageSquare, BookOpen, FileText, Cable, Fingerprint, Volume2, ArrowUpRight, PhoneCall, Network, Mail, RotateCcw, Activity, Monitor, Database, Sliders, Calendar, Clock, MapPin, Hash, Shuffle, Languages, Heart, Sparkles, Headphones, Mic, AlertTriangle, Power, Building2 } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
 
@@ -170,6 +170,8 @@ const SYSTEM_FEATURES = [
   { id: "speed_dials", name: "Hızlı Arama", icon: PhoneCall, type: "crud", color: "rose" },
   { id: "blacklist", name: "Numara Engelleme", icon: Shield, type: "crud", color: "rose" },
   { id: "scheduled_reports", name: "Zamanlanmış Raporlar", icon: Calendar, type: "crud", color: "indigo" },
+  { id: "hotel_pms", name: "Otel & PMS Yönetimi", icon: Building2, type: "crud", color: "indigo" },
+  { id: "omnichannel_csat", name: "Omnichannel Memnuniyet Anketi (CSAT)", icon: Sparkles, type: "crud", color: "amber" },
 
   // 4. Çağrı & Yönlendirme
   { id: "call_flow", name: "Arama Akış Yönetimi", icon: GitBranch, type: "crud", color: "indigo" },

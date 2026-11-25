@@ -630,6 +630,106 @@ class FederationSyncQueue(Base):
     synced_at = Column(DateTime, nullable=True)
 
 
+class OmnichannelCsatSurvey(Base):
+    __tablename__ = "omnichannel_csat_surveys"
+
+    id = Column(String, primary_key=True, index=True)  # UUID
+    tenant_id = Column(String, default="tenant-default", index=True)
+    session_id = Column(String, nullable=False, index=True)
+    channel = Column(String, nullable=False, index=True)  # whatsapp, telegram, instagram, facebook, mail
+    sender_info = Column(String, nullable=False, index=True)
+    assigned_agent = Column(String, default="ai")  # ai | human
+    assigned_user = Column(String, nullable=True)
+    status = Column(String, default="pending", index=True)  # pending | rated | commented | expired
+    score = Column(Integer, nullable=True)  # 1..5
+    rating_label = Column(String, nullable=True)
+    feedback_text = Column(Text, nullable=True)
+    supervisor_alerted = Column(Boolean, default=False)
+    sent_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+    responded_at = Column(DateTime, nullable=True)
+
+
+class HotelRoom(Base):
+    __tablename__ = "hotel_rooms"
+    __table_args__ = (UniqueConstraint("tenant_id", "room_number", name="uq_hotel_rooms_tenant_room"),)
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    tenant_id = Column(String, default="tenant-default", index=True)
+    room_number = Column(String, nullable=False, index=True)
+    extension = Column(String, nullable=False, index=True)
+    floor = Column(String, default="1")
+    building = Column(String, default="Ana Bina")
+    room_type = Column(String, default="standard")  # standard | deluxe | suite | vip
+    occupancy_status = Column(String, default="vacant", index=True)  # vacant | occupied
+    housekeeping_status = Column(String, default="clean", index=True)  # clean | dirty | maintenance | inspected
+    guest_name = Column(String, nullable=True)
+    guest_language = Column(String, default="tr")  # tr | en | de | ru | ar | fr
+    guest_vip = Column(Boolean, default=False)
+    reservation_code = Column(String, nullable=True)
+    family_group = Column(String, nullable=True)  # Rooms with same family_group can dial each other
+    dnd_enabled = Column(Boolean, default=False)
+    outbound_allowed = Column(Boolean, default=False)
+    checkin_at = Column(DateTime, nullable=True)
+    checkout_at = Column(DateTime, nullable=True)
+    notes = Column(Text, nullable=True)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+
+class HotelWakeupCall(Base):
+    __tablename__ = "hotel_wakeup_calls"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    tenant_id = Column(String, default="tenant-default", index=True)
+    room_number = Column(String, nullable=False, index=True)
+    extension = Column(String, nullable=False, index=True)
+    scheduled_time = Column(String, nullable=False)  # HH:MM
+    scheduled_date = Column(String, default="daily")  # YYYY-MM-DD or "daily"
+    language = Column(String, default="tr")
+    guest_name = Column(String, nullable=True)
+    custom_message = Column(Text, nullable=True)
+    status = Column(String, default="scheduled", index=True)  # scheduled | ringing | answered | retry_pending | missed_alarm | cancelled
+    retries = Column(Integer, default=0)
+    max_retries = Column(Integer, default=2)
+    next_retry_at = Column(DateTime, nullable=True)
+    last_attempt_at = Column(DateTime, nullable=True)
+    created_by = Column(String, default="reception")
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class HotelCallCharge(Base):
+    __tablename__ = "hotel_call_charges"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    tenant_id = Column(String, default="tenant-default", index=True)
+    room_number = Column(String, nullable=False, index=True)
+    extension = Column(String, nullable=False, index=True)
+    reservation_code = Column(String, nullable=True)
+    guest_name = Column(String, nullable=True)
+    called_number = Column(String, nullable=False)
+    call_category = Column(String, default="local")  # local | gsm | international | minibar | service
+    duration_seconds = Column(Integer, default=0)
+    billable_minutes = Column(Integer, default=0)
+    rate_per_min = Column(Float, default=0.0)
+    total_cost = Column(Float, default=0.0)
+    currency = Column(String, default="TRY")
+    posted_to_pms = Column(Boolean, default=False)
+    call_time = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+
+
+class HotelPmsEventLog(Base):
+    __tablename__ = "hotel_pms_event_logs"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    tenant_id = Column(String, default="tenant-default", index=True)
+    source = Column(String, default="panel")  # panel | phone | elektra | fias | api
+    event_type = Column(String, nullable=False, index=True)  # CHECKIN | CHECKOUT | HOUSEKEEPING | WAKEUP | WAKEUP_ALARM | CALL_CHARGE | FIAS
+    room_number = Column(String, nullable=True, index=True)
+    details = Column(Text, nullable=True)
+    status = Column(String, default="ok")  # ok | warning | error
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+
+
+
 
 
 

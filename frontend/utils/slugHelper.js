@@ -82,6 +82,8 @@ export const SUBTAB_TURKISH_SLUGS = {
   "server-ssh": "sunucu-web-ssh-terminali",
   "trunks": "dis-hatlar",
   "channels": "kanal-ayarlari",
+  "omnichannel-csat": "omnichannel-csat",
+  "hotel-pms": "otel-pms",
   "breaks": "mola-tanimlari",
   "work-hours": "mesai-ve-tatiller",
   "bulk-config": "toplu-konfigurasyon",

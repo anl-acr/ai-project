@@ -78,7 +78,8 @@ const DEFAULT_SIP_HEADERS = {
   local_gateway: "",
   target_subnets: "",
   extra_match_dids: "",
-  transit_pbx_mode: false
+  transit_pbx_mode: false,
+  use_tunnel_proxy: false
 };
 
 const MAXPTIME_OPTIONS = Array.from({ length: 29 }, (_, idx) => (idx + 2) * 10); // 20, 30, 40, ..., 300
@@ -1727,6 +1728,47 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
                     )}
 
                     {/* OPERATÖR /30 VLAN & ÖZEL ÇIKIŞ IP YÖNLENDİRMESİ (MULTI-TRUNK SOURCE POLICY ROUTING) */}
+                    {(newTrunk.trunk_type === "register" || newTrunk.trunk_type === "peer") && (
+                      <div className={`p-4 rounded-2xl border ${lightBg} ${borderLight} space-y-3`}>
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <div className="flex items-start gap-2.5">
+                            <div className={`p-2 rounded-xl bg-white dark:bg-slate-900 ${text} border ${borderLight} shrink-0 mt-0.5`}>
+                              <Shield size={16} />
+                            </div>
+                            <div>
+                              <div className="text-[11px] font-extrabold text-slate-800 dark:text-white uppercase tracking-wider flex flex-wrap items-center gap-2">
+                                <span>Nornia Connect Tünel (SIP Edge) Üzerinden Geçir</span>
+                                <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${lightBg} ${lightText} border ${borderLight}`}>
+                                  Zero-Port • CGNAT • 2-Katmanlı DID/Line
+                                </span>
+                              </div>
+                              <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
+                                CGNAT veya katı güvenlik duvarı arkasında direkt port açamayan lokasyonlarda bu dış hattı WireGuard + Kamailio SIP Edge (<code className="font-mono">10.200.0.1:5060</code>) üzerinden çıkarır. Aynı operatörde birden fazla müşteri olsa dahi gelen çağrılar <code className="font-mono">;line=</code> ve DID numarasıyla çakışmadan ayrıştırılır.
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 bg-white dark:bg-slate-900 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 shrink-0 self-start sm:self-center">
+                            <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                              {newTrunk.sip_headers?.use_tunnel_proxy ? "Aktif" : "Kapalı"}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleSipHeaderChange("use_tunnel_proxy", !newTrunk.sip_headers?.use_tunnel_proxy)
+                              }
+                              className={`transition-colors ${
+                                newTrunk.sip_headers?.use_tunnel_proxy ? text : "text-slate-400"
+                              }`}
+                              title="Dış hattı Nornia Connect Tüneli (SIP Edge) üzerinden geçir"
+                            >
+                              {newTrunk.sip_headers?.use_tunnel_proxy ? <ToggleRight size={26} /> : <ToggleLeft size={26} />}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     {(newTrunk.trunk_type === "register" || newTrunk.trunk_type === "peer") && (
                       <div className="p-4 rounded-2xl bg-indigo-50/40 dark:bg-indigo-950/20 border border-indigo-200/70 dark:border-indigo-900/50 space-y-4">
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">

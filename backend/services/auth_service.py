@@ -543,6 +543,8 @@ _PUBLIC_PREFIXES = (
     "/api/auth/setup_2fa/",
     "/api/webhooks/whatsapp",
     "/api/webhook/whatsapp",
+    "/api/omnichannel/csat/rate/",
+    "/api/pms/",
     "/api/downloads/desktop/",
     "/api/downloads/mobile/",
     "/api/prov/",
@@ -597,6 +599,9 @@ _LOOPBACK_INTERNAL_PATHS = {
     "/api/transcripts/broadcast",
     "/api/v1/demo/order-lookup",
     "/api/settings/ras/config",
+    "/api/hotel/dialplan/housekeeping",
+    "/api/hotel/dialplan/wakeup",
+    "/api/hotel/dialplan/wakeup-cancel",
 }
 
 

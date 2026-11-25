@@ -811,6 +811,30 @@ async def _ras_tunnel_loop():
                     except Exception:
                         live_pbx_ver = ""
                     pbx_wg_pubkey = await asyncio.to_thread(ensure_pbx_wg_keypair_sync)
+                    tunnel_trunk_dids: List[str] = []
+                    try:
+                        from backend.main import settings_db as _s_tr
+                        for _tr in (_s_tr.get("trunks") or []):
+                            if not isinstance(_tr, dict) or _tr.get("is_active", True) is False:
+                                continue
+                            _sh = _tr.get("sip_headers")
+                            if isinstance(_sh, str):
+                                try:
+                                    _sh = json.loads(_sh)
+                                except Exception:
+                                    _sh = {}
+                            if isinstance(_sh, dict) and _sh.get("use_tunnel_proxy"):
+                                for _k in ("did_number", "username"):
+                                    _val = str(_tr.get(_k) or "").strip()
+                                    if _val and _val not in tunnel_trunk_dids:
+                                        tunnel_trunk_dids.append(_val)
+                                _ex = str(_sh.get("extra_match_dids") or "").strip()
+                                for _it in _ex.replace(";", ",").split(","):
+                                    _ic = _it.strip()
+                                    if _ic and _ic not in tunnel_trunk_dids:
+                                        tunnel_trunk_dids.append(_ic)
+                    except Exception:
+                        pass
                     hello_payload = {
                         "type": "RAS_REGISTER",
                         "hardware_id": hw_id,
@@ -821,6 +845,7 @@ async def _ras_tunnel_loop():
                         "local_ips": local_ips,
                         "version": live_pbx_ver,
                         "wg_public_key": pbx_wg_pubkey,
+                        "tunnel_trunk_dids": tunnel_trunk_dids,
                     }
                     t0 = time.monotonic()
                     await tunnel_ws.send(json.dumps(hello_payload))

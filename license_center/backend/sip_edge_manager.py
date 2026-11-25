@@ -239,6 +239,48 @@ def _persist_wg0_and_kamailio_sync(active_peers: List[Dict[str, str]]):
             print(f"[SIP Edge] Kamailio routes reload warning: {ex_kam}")
 
 
+KAMAILIO_DID_ROUTES_MAP = "/etc/kamailio/nornia_did_routes.map"
+_DID_ROUTES_BY_PBX_IP: Dict[str, List[str]] = {}
+
+
+def sync_kamailio_did_routes_for_pbx_sync(pbx_wg_ip: str, did_list: List[str]):
+    """
+    Maintains the DID -> PBX WireGuard IP map (`/etc/kamailio/nornia_did_routes.map`) and live Kamailio
+    `nornia_did_routes` htable so multiple PBXs sharing one Hub/Operator can cleanly route inbound INVITEs.
+    """
+    ip_clean = str(pbx_wg_ip or "").strip()
+    if not ip_clean:
+        return
+    clean_dids = [str(d).strip() for d in (did_list or []) if str(d).strip()]
+    if clean_dids:
+        _DID_ROUTES_BY_PBX_IP[ip_clean] = clean_dids
+    else:
+        _DID_ROUTES_BY_PBX_IP.pop(ip_clean, None)
+
+    kam_dir = os.path.dirname(KAMAILIO_DID_ROUTES_MAP)
+    if not os.path.isdir(kam_dir):
+        return
+    try:
+        lines = ["# Auto-managed by Nornia Connect Hub: did_user => pbx_wg_ip:5060"]
+        flat_pairs: List[tuple] = []
+        for target_ip, dids in _DID_ROUTES_BY_PBX_IP.items():
+            for d in dids:
+                lines.append(f"{d} {target_ip}:5060")
+                flat_pairs.append((d, f"sip:{target_ip}:5060"))
+        tmp_path = f"{KAMAILIO_DID_ROUTES_MAP}.tmp"
+        with open(tmp_path, "w", encoding="utf-8") as fm:
+            fm.write("\n".join(lines) + "\n")
+        os.replace(tmp_path, KAMAILIO_DID_ROUTES_MAP)
+
+        kamcmd_bin = shutil.which("kamcmd") or shutil.which("kamctl")
+        if kamcmd_bin and os.path.basename(kamcmd_bin) == "kamcmd":
+            _run_cmd([kamcmd_bin, "htable.flush", "nornia_did_routes"], timeout=3.0)
+            for did_key, sip_uri in flat_pairs:
+                _run_cmd([kamcmd_bin, "htable.sets", "nornia_did_routes", did_key, sip_uri], timeout=3.0)
+    except Exception as ex_did:
+        print(f"[SIP Edge] Kamailio DID routes reload warning: {ex_did}")
+
+
 async def _allocate_next_wg_ip(db: AsyncSession) -> str:
     res = await db.execute(select(ClientServer.wg_tunnel_ip))
     used = {str(x).strip() for (x,) in res.all() if x}
