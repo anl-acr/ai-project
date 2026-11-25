@@ -4817,5 +4817,5 @@ async def catch_all_nornia_connect_proxy(request: Request, full_path: str):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("license_center.backend.main:app", host="0.0.0.0", port=8050, reload=True)
+    uvicorn.run("license_center.backend.main:app", host="0.0.0.0", port=8050, reload=True, ws_max_size=157286400)
 

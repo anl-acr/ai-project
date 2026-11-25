@@ -1,5 +1,6 @@
 import os
 import json
+import asyncio
 import httpx
 from bs4 import BeautifulSoup
 from pypdf import PdfReader
@@ -71,38 +72,76 @@ def split_text_into_chunks(text: str, chunk_size: int = 800, overlap: int = 100)
         start += chunk_size - overlap
     return chunks
 
-async def index_pdf_file(file_path: str, filename: str, tenant_id: str = "tenant-default"):
-    """Parses a PDF, chunks it, generates embeddings, and saves to local PostgreSQL."""
-    print(f"[RAG] PDF Indeksleniyor: {filename} (Tenant: {tenant_id})")
+def _extract_pdf_text_sync(file_path: str):
+    """Extracts text from all PDF pages in a worker thread so FastAPI/AudioSocket never blocks."""
     reader = PdfReader(file_path)
-    full_text = ""
+    page_count = len(reader.pages)
+    parts = []
     for page in reader.pages:
-        text = page.extract_text()
-        if text:
-            full_text += text + "\n"
-            
+        try:
+            text = page.extract_text()
+            if text:
+                parts.append(text)
+        except Exception as pe:
+            print(f"[RAG] Sayfa metin ayrıştırma uyarısı: {pe}")
+    return "\n".join(parts), page_count
+
+
+async def index_pdf_file(
+    file_path: str,
+    filename: str,
+    tenant_id: str = "tenant-default",
+    progress_cb=None,
+):
+    """Parses a PDF in a background thread, chunks it, generates embeddings concurrently in batches, and saves to PostgreSQL."""
+    print(f"[RAG] PDF Indeksleniyor: {filename} (Tenant: {tenant_id})")
+    full_text, page_count = await asyncio.to_thread(_extract_pdf_text_sync, file_path)
+    if not full_text or not full_text.strip():
+        raise ValueError("PDF içerisinden okunabilir metin çıkarılamadı (taranmış/görsel PDF olabilir).")
+
     settings = get_rag_settings()
-    chunks = split_text_into_chunks(
-        full_text, 
-        chunk_size=settings.get("chunk_size", 800), 
-        overlap=settings.get("chunk_overlap", 100)
+    raw_chunks = split_text_into_chunks(
+        full_text,
+        chunk_size=settings.get("chunk_size", 800),
+        overlap=settings.get("chunk_overlap", 100),
     )
-    
-    async with AsyncSessionLocal() as session:
-        for chunk in chunks:
-            chunk = chunk.strip()
-            if not chunk:
-                continue
-            embedding = await generate_embedding(chunk, tenant_id=tenant_id)
-            chunk_record = DocumentChunk(
-                filename=filename,
-                content=chunk,
-                embedding=embedding,
-                tenant_id=tenant_id
-            )
-            session.add(chunk_record)
-        await session.commit()
-    print(f"[RAG] PDF basariyla indekslendi! Toplam chunk: {len(chunks)}")
+    chunks = [c.strip() for c in raw_chunks if c and c.strip()]
+    total_chunks = len(chunks)
+    if total_chunks == 0:
+        raise ValueError("PDF içerisinde indekslenecek metin bloğu bulunamadı.")
+
+    if progress_cb:
+        progress_cb(0, total_chunks, page_count, "indexing")
+
+    sem = asyncio.Semaphore(5)
+
+    async def _embed_one(chunk_text: str):
+        async with sem:
+            emb = await generate_embedding(chunk_text, tenant_id=tenant_id)
+            return chunk_text, emb
+
+    batch_size = 20
+    processed = 0
+    for i in range(0, total_chunks, batch_size):
+        batch = chunks[i : i + batch_size]
+        results = await asyncio.gather(*[_embed_one(c) for c in batch])
+        async with AsyncSessionLocal() as session:
+            for chunk_text, embedding in results:
+                session.add(
+                    DocumentChunk(
+                        filename=filename,
+                        content=chunk_text,
+                        embedding=embedding,
+                        tenant_id=tenant_id,
+                    )
+                )
+            await session.commit()
+        processed += len(results)
+        if progress_cb:
+            progress_cb(processed, total_chunks, page_count, "indexing")
+
+    print(f"[RAG] PDF basariyla indekslendi! Sayfa: {page_count}, Toplam chunk: {total_chunks}")
+    return {"page_count": page_count, "total_chunks": total_chunks}
 
 async def index_website_url(url: str, tenant_id: str = "tenant-default"):
     """Crawls a website, extracts text, chunks it, embeds, and saves to local PostgreSQL."""

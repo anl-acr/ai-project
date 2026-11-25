@@ -111,7 +111,7 @@ pm2 delete nornia-license-ui >/dev/null 2>&1 || true
 cat <<'EOBACK' > "$INSTALL_DIR/scripts/run_hub_backend.sh"
 #!/usr/bin/env bash
 cd /opt/ai-project
-exec /opt/ai-project/venv/bin/python -m uvicorn license_center.backend.main:app --host 0.0.0.0 --port 8050
+exec /opt/ai-project/venv/bin/python -m uvicorn license_center.backend.main:app --host 0.0.0.0 --port 8050 --ws-max-size 157286400
 EOBACK
 chmod +x "$INSTALL_DIR/scripts/run_hub_backend.sh"
 

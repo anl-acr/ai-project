@@ -21720,26 +21720,123 @@ async def delete_rule(rule_id: int, user_info: dict = Depends(get_user_info), db
 # ----------------------------------------------------
 # API Routes: RAG Knowledge Base
 # ----------------------------------------------------
-@app.post("/api/rag/upload-pdf")
-async def upload_pdf(file: UploadFile = File(...), user_info: dict = Depends(get_user_info)):
-    if not file.filename.endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Sadece PDF dosyaları yüklenebilir.")
-        
-    target_tenant = user_info.get("tenant_id") or "tenant-default"
-    temp_path = os.path.join(UPLOAD_DIR, file.filename)
-    with open(temp_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-        
+RAG_INDEX_JOBS: Dict[str, Dict[str, Any]] = {}
+
+
+def _prune_rag_jobs():
+    if len(RAG_INDEX_JOBS) > 50:
+        ordered = sorted(RAG_INDEX_JOBS.items(), key=lambda kv: kv[1].get("created_ts", 0))
+        for old_id, _ in ordered[:-50]:
+            RAG_INDEX_JOBS.pop(old_id, None)
+
+
+async def _run_pdf_rag_job(job_id: str, temp_path: str, safe_filename: str, target_tenant: str):
+    job = RAG_INDEX_JOBS.get(job_id)
+    if job:
+        job["status"] = "extracting"
     try:
-        # Index file into pgvector with tenant_id
-        await index_pdf_file(temp_path, file.filename, tenant_id=target_tenant)
+        def _on_progress(processed: int, total: int, pages: int, stage: str):
+            j = RAG_INDEX_JOBS.get(job_id)
+            if j:
+                j["status"] = stage
+                j["processed_chunks"] = processed
+                j["total_chunks"] = total
+                j["page_count"] = pages
+
+        res = await index_pdf_file(
+            temp_path,
+            safe_filename,
+            tenant_id=target_tenant,
+            progress_cb=_on_progress,
+        )
+        if job:
+            job["status"] = "completed"
+            job["page_count"] = res.get("page_count", job.get("page_count", 0))
+            job["total_chunks"] = res.get("total_chunks", job.get("total_chunks", 0))
+            job["processed_chunks"] = job["total_chunks"]
+            job["finished_ts"] = time.time()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"PDF indeksleme hatası: {str(e)}")
+        print(f"[RAG] Background PDF job failed ({safe_filename}): {e}")
+        if job:
+            job["status"] = "failed"
+            job["error"] = f"PDF indeksleme hatası: {str(e)}"
+            job["finished_ts"] = time.time()
     finally:
         if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+
+
+@app.post("/api/rag/upload-pdf")
+async def upload_pdf(file: UploadFile = File(...), user_info: dict = Depends(get_user_info)):
+    raw_name = str(file.filename or "").strip()
+    safe_filename = os.path.basename(raw_name)
+    if not safe_filename or not safe_filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Sadece PDF dosyaları yüklenebilir.")
+
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    job_id = f"rag-{uuid.uuid4().hex[:12]}"
+    temp_path = os.path.join(UPLOAD_DIR, f"{job_id}_{safe_filename}")
+
+    total_bytes = 0
+    try:
+        with open(temp_path, "wb") as buffer:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                total_bytes += len(chunk)
+                buffer.write(chunk)
+    except Exception as e:
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+        raise HTTPException(status_code=500, detail=f"PDF dosyası diske yazılamadı: {str(e)}")
+
+    if total_bytes == 0:
+        if os.path.exists(temp_path):
             os.remove(temp_path)
-            
-    return {"status": "success", "message": f"'{file.filename}' başarıyla yüklendi ve indekslendi."}
+        raise HTTPException(status_code=400, detail="Yüklenen PDF dosyası boş.")
+
+    _prune_rag_jobs()
+    RAG_INDEX_JOBS[job_id] = {
+        "job_id": job_id,
+        "tenant_id": target_tenant,
+        "filename": safe_filename,
+        "file_size_bytes": total_bytes,
+        "status": "queued",
+        "page_count": 0,
+        "processed_chunks": 0,
+        "total_chunks": 0,
+        "error": None,
+        "created_ts": time.time(),
+        "finished_ts": None,
+    }
+    asyncio.create_task(_run_pdf_rag_job(job_id, temp_path, safe_filename, target_tenant))
+    return {
+        "status": "queued",
+        "job_id": job_id,
+        "filename": safe_filename,
+        "message": f"'{safe_filename}' yüklendi, arka planda indeksleniyor...",
+    }
+
+
+@app.get("/api/rag/jobs/{job_id}")
+async def get_rag_job_status(job_id: str, user_info: dict = Depends(get_user_info)):
+    job = RAG_INDEX_JOBS.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="İndeksleme görevi bulunamadı.")
+    req_tenant = user_info.get("tenant_id") or "tenant-default"
+    job_tenant = job.get("tenant_id") or "tenant-default"
+    if not is_global_tenant(req_tenant) and req_tenant != job_tenant:
+        if not (is_default_tenant(req_tenant) and is_default_tenant(job_tenant)):
+            raise HTTPException(status_code=403, detail="Bu göreve erişim yetkiniz yok.")
+    return job
 
 @app.post("/api/rag/crawl")
 async def crawl_url(payload: CrawlRequestSchema, user_info: dict = Depends(get_user_info)):

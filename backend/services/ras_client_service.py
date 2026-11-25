@@ -598,7 +598,7 @@ async def _handle_tunneled_http_request(tunnel_ws: Any, msg: Dict[str, Any]):
         clean_headers["X-Forwarded-Proto"] = str(msg.get("public_proto"))
 
     try:
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
+        async with httpx.AsyncClient(timeout=120.0, follow_redirects=False) as client:
             resp = await client.request(
                 method=method,
                 url=target_url,
@@ -792,7 +792,7 @@ async def _ras_tunnel_loop():
                 local_ips = [i.get("primary_cidr") for i in ifaces if i.get("primary_cidr")]
                 conn_kwargs: Dict[str, Any] = {
                     "ping_interval": None,
-                    "max_size": 32 * 1024 * 1024,
+                    "max_size": 150 * 1024 * 1024,
                     "open_timeout": 5.0,
                 }
                 if ws_url.startswith("wss://"):

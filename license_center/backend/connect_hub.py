@@ -1558,11 +1558,11 @@ async def forward_http_request_to_pbx(request: Request, full_path: str) -> Respo
             "public_proto": public_proto,
             "body_b64": base64.b64encode(body_bytes).decode("ascii") if body_bytes else "",
         })
-        res_msg = await asyncio.wait_for(fut, timeout=32.0)
+        res_msg = await asyncio.wait_for(fut, timeout=125.0)
     except asyncio.TimeoutError:
         session.pending_http.pop(req_id, None)
         return Response(
-            content=json.dumps({"detail": "Nornia Connect tünel yanıt zaman aşımı (32s)."}),
+            content=json.dumps({"detail": "Nornia Connect tünel yanıt zaman aşımı (125s)."}),
             status_code=504,
             media_type="application/json",
         )

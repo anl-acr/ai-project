@@ -112,6 +112,39 @@ export default function KnowledgeBase({
   // Upload and Crawl inputs
   const [urlInput, setUrlInput] = useState("");
   const [pdfFile, setPdfFile] = useState(null);
+  const [pdfJob, setPdfJob] = useState(null);
+  const pdfPollRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (pdfPollRef.current) {
+        clearInterval(pdfPollRef.current);
+        pdfPollRef.current = null;
+      }
+    };
+  }, []);
+
+  const parseResponseSafe = async (res) => {
+    const raw = await res.text();
+    let data = {};
+    try {
+      data = raw ? JSON.parse(raw) : {};
+    } catch {
+      data = {};
+    }
+    if (!res.ok && !data.detail) {
+      if (res.status === 413) {
+        data.detail = "Dosya boyutu sunucu veya proxy limitini aşıyor (HTTP 413).";
+      } else if (res.status === 504) {
+        data.detail = "Sunucu veya tünel yanıt süresi doldu (HTTP 504).";
+      } else if (res.status === 502 || res.status === 503) {
+        data.detail = `Sunucu veya tünel bağlantısında geçici kesinti oluştu (HTTP ${res.status}).`;
+      } else {
+        data.detail = `Sunucu hatası (HTTP ${res.status}).`;
+      }
+    }
+    return data;
+  };
 
   // Manual Entry inputs
   const [manualTitle, setManualTitle] = useState("");
@@ -267,7 +300,7 @@ export default function KnowledgeBase({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: urlInput })
       });
-      const data = await res.json();
+      const data = await parseResponseSafe(res);
 
       if (res.ok) {
         setStatus({ type: "success", message: "Web sitesi başarıyla tarandı ve bilgi bankasına indekslendi!" });
@@ -277,10 +310,48 @@ export default function KnowledgeBase({
         setStatus({ type: "error", message: data.detail || "Web sitesi taraması başarısız oldu." });
       }
     } catch (err) {
-      setStatus({ type: "error", message: "Ağ hatası oluştu." });
+      setStatus({ type: "error", message: `Ağ hatası oluştu${err?.message ? `: ${err.message}` : "."}` });
     } finally {
       setLoading((prev) => ({ ...prev, crawl: false }));
     }
+  };
+
+  // Poll background PDF indexing job progress
+  const startPollingPdfJob = (jobId, fileName) => {
+    if (pdfPollRef.current) {
+      clearInterval(pdfPollRef.current);
+      pdfPollRef.current = null;
+    }
+    const pollOnce = async () => {
+      try {
+        const res = await tenantFetch(`${API_BASE}/api/rag/jobs/${encodeURIComponent(jobId)}`);
+        if (!res.ok) return;
+        const job = await parseResponseSafe(res);
+        setPdfJob(job);
+        if (job.status === "completed") {
+          clearInterval(pdfPollRef.current);
+          pdfPollRef.current = null;
+          setPdfJob(null);
+          setStatus({
+            type: "success",
+            message: `"${job.filename || fileName}" başarıyla indekslendi (${job.page_count || 0} sayfa, ${job.total_chunks || 0} parça)!`
+          });
+          fetchSources();
+        } else if (job.status === "failed") {
+          clearInterval(pdfPollRef.current);
+          pdfPollRef.current = null;
+          setPdfJob(null);
+          setStatus({
+            type: "error",
+            message: job.error || `"${job.filename || fileName}" indekslenirken hata oluştu.`
+          });
+        }
+      } catch {
+        // Transient network hiccup while polling — retry on next tick
+      }
+    };
+    pollOnce();
+    pdfPollRef.current = setInterval(pollOnce, 1500);
   };
 
   // Handle PDF file upload submit
@@ -288,28 +359,48 @@ export default function KnowledgeBase({
     e.preventDefault();
     if (!pdfFile || !canWrite) return;
 
+    const currentFile = pdfFile;
     setLoading((prev) => ({ ...prev, upload: true }));
     setStatus({ type: "", message: "" });
 
     const formData = new FormData();
-    formData.append("file", pdfFile);
+    formData.append("file", currentFile);
 
     try {
       const res = await tenantFetch(`${API_BASE}/api/rag/upload-pdf`, {
         method: "POST",
         body: formData
       });
-      const data = await res.json();
+      const data = await parseResponseSafe(res);
 
       if (res.ok) {
-        setStatus({ type: "success", message: `"${pdfFile.name}" PDF dökümanı başarıyla indekslendi!` });
         setPdfFile(null);
-        fetchSources();
+        if (data.status === "queued" && data.job_id) {
+          setPdfJob({
+            job_id: data.job_id,
+            filename: data.filename || currentFile.name,
+            status: "queued",
+            processed_chunks: 0,
+            total_chunks: 0,
+            page_count: 0
+          });
+          setStatus({
+            type: "success",
+            message: data.message || `"${currentFile.name}" yüklendi, arka planda indeksleniyor...`
+          });
+          startPollingPdfJob(data.job_id, currentFile.name);
+        } else {
+          setStatus({ type: "success", message: `"${currentFile.name}" PDF dökümanı başarıyla indekslendi!` });
+          fetchSources();
+        }
       } else {
         setStatus({ type: "error", message: data.detail || "PDF yükleme başarısız oldu." });
       }
     } catch (err) {
-      setStatus({ type: "error", message: "Ağ hatası oluştu." });
+      setStatus({
+        type: "error",
+        message: `Ağ hatası oluştu (dosya boyutu veya bağlantı kesintisi)${err?.message ? `: ${err.message}` : "."}`
+      });
     } finally {
       setLoading((prev) => ({ ...prev, upload: false }));
     }
@@ -329,7 +420,7 @@ export default function KnowledgeBase({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: manualTitle, text: manualText })
       });
-      const data = await res.json();
+      const data = await parseResponseSafe(res);
 
       if (res.ok) {
         setStatus({ type: "success", message: `"${manualTitle}" başlıklı bilgi başarıyla indekslendi!` });
@@ -340,7 +431,7 @@ export default function KnowledgeBase({
         setStatus({ type: "error", message: data.detail || "Manuel veri indeksleme başarısız oldu." });
       }
     } catch (err) {
-      setStatus({ type: "error", message: "Ağ hatası oluştu." });
+      setStatus({ type: "error", message: `Ağ hatası oluştu${err?.message ? `: ${err.message}` : "."}` });
     } finally {
       setLoading((prev) => ({ ...prev, manual: false }));
     }
@@ -997,9 +1088,39 @@ export default function KnowledgeBase({
                             </div>
                           </div>
                         </form>
+                        {pdfJob && (
+                          <div className={`mt-3 p-3 rounded-xl border ${lightBg} ${borderLight} space-y-1.5`}>
+                            <div className="flex items-center justify-between gap-2 text-[11px] font-bold">
+                              <span className={`truncate flex items-center gap-1.5 ${lightText}`}>
+                                <RefreshCw size={12} className="animate-spin shrink-0" />
+                                <span className="truncate">
+                                  {pdfJob.status === "extracting" || pdfJob.status === "queued"
+                                    ? `"${pdfJob.filename}" sayfaları ayrıştırılıyor...`
+                                    : `"${pdfJob.filename}" indeksleniyor (${pdfJob.processed_chunks}/${pdfJob.total_chunks} parça)`}
+                                </span>
+                              </span>
+                              <span className={`shrink-0 font-mono text-[10px] ${lightText}`}>
+                                {pdfJob.total_chunks > 0
+                                  ? `%${Math.min(100, Math.round((pdfJob.processed_chunks / pdfJob.total_chunks) * 100))}`
+                                  : "..."}
+                              </span>
+                            </div>
+                            <div className="w-full h-1.5 rounded-full bg-white/80 dark:bg-slate-800 overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all duration-300 ${bg}`}
+                                style={{
+                                  width:
+                                    pdfJob.total_chunks > 0
+                                      ? `${Math.max(6, Math.min(100, Math.round((pdfJob.processed_chunks / pdfJob.total_chunks) * 100)))}%`
+                                      : "18%"
+                                }}
+                              />
+                            </div>
+                          </div>
+                        )}
                       </div>
                       <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium mt-3 pt-2.5 border-t border-slate-200/60 dark:border-slate-800/60">
-                        Sayfa metinleri otomatik ayrıştırılarak aktif RAG chunk boyutuna göre indekslenir.
+                        Sayfa metinleri otomatik ayrıştırılarak arka planda aktif RAG chunk boyutuna göre indekslenir.
                       </p>
                     </div>
                   </div>
