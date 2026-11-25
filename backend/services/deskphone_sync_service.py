@@ -328,12 +328,14 @@ def build_grandstream_sync_xml_lines(
     """
     Builds Grandstream GRP260x / GRP26xx / GXP21xx XML (<config version="1">) P-code lines for
     bi-directional DND & 3-level Call Forwarding sync (verified against official Grandstream
-    `grp260x_config_1.0.7.74.txt` and `grp26xx_config_1.0.15.23.txt` templates):
+    `grp260x_config_1.0.7.74.txt` and live GRP2602P device config export):
       - Zero-reboot SIP NOTIFY check-sync (`P95030=0`, `P22421=0`, `P240=0`, `P4428=1`)
-      - Local Call Features enabled (`P191=1`, `P8446=1`) so the phone natively evaluates
-        Call Forward Targets and displays the active Call Forward status icon on the LCD
+      - Server-side Feature Code mode (`P191=0`): Grandstream GRP260x does NOT expose active
+        local Call Forward/DND toggles via XML provisioning P-values; keeping `P191=0` prevents
+        split-brain local-only forwarding and routes phone DND/Forward triggers directly to
+        Asterisk (`*78`/`*79`, `*21*<target>`/`*21`, `*67*`/`*61*`) so Nornia PBX + peer phones
+        (e.g. Yealink) + Grandstream's live LCD label (`<P270>`) stay 100% synchronized.
       - Official Account 1 Call Forward Targets (`P29092` Always, `P29093` Busy, `P29094` No Answer, `P139` Timeout)
-      - Feature Codes (`P2344`/`P2345` DND, `P26013`/`P26014` Always, `P26009`/`P26010` Busy, `P26011`/`P26012` No Answer)
       - Outbound Notification (`P32062=1`) + Authenticated Action URLs (`P8316`..`P8319` + `P22164`..`P22169`)
     """
     st = live_state if isinstance(live_state, dict) else extract_user_live_phone_sync_state(None)
@@ -359,7 +361,7 @@ def build_grandstream_sync_xml_lines(
         "    <!-- Nornia Cift Yonlu DND & Cagri Yonlendirme Senkronizasyonu (Grandstream <-> Santral) -->",
         "    <P95030>0</P95030>",
         "    <P22421>0</P22421>",
-        "    <P191>1</P191>",
+        "    <P191>0</P191>",
         "    <P8446>1</P8446>",
         "    <P32062>1</P32062>",
         f"    <P139>{noa_timeout}</P139>",
@@ -403,13 +405,19 @@ def build_grandstream_sync_xml_lines(
 
 
 def format_grandstream_live_lcd_label(base_label: str, live_state: Optional[Dict[str, Any]]) -> str:
-    """Appends compact live DND / Always-Forward status onto Grandstream Account 1 LCD label when active."""
+    """Appends compact live DND / 3-level Call Forward status onto Grandstream Account 1 LCD label (`<P270>`) when active."""
     lbl = str(base_label or "").strip()
     if not isinstance(live_state, dict):
         return lbl
     f_alw = live_state.get("fwd_always") or {}
+    f_bsy = live_state.get("fwd_busy") or {}
+    f_noa = live_state.get("fwd_no_answer") or {}
     if f_alw.get("active") and f_alw.get("target"):
         return f"{lbl} -> {f_alw['target']}"
+    if f_bsy.get("active") and f_bsy.get("target"):
+        return f"{lbl} [M]->{f_bsy['target']}"
+    if f_noa.get("active") and f_noa.get("target"):
+        return f"{lbl} [C]->{f_noa['target']}"
     if live_state.get("dnd_enabled"):
         return f"{lbl} [DND]"
     return lbl
@@ -601,15 +609,24 @@ def push_live_state_to_user_deskphones(
     excl = str(exclude_sip_username or "").strip().lower()
     devices = collect_user_physical_deskphones(user_dict, settings_db)
     targets = []
+    delayed_origin_targets = []
     for d in devices:
         su = d["sip_username"]
+        b_low = str(d.get("brand") or "").strip().lower()
         if excl and su.lower() == excl:
+            # Grandstream runs in server feature-code mode (P191=0) and does NOT update its own
+            # LCD label locally when dialing *21*/*78/*79; refresh its <P270> label via zero-reboot
+            # check-sync shortly after the feature-code call completes (zero echo-loop risk).
+            if "grandstream" in b_low:
+                delayed_origin_targets.append(d)
             continue
         if respect_echo_guard and is_echo_suppressed(ext_s, su):
+            if "grandstream" in b_low:
+                delayed_origin_targets.append(d)
             continue
         targets.append(d)
 
-    if not targets:
+    if not targets and not delayed_origin_targets:
         if not excl:
             print(f"[DeskPhone Live Sync] Dahili {ext_s} için bildirilecek fiziksel masa telefonu bulunamadı ({reason_log}).")
         return 0
@@ -625,7 +642,7 @@ def push_live_state_to_user_deskphones(
             ast_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "asterisk_config")
             ensure_pjsip_notify_conf(ast_dir)
 
-            for dev in targets:
+            def _send_one(dev: Dict[str, str]):
                 ok, msg = trigger_phone_sip_notify(dev["sip_username"], brand=dev["brand"], reboot=False)
                 if not ok and ("Unable to find notify" in str(msg) or "not found" in str(msg).lower()):
                     try:
@@ -649,8 +666,16 @@ def push_live_state_to_user_deskphones(
                         f"[DeskPhone Live Sync FAILED] Dahili {ext_s} ({dev['brand']} • {dev['sip_username']}) "
                         f"SIP NOTIFY gönderilemedi ({reason_log}): {msg}"
                     )
+
+            for dev in targets:
+                _send_one(dev)
+
+            if delayed_origin_targets:
+                time.sleep(1.2)
+                for dev in delayed_origin_targets:
+                    _send_one(dev)
         except Exception as exc:
             print(f"[DeskPhone Live Sync Warning] {exc}")
 
     threading.Thread(target=_worker, daemon=True, name=f"deskphone-sync-{ext_s}").start()
-    return len(targets)
+    return len(targets) + len(delayed_origin_targets)
