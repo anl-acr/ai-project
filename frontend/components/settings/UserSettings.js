@@ -1191,8 +1191,25 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       ip: overrides.ip || "",
       live_ip: overrides.live_ip || "",
       is_online: isVirtualSub ? Boolean(overrides.is_active !== false && overrides.trunk) : Boolean(overrides.is_online),
-      brand: isWebPhone ? "" : String(overrides.brand || "").trim(),
-      model: isWebPhone ? "" : String(overrides.model || "").trim(),
+      brand: (() => {
+        if (isWebPhone) return "";
+        const b = String(overrides.brand || "").trim();
+        const m = String(overrides.model || "").trim();
+        const hasMac = Boolean(formatMacAddress(overrides.mac || ""));
+        const hasBlf = Array.isArray(overrides.dss_keys) && overrides.dss_keys.some((k) => k && k.type && k.type !== "none");
+        if (!hasMac && !overrides.manual_model_selected && !hasBlf && b === "Yealink" && m === "T46U") return "";
+        return b;
+      })(),
+      model: (() => {
+        if (isWebPhone) return "";
+        const b = String(overrides.brand || "").trim();
+        const m = String(overrides.model || "").trim();
+        const hasMac = Boolean(formatMacAddress(overrides.mac || ""));
+        const hasBlf = Array.isArray(overrides.dss_keys) && overrides.dss_keys.some((k) => k && k.type && k.type !== "none");
+        if (!hasMac && !overrides.manual_model_selected && !hasBlf && b === "Yealink" && m === "T46U") return "";
+        return m;
+      })(),
+      manual_model_selected: Boolean(overrides.manual_model_selected),
       codecs: Array.isArray(overrides.codecs) && overrides.codecs.length > 0 ? [...overrides.codecs] : ["g722", "alaw", "ulaw", "g729"],
       dtmf_mode: overrides.dtmf_mode || "rfc4733",
       language: overrides.language || "Turkish",
@@ -10229,7 +10246,12 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                 onChange={(e) => {
                                   const newBrand = e.target.value;
                                   const firstModel = newBrand ? ((SIP_PHONE_MODELS[newBrand] || [])[0] || "") : "";
-                                  setInspectDraft((prev) => ({ ...prev, brand: newBrand, model: firstModel }));
+                                  setInspectDraft((prev) => ({
+                                    ...prev,
+                                    brand: newBrand,
+                                    model: firstModel,
+                                    manual_model_selected: Boolean(newBrand),
+                                  }));
                                 }}
                                 className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
                               >

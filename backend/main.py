@@ -14769,6 +14769,9 @@ async def delete_autoprovision(mac: str, user_info: dict = Depends(get_user_info
         for sd in u["sip_devices"]:
             if isinstance(sd, dict) and normalize_mac_address(sd.get("mac") or "")[1] == mac_hex:
                 sd["mac"] = ""
+                sd["brand"] = ""
+                sd["model"] = ""
+                sd["manual_model_selected"] = False
                 changed_u = True
         if changed_u and u.get("extension"):
             cleared_exts.append((str(u.get("extension")), u["sip_devices"]))

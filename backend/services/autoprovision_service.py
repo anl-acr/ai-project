@@ -887,10 +887,36 @@ def normalize_user_sip_devices(
                     dev_tr = "TCP" if dev_driver == "chan_sip" else "UDP"
 
         mac_colon, _ = normalize_mac_address(dev.get("mac") or "")
-        raw_brand = str(dev.get("brand") or "").strip()
+        matched_ap = None
+        if dev_type not in ("web_phone", "virtual_subscriber"):
+            for ap_d in bound_ap_devices:
+                ap_su = str(ap_d.get("sip_username") or "").strip()
+                ap_mac, _ = normalize_mac_address(ap_d.get("mac") or "")
+                if (cand_su and ap_su and ap_su == cand_su) or (mac_colon and ap_mac and ap_mac == mac_colon):
+                    matched_ap = ap_d
+                    break
+        if matched_ap and not mac_colon:
+            mac_colon, _ = normalize_mac_address(matched_ap.get("mac") or "")
+        raw_brand = str(dev.get("brand") or (matched_ap.get("brand") if matched_ap else "") or "").strip()
         dev_brand = detect_brand_from_mac(mac_colon, "") if (mac_colon and not raw_brand) else raw_brand
-        dev_model = str(dev.get("model") or "").strip()
-        dev_ip = str(dev.get("ip") or "").strip()
+        dev_model = str(dev.get("model") or (matched_ap.get("model") if matched_ap else "") or "").strip()
+        dev_manual_model = bool(dev.get("manual_model_selected", False))
+        # Strip legacy auto-injected "Yealink T46U" default on unpaired devices (no MAC, no AutoProv match, no BLF keys)
+        if (
+            dev_type not in ("web_phone", "virtual_subscriber")
+            and not mac_colon
+            and not matched_ap
+            and not dev_manual_model
+            and dev_brand.lower() == "yealink"
+            and dev_model.lower() == "t46u"
+            and not (
+                isinstance(dev.get("dss_keys"), list)
+                and any(isinstance(k, dict) and str(k.get("type") or "").strip().lower() not in ("", "none") for k in dev.get("dss_keys"))
+            )
+        ):
+            dev_brand = ""
+            dev_model = ""
+        dev_ip = str(dev.get("ip") or (matched_ap.get("ip") if matched_ap else "") or "").strip()
 
         raw_codecs = dev.get("codecs")
         if isinstance(raw_codecs, str):
@@ -994,6 +1020,7 @@ def normalize_user_sip_devices(
             "ip": dev_ip,
             "brand": dev_brand,
             "model": dev_model,
+            "manual_model_selected": dev_manual_model,
             "codecs": dev_codecs,
             "dtmf_mode": dtmf_m,
             "language": str(dev.get("language") or "Turkish").strip() or "Turkish",
