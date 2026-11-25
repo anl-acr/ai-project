@@ -1704,6 +1704,7 @@ DEFAULT_SETTINGS = {
                 "system_status:access", "logs:access", "sip_debugger:access", "troubleshooting:access",
                 "realtime_calls:read", "realtime_calls:write", "realtime_calls:access",
                 "server_network:read", "server_network:write", "server_network:delete",
+                "server_control:read", "server_control:write",
                 "ras_settings:read", "ras_settings:write",
                 "server_ssh:access",
                 "security:read", "security:write", "security:delete",
@@ -1781,6 +1782,7 @@ DEFAULT_SETTINGS = {
                 "storage:access", "logs:access", "sip_debugger:access", "troubleshooting:access",
                 "realtime_calls:read", "realtime_calls:write", "realtime_calls:access",
                 "server_network:read", "server_network:write", "server_network:delete",
+                "server_control:read", "server_control:write",
                 "ras_settings:read", "ras_settings:write",
                 "security:read", "security:write", "security:delete",
                 "email_notifications:read", "email_notifications:write",
@@ -2958,7 +2960,7 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                 if r.get("role_code") == "admin" and "restore_points:delete" not in new_perms:
                     new_perms.append("restore_points:delete")
                 if r.get("role_code") == "admin":
-                    for net_p in ("server_network:read", "server_network:write", "server_network:delete", "ras_settings:read", "ras_settings:write", "system_version:read", "system_version:write", "kvkk_consent:read", "kvkk_consent:write", "federation_multisite:read", "federation_multisite:write", "federation_multisite:delete", "datetime_settings:read", "datetime_settings:write", "setup_wizard:access"):
+                    for net_p in ("server_network:read", "server_network:write", "server_network:delete", "server_control:read", "server_control:write", "ras_settings:read", "ras_settings:write", "system_version:read", "system_version:write", "kvkk_consent:read", "kvkk_consent:write", "federation_multisite:read", "federation_multisite:write", "federation_multisite:delete", "datetime_settings:read", "datetime_settings:write", "setup_wizard:access"):
                         if net_p not in new_perms:
                             new_perms.append(net_p)
                 for sup_perm in (
@@ -3310,6 +3312,182 @@ async def get_public_ip():
                 return {"status": "success", "ip": ip_str}
         except Exception as e2:
             return {"status": "error", "message": f"Dış IP adresi tespit edilemedi: {e2}", "ip": None}
+
+
+def _check_server_control_perm(user_info: dict, action: str = "read") -> None:
+    role_val = str(user_info.get("role") or "").strip().lower()
+    if role_val == "admin":
+        return
+    perms = user_info.get("permissions")
+    if isinstance(perms, list) and f"server_control:{action}" in perms:
+        return
+    raise HTTPException(
+        status_code=403,
+        detail=f"Bu sunucu yönetimi işlemi için 'server_control:{action}' yetkisi gereklidir.",
+    )
+
+
+def _record_server_control_audit(
+    action: str,
+    target: str,
+    status: str,
+    detail: str,
+    actor: str = "admin",
+    client_ip: str = "",
+) -> None:
+    if not isinstance(settings_db.get("server_control_logs"), list):
+        settings_db["server_control_logs"] = []
+    now_tr = (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
+    settings_db["server_control_logs"].insert(
+        0,
+        {
+            "timestamp": now_tr,
+            "action": action,
+            "target": target,
+            "status": status,
+            "detail": detail,
+            "actor": actor,
+            "client_ip": client_ip,
+        },
+    )
+    if len(settings_db["server_control_logs"]) > 100:
+        del settings_db["server_control_logs"][100:]
+    save_settings(settings_db)
+    add_system_log("SERVER_CONTROL", "INFO" if status == "ok" else "WARNING", f"[{actor}@{client_ip or '-'}] {target} -> {action}: {detail}")
+
+
+@app.get("/api/server/control/overview")
+async def get_server_control_overview_endpoint(user_info: dict = Depends(get_user_info)):
+    """Canlı sunucu kaynak kullanımı, aktif çağrı sayısı, yönetilen servis durumları ve işlem günlüklerini döner."""
+    _check_server_control_perm(user_info, "read")
+    from backend.services.server_control_service import get_server_control_overview
+    active_cnt = 0
+    try:
+        from backend.services.ami_manager import active_channels
+        active_cnt = len(active_channels) if active_channels else 0
+    except Exception:
+        active_cnt = 0
+    data = get_server_control_overview(active_calls_count=active_cnt)
+    data["audit_logs"] = (settings_db.get("server_control_logs") or [])[:50]
+    return data
+
+
+@app.post("/api/server/control/service/{service_id}/{action}")
+async def run_server_service_action_endpoint(
+    service_id: str,
+    action: str,
+    request: Request,
+    user_info: dict = Depends(get_user_info),
+):
+    """İzin listeli sistem/PM2 servislerinde start, stop, restart veya reload işlemi çalıştırır."""
+    _check_server_control_perm(user_info, "write")
+    from backend.services.server_control_service import execute_service_action
+
+    actor = str(user_info.get("username") or user_info.get("full_name") or user_info.get("id") or "admin")
+    client_ip = (
+        (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+        or (request.headers.get("x-real-ip") or "").strip()
+        or (request.client.host if request.client else "")
+    )
+    try:
+        res = execute_service_action(service_id, action)
+        _record_server_control_audit(
+            action=action.upper(),
+            target=service_id,
+            status="ok",
+            detail=res.get("message") or "",
+            actor=actor,
+            client_ip=client_ip,
+        )
+        return res
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except RuntimeError as re_err:
+        _record_server_control_audit(
+            action=action.upper(),
+            target=service_id,
+            status="error",
+            detail=str(re_err),
+            actor=actor,
+            client_ip=client_ip,
+        )
+        raise HTTPException(status_code=500, detail=str(re_err))
+
+
+@app.get("/api/server/control/service/{service_id}/logs")
+async def get_server_service_logs_endpoint(
+    service_id: str,
+    lines: int = Query(80, ge=10, le=300),
+    user_info: dict = Depends(get_user_info),
+):
+    """Seçili servisin son log satırlarını (journalctl / pm2 logs) döner."""
+    _check_server_control_perm(user_info, "read")
+    from backend.services.server_control_service import get_service_logs
+    try:
+        return get_service_logs(service_id, lines=lines)
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+
+
+@app.post("/api/server/control/power")
+async def server_host_power_action_endpoint(
+    payload: dict = Body(...),
+    request: Request = None,
+    user_info: dict = Depends(get_user_info),
+):
+    """Santral sunucusunu güvenli gecikme (3 sn) ile yeniden başlatır (reboot) veya kapatır (poweroff)."""
+    _check_server_control_perm(user_info, "write")
+    from backend.services.server_control_service import schedule_host_power_action
+
+    act = str(payload.get("action") or "").strip().lower()
+    confirm_text = str(payload.get("confirm_text") or "").strip().upper()
+    if act not in ("reboot", "poweroff"):
+        raise HTTPException(status_code=400, detail="Geçersiz güç komutu ('reboot' veya 'poweroff' olmalı).")
+    if act == "poweroff" and confirm_text != "KAPAT":
+        raise HTTPException(status_code=400, detail="Sunucuyu kapatmak için onay kutusuna 'KAPAT' yazmanız gerekir.")
+
+    actor = str(user_info.get("username") or user_info.get("full_name") or user_info.get("id") or "admin")
+    client_ip = ""
+    if request is not None:
+        client_ip = (
+            (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+            or (request.headers.get("x-real-ip") or "").strip()
+            or (request.client.host if request.client else "")
+        )
+
+    try:
+        res = schedule_host_power_action(act, delay_seconds=3.0)
+        _record_server_control_audit(
+            action="HOST_REBOOT" if act == "reboot" else "HOST_POWEROFF",
+            target="host",
+            status="ok",
+            detail=res.get("message") or "",
+            actor=actor,
+            client_ip=client_ip,
+        )
+        try:
+            from backend.services.notification_service import trigger_notification_bg
+            trigger_notification_bg(
+                "system_reboot",
+                "Sunucu Yeniden Başlatılıyor" if act == "reboot" else "Sunucu Kapatılıyor (Power Off)",
+                f"Yönetici ({actor}) tarafından web panelinden sunucu {'yeniden başlatma' if act == 'reboot' else 'kapatma'} komutu verildi.",
+                severity="critical" if act == "poweroff" else "warning",
+                tenant_id=user_info.get("tenant_id") or "tenant-default",
+            )
+        except Exception:
+            pass
+        return res
+    except RuntimeError as re_err:
+        _record_server_control_audit(
+            action="HOST_REBOOT" if act == "reboot" else "HOST_POWEROFF",
+            target="host",
+            status="error",
+            detail=str(re_err),
+            actor=actor,
+            client_ip=client_ip,
+        )
+        raise HTTPException(status_code=500, detail=str(re_err))
+
 
 @app.get("/api/system/overview")
 async def get_system_overview(request: Request):
@@ -45245,18 +45423,34 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.10.13",
+        "version": "v3.10.14",
         "commit_hash": live_commit,
         "release_date": "25 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.10.13",
+                "version": "v3.10.14",
                 "commit_hash": live_commit,
                 "release_date": "25 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Arayüzden Sunucu & Servis Yönetimi (Başlat/Durdur/Yeniden Başlat, Reboot & Kapatma)",
+                "summary": "Sistem Ayarları altına 'Sunucu & Servis Yönetimi' paneli eklendi. Yöneticiler Asterisk, Nornia Backend/Frontend (PM2), PostgreSQL, Nginx, Fail2Ban, WireGuard ve SSH servislerini arayüzden başlatıp durdurabilir, canlı loglarını görebilir ve sunucuyu aktif çağrı uyarısı + çift onay ile yeniden başlatıp kapatabilir.",
+                "features": [
+                    "Canlı Sunucu Kaynak Özeti: CPU yükü, RAM, Disk (/), çalışma süresi (uptime) ve anlık aktif Asterisk çağrı sayısı tek ekranda izlenir.",
+                    "Güvenli Servis Kontrolü (Allowlist): Asterisk (start/stop/restart/core reload), PM2 (aida-backend güvenli gecikmeli restart, aida-app), PostgreSQL, Nginx (nginx -t doğrulamalı reload), Fail2Ban, WireGuard ve SSH servisleri doğrudan yönetilir.",
+                    "Canlı Servis Log Görüntüleyici: Her servisin son journalctl / pm2 log satırları tek tıkla terminal penceresinde incelenebilir.",
+                    "Sunucu Reboot & Power Off: Yeniden başlatmada otomatik yeniden bağlanma takibi; sunucu kapatmada 'KAPAT' yazarak çift doğrulama ve kalıcı denetim kaydı (audit log) eklendi."
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.10.13",
+                "commit_hash": "4c5a4a89",
+                "release_date": "25 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "Oto Provizyon İçinde Merkezi IP Telefon Firmware Yönetimi",
                 "summary": "Oto Provizyon ekranına 'Firmware Yönetimi' sekmesi eklendi. Yealink (.rom), Grandstream (.bin/.zip), Fanvil (.z) ve Cisco (.loads) firmware dosyaları modele göre santrale yüklenebilir, model bazlı hedef sürüm politikası atanabilir ve ihtiyaç halinde tekil/toplu olarak aktif çağrı korumasıyla telefonlara gönderilebilir.",
                 "features": [

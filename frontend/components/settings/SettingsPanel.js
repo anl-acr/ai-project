@@ -30,7 +30,8 @@ import {
   Clock,
   PhoneOutgoing,
   Sliders,
-  Terminal
+  Terminal,
+  Power
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { getTurkishSlugForSubtab, getSubtabFromTurkishSlug } from "../../utils/slugHelper";
@@ -48,6 +49,7 @@ const lazySub = (loader) => dynamic(loader, { ssr: false, loading: SubPanelLoadi
 
 const PBXSettings = lazySub(() => import("./PBXSettings"));
 const ServerNetworkSettingsPanel = lazySub(() => import("./ServerNetworkSettingsPanel"));
+const ServerControlPanel = lazySub(() => import("./ServerControlPanel"));
 const RemoteAccessSettingsPanel = lazySub(() => import("./RemoteAccessSettingsPanel"));
 const FederationMultisitePanel = lazySub(() => import("./FederationMultisitePanel"));
 const ServerSshTerminalPanel = lazySub(() => import("./ServerSshTerminalPanel"));
@@ -156,6 +158,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
   const [hasAiTaskRoutingPermission, setHasAiTaskRoutingPermission] = useState(true);
   const [hasWorkHoursPermission, setHasWorkHoursPermission] = useState(true);
   const [hasServerSshPermission, setHasServerSshPermission] = useState(true);
+  const [hasServerControlPermission, setHasServerControlPermission] = useState(true);
   const [hasKvkkConsentPermission, setHasKvkkConsentPermission] = useState(true);
   const [hasFederationPermission, setHasFederationPermission] = useState(true);
   const [hasDateTimePermission, setHasDateTimePermission] = useState(true);
@@ -271,6 +274,11 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             currentRole.permissions.includes("server_ssh:access") ||
             currentRole.permissions.includes("server_ssh")
         );
+        setHasServerControlPermission(
+          currentRole.permissions.includes("*") ||
+            currentRole.permissions.includes("server_control:read") ||
+            currentRole.permissions.includes("server_control:write")
+        );
         setHasKvkkConsentPermission(
           currentRole.permissions.includes("*") ||
             currentRole.permissions.includes("kvkk_consent:read") ||
@@ -327,6 +335,13 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             subtitle: "Ethernet IP/CIDR, Gateway, Statik Rota, DNS & Konsol Kurtarma",
             icon: Network,
             visible: true
+          },
+          {
+            id: "server-control",
+            label: "Sunucu & Servis Yönetimi",
+            subtitle: "Asterisk / PM2 / DB / Nginx servisleri, Reboot & Kapatma",
+            icon: Power,
+            visible: hasServerControlPermission
           },
           {
             id: "ras-settings",
@@ -599,6 +614,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
     const subTabToFeatureMap = {
       pbx: "pbx",
       "server-network": "server_network",
+      "server-control": "server_control",
       "ras-settings": "ras_settings",
       "federation-multisite": "federation_multisite",
       "server-ssh": "server_ssh",
@@ -633,12 +649,12 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
       "datetime-settings": "datetime_settings",
       version: "system_version"
     };
-    const providerInfraSubTabs = ["server-network", "ras-settings", "server-ssh", "nat", "tenants"];
+    const providerInfraSubTabs = ["server-network", "server-control", "ras-settings", "server-ssh", "nat", "tenants"];
 
     const isSubTabLicensed = (subId) => {
       if (isNorniaRoot) return true;
       if (hideProviderInfra && providerInfraSubTabs.includes(subId)) return false;
-      if (["roles", "kvkk-consent", "federation-multisite", "datetime-settings", "license", "version"].includes(subId)) return true;
+      if (["roles", "kvkk-consent", "federation-multisite", "datetime-settings", "license", "version", "server-control"].includes(subId)) return true;
       if (!Array.isArray(licensedFeatures) || licensedFeatures.includes("*")) return true;
       const mappedFeat = subTabToFeatureMap[subId] || subId;
       return licensedFeatures.includes(mappedFeat);
@@ -663,6 +679,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
     hasBackupPermission,
     hasRecordingRetentionPermission,
     hasServerSshPermission,
+    hasServerControlPermission,
     hasKvkkConsentPermission,
     hasFederationPermission,
     hasDateTimePermission,
@@ -887,6 +904,9 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             {activeSubTab === "pbx" && <PBXSettings backendHost={backendHost} />}
             {activeSubTab === "server-network" && (
               <ServerNetworkSettingsPanel backendHost={backendHost} />
+            )}
+            {activeSubTab === "server-control" && (
+              <ServerControlPanel backendHost={backendHost} userPermissions={resolvedUserPerms} />
             )}
             {activeSubTab === "ras-settings" && (
               <RemoteAccessSettingsPanel backendHost={backendHost} userPermissions={resolvedUserPerms} />

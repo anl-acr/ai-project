@@ -232,6 +232,7 @@ const SYSTEM_FEATURES = [
   // 7. Sistem Ayarları
   { id: "pbx", name: "Santral Entegrasyonu", icon: Server, type: "crud", color: "indigo" },
   { id: "server_network", name: "Sunucu Ağ (Network) & IP/Rota Yönetimi", icon: Network, type: "crud", color: "blue" },
+  { id: "server_control", name: "Sunucu & Servis Yönetimi (Servisler / Reboot / Kapat)", icon: Server, type: "crud_partial", color: "rose" },
   { id: "ras_settings", name: "Nornia Connect (Sıfır-Port Bulut Köprüsü)", icon: Network, type: "crud_partial", color: "indigo" },
   { id: "federation_multisite", name: "Çok-Şubeli Dağıtık Santral (Multi-Site Edge & Failover)", icon: Network, type: "crud", color: "indigo" },
   { id: "server_ssh", name: "Sunucu Web SSH Terminali (SSH Konsol Erişimi)", icon: Terminal, type: "access", color: "emerald" },
@@ -628,6 +629,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
       items: [
         "pbx",
         "server_network",
+        "server_control",
         "ras_settings",
         "server_ssh",
         "nat",
