@@ -197,7 +197,7 @@ export default function LiveTranslateShowcase() {
               <div className="mt-5 space-y-3">
                 {/* Customer -> Agent (TR) */}
                 <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-2xs">
-                  <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
+                  <div className="flex flex-wrap items-center justify-between gap-1.5 text-xs font-semibold text-slate-500">
                     <span>Hattaki Müşteri ({sample.code} • {sample.label})</span>
                     <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">
                       → Anlık Türkçe Altyazı &amp; Ses
@@ -213,7 +213,7 @@ export default function LiveTranslateShowcase() {
 
                 {/* Agent (TR) -> Customer (Target Language Audio) */}
                 <div className="rounded-2xl border border-indigo-200/80 bg-indigo-50/50 p-4">
-                  <div className="flex items-center justify-between text-xs font-semibold text-indigo-800">
+                  <div className="flex flex-wrap items-center justify-between gap-1.5 text-xs font-semibold text-indigo-800">
                     <span>Temsilci (Türkçe)</span>
                     <span className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-0.5 text-[11px] font-semibold text-indigo-700 border border-indigo-100">
                       {voiceDubOn ? (

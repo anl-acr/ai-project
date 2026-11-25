@@ -20,9 +20,9 @@ import {
  */
 export function HeroPanoramicStage() {
   return (
-    <div className="relative mx-auto mt-10 sm:mt-12 max-w-6xl">
+    <div className="relative mx-auto mt-8 sm:mt-12 max-w-6xl">
       {/* Soft wide rounded studio stage (Yeastar top banner proportions) */}
-      <div className="nornia-hero-stage relative overflow-visible rounded-[2rem] border border-slate-200/80 bg-gradient-to-br from-slate-100/95 via-white to-indigo-50/75 px-4 pt-6 pb-7 sm:px-8 sm:pt-10 sm:pb-10 lg:px-12 lg:pt-12 lg:pb-12 shadow-soft">
+      <div className="nornia-hero-stage relative overflow-visible rounded-3xl sm:rounded-[2rem] border border-slate-200/80 bg-gradient-to-br from-slate-100/95 via-white to-indigo-50/75 p-3 sm:px-8 sm:pt-10 sm:pb-10 lg:px-12 lg:pt-12 lg:pb-12 shadow-soft">
         {/* Ambient architectural light blobs (pure CSS, zero layout cost) */}
         <div
           aria-hidden="true"
@@ -175,8 +175,8 @@ export function HeroPanoramicStage() {
               </div>
             </div>
 
-            {/* Overlapping Bottom-Right Live AI Translation Pill */}
-            <div className="hidden sm:flex absolute -bottom-4 right-2 lg:-right-12 z-20 items-center gap-3 rounded-2xl border border-indigo-200/80 bg-slate-950/95 px-4 py-3 text-white shadow-floating backdrop-blur-md">
+            {/* Overlapping Bottom-Right Live AI Translation Pill (Desktop/Tablet) */}
+            <div className="hidden md:flex absolute -bottom-4 right-2 lg:-right-12 z-20 items-center gap-3 rounded-2xl border border-indigo-200/80 bg-slate-950/95 px-4 py-3 text-white shadow-floating backdrop-blur-md">
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-500/25 text-indigo-300 ring-1 ring-inset ring-indigo-400/30">
                 <Languages className="h-4 w-4" aria-hidden="true" />
               </span>
@@ -191,6 +191,42 @@ export function HeroPanoramicStage() {
                 </div>
                 <div className="mt-0.5 text-[11px] text-slate-300">
                   Simultane çift yönlü sesli dublaj aktif
+                </div>
+              </div>
+            </div>
+
+            {/* Crisp Mobile-Only Live Cards Strip (shown below screenshot on phones without overlap) */}
+            <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2 md:hidden">
+              <div className="flex items-center gap-2.5 rounded-2xl border border-slate-200/90 bg-white px-3.5 py-2.5 shadow-2xs">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-600 to-sky-500 text-[11px] font-extrabold text-white">
+                  SD
+                </span>
+                <div className="min-w-0">
+                  <div className="text-xs font-extrabold text-slate-900 truncate">
+                    Selin Demir • HD WebRTC
+                  </div>
+                  <div className="flex items-center gap-1.5 font-mono text-[11px] font-semibold text-emerald-700">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    00:01:42 Aktif Görüşme
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2.5 rounded-2xl border border-indigo-200/80 bg-slate-950 px-3.5 py-2.5 text-white shadow-2xs">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-indigo-500/25 text-indigo-300">
+                  <Languages className="h-4 w-4" aria-hidden="true" />
+                </span>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-extrabold text-white truncate">
+                      AI Canlı Çeviri
+                    </span>
+                    <span className="rounded-full bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-bold text-emerald-300 shrink-0">
+                      6 Dil
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-slate-300 truncate">
+                    EN ↔ TR çift yönlü dublaj
+                  </div>
                 </div>
               </div>
             </div>
@@ -216,15 +252,94 @@ export function HeroIsometricShowcase() {
         <div className="grid grid-cols-1 items-center gap-12 lg:grid-cols-12 lg:gap-14">
           {/* LEFT: Yeastar-style Pastel Sky-Indigo 3D Perspective Product Stage */}
           <div className="lg:col-span-6">
-            <div className="nornia-iso-stage relative overflow-hidden rounded-[2rem] border border-sky-100 bg-gradient-to-br from-sky-50 via-indigo-50/70 to-sky-100/90 p-6 sm:p-8 lg:p-10 shadow-soft">
+            <div className="nornia-iso-stage relative overflow-hidden rounded-3xl sm:rounded-[2rem] border border-sky-100 bg-gradient-to-br from-sky-50 via-indigo-50/70 to-sky-100/90 p-4 sm:p-8 lg:p-10 shadow-soft">
               {/* Soft radial glow */}
               <div
                 aria-hidden="true"
                 className="pointer-events-none absolute -right-12 -top-12 h-56 w-56 rounded-full bg-white/80 blur-2xl"
               />
 
-              {/* 3D Angled Multi-Device Composition */}
-              <div className="nornia-iso-group relative mx-auto max-w-[520px] py-3">
+              {/* MOBILE-CLEAN LAYOUT (< 640px): Zero awkward skew or overlap */}
+              <div className="relative space-y-3 sm:hidden">
+                <div className="overflow-hidden rounded-2xl border border-white bg-white shadow-card">
+                  <div className="flex items-center gap-1.5 border-b border-slate-100 bg-slate-50 px-3 py-2">
+                    <img
+                      src="/favicon.svg"
+                      alt=""
+                      aria-hidden="true"
+                      width={14}
+                      height={14}
+                      className="h-3.5 w-3.5 rounded"
+                    />
+                    <span className="text-[10px] font-bold text-slate-700 truncate">
+                      Nornia Masaüstü &amp; Web Panel
+                    </span>
+                  </div>
+                  <img
+                    src="/screenshots/runa-desktop-real.jpg"
+                    alt="Nornia Runa Masaüstü uygulaması çağrı ve rehber ekranı"
+                    width={1595}
+                    height={1120}
+                    loading="lazy"
+                    className="block w-full h-auto"
+                  />
+                </div>
+
+                <div className="grid grid-cols-12 items-center gap-3">
+                  <div className="col-span-5 overflow-hidden rounded-2xl border-[3px] border-slate-900 bg-white shadow-card">
+                    <div className="flex items-center justify-center bg-white pt-1.5 pb-0.5">
+                      <span className="h-1.5 w-7 rounded-full bg-slate-900" aria-hidden="true" />
+                    </div>
+                    <div className="bg-white px-1 pb-1">
+                      <img
+                        src="/screenshots/runa-mobile-real.jpg"
+                        alt="Runa Mobil dahili telefon ekranı"
+                        width={375}
+                        height={1030}
+                        loading="lazy"
+                        className="block w-full h-[180px] object-contain bg-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="col-span-7 rounded-2xl border border-slate-700/80 bg-slate-950 p-3.5 text-white shadow-card">
+                    <div className="flex items-center justify-between gap-1 text-[10px] text-slate-400">
+                      <span className="inline-flex items-center gap-1 font-semibold text-emerald-400">
+                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                        HD Görüşme
+                      </span>
+                      <span className="font-mono">00:02:14</span>
+                    </div>
+                    <div className="mt-2.5 flex flex-col items-center text-center">
+                      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-sky-500 text-xs font-extrabold text-white ring-4 ring-indigo-500/20">
+                        MY
+                      </span>
+                      <div className="mt-1.5 text-xs font-bold text-white">Mert Yılmaz</div>
+                      <div className="text-[10px] text-slate-400">Dahili 1000</div>
+                    </div>
+                    <div
+                      aria-hidden="true"
+                      className="mt-3 flex items-center justify-center gap-1.5"
+                    >
+                      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/10 text-slate-200">
+                        <Mic className="h-3 w-3" />
+                      </span>
+                      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/10 text-slate-200">
+                        <Pause className="h-3 w-3" />
+                      </span>
+                      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-indigo-500/30 text-indigo-200">
+                        <Volume2 className="h-3 w-3" />
+                      </span>
+                      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-rose-500 text-white">
+                        <PhoneCall className="h-3 w-3 rotate-[135deg]" />
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* DESKTOP / TABLET 3D Angled Multi-Device Composition (>= 640px) */}
+              <div className="nornia-iso-group hidden sm:block relative mx-auto max-w-[520px] py-3">
                 {/* Back-Right Angled Nornia Desktop Window */}
                 <div className="nornia-iso-desktop ml-auto w-[86%] overflow-hidden rounded-2xl border border-white bg-white shadow-floating">
                   <div className="flex items-center gap-1.5 border-b border-slate-100 bg-slate-50 px-3 py-2">

@@ -162,18 +162,18 @@ export function RunaDesktopVisual() {
             <span className="h-2.5 w-2.5 rounded-full bg-amber-400/90" />
             <span className="h-2.5 w-2.5 rounded-full bg-emerald-400/90" />
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 min-w-0">
             <img
               src="/runa-logo.png"
               alt=""
               aria-hidden="true"
-              className="h-4 w-4 rounded"
+              className="h-4 w-4 rounded shrink-0"
             />
-            <span className="text-[11px] font-bold text-slate-800">
-              Runa Masaüstü • Dahili 1000 • Müsait
+            <span className="text-[11px] font-bold text-slate-800 truncate">
+              Runa Masaüstü • Dahili 1000
             </span>
           </div>
-          <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden="true" />
+          <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" aria-hidden="true" />
         </div>
 
         {/* REAL Runa Desktop UI Screenshot */}
@@ -181,12 +181,12 @@ export function RunaDesktopVisual() {
           src="/screenshots/runa-desktop-real.jpg"
           alt="Runa Masaüstü gerçek macOS ve Windows temsilci uygulaması ekranı"
           loading="lazy"
-          className="block w-full h-[256px] object-cover object-top"
+          className="block w-full h-[210px] sm:h-[256px] object-cover object-top"
         />
       </div>
 
       {/* Exact 2 Crisp Floating Bottom Cards Over/Under Desktop Frame */}
-      <div className="relative z-20 -mt-10 grid grid-cols-1 gap-2.5 sm:grid-cols-2 px-1">
+      <div className="relative z-20 mt-3 sm:-mt-10 grid grid-cols-1 gap-2.5 sm:grid-cols-2 px-1">
         {/* Bottom-left: 3 Independent Audio Devices */}
         <div className="rounded-2xl border border-slate-200/95 bg-white/95 backdrop-blur p-3 shadow-card">
           <div className="text-[11px] font-extrabold text-slate-950">

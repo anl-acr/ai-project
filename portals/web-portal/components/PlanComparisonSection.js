@@ -225,7 +225,7 @@ export default function PlanComparisonSection({ onSelectPlan, onOpenSizingModal 
 
         {/* 30-Day Full Trial & Unlimited Custom Strip */}
         <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div className="flex items-center justify-between gap-4 rounded-2xl border border-amber-200/80 bg-amber-50/70 px-5 py-4">
+          <div className="flex flex-col items-stretch justify-between gap-4 rounded-2xl border border-amber-200/80 bg-amber-50/70 px-5 py-4 sm:flex-row sm:items-center">
             <div className="flex items-start gap-3">
               <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
                 <Sparkles className="h-4 w-4" aria-hidden="true" />
@@ -243,13 +243,13 @@ export default function PlanComparisonSection({ onSelectPlan, onOpenSizingModal 
             <button
               type="button"
               onClick={() => onSelectPlan?.("trial", "30 Gün Trial")}
-              className="shrink-0 rounded-xl bg-slate-950 px-4 py-2.5 text-xs font-semibold text-white hover:bg-slate-800 transition"
+              className="shrink-0 rounded-xl bg-slate-950 px-4 py-2.5 text-xs font-semibold text-white hover:bg-slate-800 transition min-h-[44px]"
             >
               Trial İste
             </button>
           </div>
 
-          <div className="flex items-center justify-between gap-4 rounded-2xl border border-emerald-200/80 bg-emerald-50/60 px-5 py-4">
+          <div className="flex flex-col items-stretch justify-between gap-4 rounded-2xl border border-emerald-200/80 bg-emerald-50/60 px-5 py-4 sm:flex-row sm:items-center">
             <div className="flex items-start gap-3">
               <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
                 <ShieldCheck className="h-4 w-4" aria-hidden="true" />
@@ -267,7 +267,7 @@ export default function PlanComparisonSection({ onSelectPlan, onOpenSizingModal 
             <button
               type="button"
               onClick={() => onSelectPlan?.("unlimited", "Limitsiz / Operatör")}
-              className="shrink-0 rounded-xl border border-emerald-300 bg-white px-4 py-2.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-50 transition"
+              className="shrink-0 rounded-xl border border-emerald-300 bg-white px-4 py-2.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-50 transition min-h-[44px]"
             >
               Görüşme Planla
             </button>
@@ -322,9 +322,9 @@ export default function PlanComparisonSection({ onSelectPlan, onOpenSizingModal 
             </div>
           </div>
 
-          {/* Category Quick Filter Pills */}
+          {/* Category Quick Filter Pills (horizontal scroll on mobile, wrapped on desktop) */}
           <div
-            className="mt-5 flex flex-wrap gap-2"
+            className="mt-5 flex flex-nowrap gap-2 overflow-x-auto pb-1.5 sm:flex-wrap sm:overflow-visible sm:pb-0"
             role="group"
             aria-label="Özellik kategorisi filtresi"
           >
@@ -332,7 +332,7 @@ export default function PlanComparisonSection({ onSelectPlan, onOpenSizingModal 
               type="button"
               onClick={() => setSelectedCategory("all")}
               aria-pressed={selectedCategory === "all"}
-              className={`rounded-xl px-3.5 py-2 text-xs font-semibold transition ${
+              className={`shrink-0 whitespace-nowrap rounded-xl px-3.5 py-2 text-xs font-semibold transition min-h-[40px] ${
                 selectedCategory === "all"
                   ? "bg-indigo-950 text-white shadow-sm"
                   : "border border-slate-200 bg-white text-slate-700 hover:border-slate-300"
@@ -351,7 +351,7 @@ export default function PlanComparisonSection({ onSelectPlan, onOpenSizingModal 
                     setCollapsedCategories((prev) => ({ ...prev, [cat.id]: false }));
                   }}
                   aria-pressed={active}
-                  className={`rounded-xl px-3.5 py-2 text-xs font-semibold transition ${
+                  className={`shrink-0 whitespace-nowrap rounded-xl px-3.5 py-2 text-xs font-semibold transition min-h-[40px] ${
                     active
                       ? "bg-indigo-950 text-white shadow-sm"
                       : "border border-slate-200 bg-white text-slate-700 hover:border-slate-300"

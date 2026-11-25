@@ -301,7 +301,10 @@ export default function NorniaHomePage() {
           name="description"
           content="Nornia ile yapay zeka destekli kurumsal IP santral, 7/24 sesli asistan, 6 dil canlı çağrı çevirisi, WhatsApp/Instagram Omnichannel, Runa Mobil ve 44+ canlı raporu On-Premise veya Bulut'ta yönetin."
         />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta
+          name="viewport"
+          content="width=device-width, initial-scale=1, viewport-fit=cover"
+        />
         <meta property="og:type" content="website" />
         <meta property="og:url" content={SITE_CONFIG.domain} />
         <meta
@@ -378,36 +381,37 @@ export default function NorniaHomePage() {
         >
           <div
             ref={headerInnerRef}
-            className="nornia-header-inner mx-auto flex max-w-7xl items-center justify-between gap-5 px-4 sm:px-6 lg:px-8 h-[72px]"
+            className="nornia-header-inner mx-auto flex max-w-7xl items-center justify-between gap-2 sm:gap-5 px-4 sm:px-6 lg:px-8 h-[68px] sm:h-[72px]"
           >
             {/* Brand Logo */}
             <a
               href="#"
               aria-current="page"
-              className="flex items-center gap-2.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-indigo-600 rounded-lg"
+              className="flex items-center gap-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-indigo-600 rounded-lg"
             >
               <img
                 src="/favicon.svg"
                 alt="Nornia logosu"
-                className="h-9 w-9 rounded-xl shadow-sm"
+                className="h-8 w-8 sm:h-9 sm:w-9 rounded-xl shadow-sm"
               />
-              <span className="text-xl font-extrabold tracking-tight text-slate-950">
+              <span className="text-lg sm:text-xl font-extrabold tracking-tight text-slate-950">
                 Nornia
               </span>
             </a>
 
-            {/* Single semantic <nav> for both wide inline and narrow popover layouts */}
-            <nav aria-label="Ana gezinme" className="flex items-center gap-3">
+            {/* Single semantic <nav> (right-most on mobile via CSS order, centered inline on desktop) */}
+            <nav aria-label="Ana gezinme" className="nornia-nav-slot flex items-center gap-2">
               <button
                 type="button"
-                className="nornia-menu-btn inline-flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                className="nornia-menu-btn inline-flex h-11 min-w-[44px] items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
                 popovertarget="site-menu"
                 popovertargetaction="toggle"
                 aria-controls="site-menu"
+                aria-label="Menüyü aç"
                 onClick={handleMenuBtnClick}
               >
                 <Menu className="h-5 w-5" aria-hidden="true" />
-                <span>Menü</span>
+                <span className="hidden xs:inline sm:inline">Menü</span>
               </button>
 
               <ul
@@ -425,7 +429,7 @@ export default function NorniaHomePage() {
                       target={item.external ? "_blank" : undefined}
                       rel={item.external ? "noopener noreferrer" : undefined}
                       onClick={closeMobileMenu}
-                      className={`inline-flex w-full items-center justify-between gap-1 rounded-lg px-2 py-2 text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 ${
+                      className={`inline-flex w-full items-center justify-between gap-1 rounded-lg px-2.5 py-2.5 text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 ${
                         item.highlight
                           ? "font-bold text-indigo-700 hover:text-indigo-950"
                           : "font-medium text-slate-600 hover:text-indigo-950"
@@ -445,10 +449,10 @@ export default function NorniaHomePage() {
             </nav>
 
             {/* Right CTA */}
-            <div className="flex items-center gap-2.5">
+            <div className="nornia-cta-slot flex items-center gap-2 ml-auto sm:ml-0">
               <a
                 href="#demo"
-                className="inline-flex items-center justify-center rounded-xl bg-indigo-950 px-4 sm:px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-900 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+                className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-indigo-950 px-3.5 sm:px-5 py-2.5 text-xs sm:text-sm font-semibold text-white shadow-sm hover:bg-indigo-900 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
               >
                 Ücretsiz Demo
               </a>
@@ -469,18 +473,18 @@ export default function NorniaHomePage() {
                   <span>Yapay Zeka Doğuşlu Kurumsal Santral • On-Premise &amp; Bulut</span>
                 </div>
 
-                <h1 className="mt-5 text-4xl font-extrabold tracking-tight text-slate-950 sm:text-5xl lg:text-[3.35rem] lg:leading-[1.08]">
+                <h1 className="mt-4 sm:mt-5 text-[1.95rem] leading-[1.15] font-extrabold tracking-tight text-slate-950 sm:text-5xl lg:text-[3.35rem] lg:leading-[1.08]">
                   IP Santralden Fazlası: Ses, Yapay Zeka ve Omnichannel Tek Platformda
                 </h1>
 
-                <p className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-slate-600 sm:text-lg">
+                <p className="mx-auto mt-4 sm:mt-5 max-w-2xl text-sm sm:text-lg leading-relaxed text-slate-600">
                   Asterisk PJSIP gücü, 7/24 Türkçe AI Sesli Asistan, 6 dilde canlı çağrı
                   çevirisi, Runa Mobil/Masaüstü, WhatsApp/Instagram gelen kutusu ve 44+
                   canlı raporu tek güvenli mimaride birleştirin.
                 </p>
 
                 {/* Primary & Secondary CTAs */}
-                <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
+                <div className="mt-6 sm:mt-7 flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center justify-center gap-2.5 sm:gap-3">
                   <a
                     href="#demo"
                     className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-950 px-6 py-3.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-900 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 min-h-[48px]"

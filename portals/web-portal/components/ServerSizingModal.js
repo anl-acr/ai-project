@@ -256,8 +256,12 @@ function SliderTicks({ min, max, ticks, value, onSelect }) {
             type="button"
             onClick={() => onSelect(t.v)}
             style={posStyle}
-            className={`absolute top-0 flex flex-col items-center cursor-pointer transition font-mono text-[10px] leading-none ${
-              isFirst ? "items-start" : isLast ? "items-end" : "items-center"
+            className={`absolute top-0 flex-col items-center cursor-pointer transition font-mono text-[10px] leading-none ${
+              isFirst
+                ? "flex items-start"
+                : isLast
+                  ? "flex items-end"
+                  : "hidden sm:flex items-center"
             } ${active ? "text-indigo-600 font-black" : "text-slate-400 hover:text-indigo-600"}`}
             title={`${t.label} değerine ayarla`}
           >
@@ -460,8 +464,8 @@ export default function ServerSizingModal({ open, onClose, onApplyToDemo }) {
         {/* Scrollable Modal Body */}
         <div className="overflow-y-auto overscroll-contain">
           {/* Quick Presets */}
-          <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-slate-50 px-5 py-3 sm:px-6">
-            <span className="mr-1 text-[10px] font-black uppercase tracking-wider text-slate-400">
+          <div className="flex flex-nowrap items-center gap-2 overflow-x-auto border-b border-slate-200 bg-slate-50 px-4 py-3 sm:flex-wrap sm:px-6">
+            <span className="mr-1 shrink-0 text-[10px] font-black uppercase tracking-wider text-slate-400">
               Hazır Senaryolar:
             </span>
             {PRESETS.map((p) => {
@@ -475,7 +479,7 @@ export default function ServerSizingModal({ open, onClose, onApplyToDemo }) {
                   key={p.id}
                   type="button"
                   onClick={() => setCfg({ ...p })}
-                  className={`rounded-xl px-3 py-1.5 text-[11px] font-bold transition ${
+                  className={`shrink-0 whitespace-nowrap rounded-xl px-3 py-1.5 text-[11px] font-bold transition ${
                     active
                       ? "bg-indigo-950 text-white shadow-xs"
                       : "border border-slate-200 bg-white text-slate-700 hover:border-indigo-400"
