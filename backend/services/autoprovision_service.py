@@ -1732,7 +1732,9 @@ def _build_grandstream_softkeys_xml_lines(
     token_map = {
         "history": "Custom-History",
         "directory": "Custom-Contacts",
-        "forward": "Custom-IdleForwardAll",
+        # Note: GRP260x hides legacy `Custom-IdleForwardAll` when BroadSoft DFKS (P2325=1) is enabled;
+        # `Custom-CallSettings` stays visible on slot 3 and opens the DFKS-synced Forwarding/DND menu in 1 press.
+        "forward": "Custom-CallSettings",
         "menu": "Custom-Menu",
         "dnd": "Custom-DND",
         "redial": "Custom-Redial",
