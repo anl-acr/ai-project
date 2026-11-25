@@ -40988,12 +40988,17 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                         continue
                     dp_key_pair = f"{ext_str}::{su_s}"
                     prev_dp_entry = dp_Configs.get(dp_key_pair) if isinstance(dp_Configs.get(dp_key_pair), dict) else {}
+                    eff_brand = str(d_s.get("brand") or prev_dp_entry.get("brand") or "").strip()
+                    eff_model = str(d_s.get("model") or prev_dp_entry.get("model") or "").strip()
+                    has_dss = isinstance(d_s.get("dss_keys"), list) and len(d_s["dss_keys"]) > 0
+                    if not (eff_brand or eff_model or d_s.get("mac") or has_dss or prev_dp_entry):
+                        continue
                     merged_dp_entry = {
                         **prev_dp_entry,
                         "extension": ext_str,
                         "sip_username": su_s,
-                        "brand": d_s.get("brand") or prev_dp_entry.get("brand") or "Yealink",
-                        "model": d_s.get("model") or prev_dp_entry.get("model") or "T46U",
+                        "brand": eff_brand,
+                        "model": eff_model,
                         "dss_keys": d_s.get("dss_keys") if isinstance(d_s.get("dss_keys"), list) else prev_dp_entry.get("dss_keys", []),
                         "soft_keys": d_s.get("soft_keys") if isinstance(d_s.get("soft_keys"), list) else prev_dp_entry.get("soft_keys", []),
                         "expansion_modules": d_s.get("expansion_modules") if isinstance(d_s.get("expansion_modules"), list) else prev_dp_entry.get("expansion_modules", []),

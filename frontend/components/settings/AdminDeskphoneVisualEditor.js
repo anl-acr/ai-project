@@ -157,8 +157,11 @@ export default function AdminDeskphoneVisualEditor({
 }) {
   const { bg, text, border, lightBg, borderLight } = useTheme();
 
-  const brand = inspectDraft?.brand || "Yealink";
-  const model = inspectDraft?.model || "T46U";
+  const rawBrand = String(inspectDraft?.brand || "").trim();
+  const rawModel = String(inspectDraft?.model || "").trim();
+  const hasPhoneModel = Boolean(rawBrand && rawModel);
+  const brand = rawBrand || "Yealink";
+  const model = rawModel || "T46U";
   const sipUsername = inspectDraft?.sip_username || "";
 
   const [modelCatalog, setModelCatalog] = useState([]);
@@ -552,6 +555,22 @@ export default function AdminDeskphoneVisualEditor({
 
   return (
     <div className="space-y-4">
+      {!hasPhoneModel ? (
+        <div className="rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-950/40 p-8 text-center space-y-2.5">
+          <div className={`w-11 h-11 rounded-2xl mx-auto flex items-center justify-center border ${borderLight} ${lightBg} ${text}`}>
+            <Sliders size={20} />
+          </div>
+          <h4 className="text-sm font-extrabold text-slate-800 dark:text-slate-100">
+            Telefon Marka / Modeli Henüz Eşleştirilmedi
+          </h4>
+          <p className="text-xs text-slate-500 dark:text-slate-400 max-w-lg mx-auto leading-relaxed">
+            Bu SIP cihazına henüz <strong>Oto Provizyon</strong> üzerinden fiziksel bir IP telefon atanmamış.{" "}
+            <strong>Santral → Oto Provizyon</strong> ekranından cihazı bu SIP hesabıyla eşleştirdiğinizde (veya{" "}
+            <strong>Cihaz &amp; Ağ Detayları</strong> sekmesinden marka/model seçtiğinizde) ilgili telefonun gerçek görselli canlı BLF tasarımcısı otomatik açılır.
+          </p>
+        </div>
+      ) : (
+      <>
       {/* Compact Top Action Bar */}
       <div className="flex flex-wrap items-center justify-between gap-2.5 px-4 py-3 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40">
         <div className="flex items-center gap-2 flex-wrap">
@@ -937,6 +956,8 @@ export default function AdminDeskphoneVisualEditor({
         title="Meşguliyet Modülünü Kaldır"
         message={`Meşguliyet Modülü #${deleteModConfirmIdx || 1} ve üzerindeki tuş atamalarını kaldırmak istediğinize emin misiniz?`}
       />
+      </>
+      )}
     </div>
   );
 }

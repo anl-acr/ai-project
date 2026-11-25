@@ -1191,8 +1191,8 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       ip: overrides.ip || "",
       live_ip: overrides.live_ip || "",
       is_online: isVirtualSub ? Boolean(overrides.is_active !== false && overrides.trunk) : Boolean(overrides.is_online),
-      brand: isWebPhone ? "" : (overrides.brand || "Yealink"),
-      model: isWebPhone ? "" : (overrides.model || "T46U"),
+      brand: isWebPhone ? "" : String(overrides.brand || "").trim(),
+      model: isWebPhone ? "" : String(overrides.model || "").trim(),
       codecs: Array.isArray(overrides.codecs) && overrides.codecs.length > 0 ? [...overrides.codecs] : ["g722", "alaw", "ulaw", "g729"],
       dtmf_mode: overrides.dtmf_mode || "rfc4733",
       language: overrides.language || "Turkish",
@@ -10000,7 +10000,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
           const liveIp = pjsipData.ip_address || inspectDraft.live_ip || inspectDraft.ip || "";
           const livePort = pjsipData.port || "";
           const isOnlineNow = Boolean(inspectLiveInfo?.is_online || pjsipData.registered || inspectDraft.is_online);
-          const brandModels = SIP_PHONE_MODELS[inspectDraft.brand] || ["Standart SIP"];
+          const brandModels = inspectDraft.brand ? (SIP_PHONE_MODELS[inspectDraft.brand] || []) : [];
           const provUrl = inspectLiveInfo?.prov_url || "";
           const assignedDssCount = (inspectDraft.dss_keys || []).filter((k) => k && k.type && k.type !== "none").length;
           const visibleInspectTabs = isWebInspect
@@ -10167,7 +10167,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                           {isWebInspect ? "Tarayıcı / SIP.js İstemci" : "Telefon Yazılımı (User-Agent)"}
                         </div>
                         <div className="mt-1.5 text-xs font-extrabold text-slate-800 dark:text-white truncate" title={pjsipData.user_agent || ""}>
-                          {pjsipData.user_agent || (isWebInspect ? "Tarayıcı WebRTC (SIP.js WSS)" : `${inspectDraft.brand || "Yealink"} ${inspectDraft.model || ""}`)}
+                          {pjsipData.user_agent || (isWebInspect ? "Tarayıcı WebRTC (SIP.js WSS)" : (inspectDraft.brand ? `${inspectDraft.brand} ${inspectDraft.model || ""}`.trim() : "Oto Provizyon / Model Seçilmedi"))}
                         </div>
                         <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 truncate">
                           {isWebInspect ? `Maks. Oturum: ${inspectDraft.max_activations || 5} Sekme/Tarayıcı` : `MAC: ${inspectDraft.mac || "Tanımlanmadı"}`}
@@ -10209,8 +10209,8 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                   const formatted = formatMacAddress(e.target.value);
                                   const autoBrand = detectBrandByMac(formatted);
                                   setInspectDraft((prev) => {
-                                    const nextBrand = autoBrand || prev.brand || "Yealink";
-                                    const modelsForBrand = SIP_PHONE_MODELS[nextBrand] || [];
+                                    const nextBrand = autoBrand || prev.brand || "";
+                                    const modelsForBrand = nextBrand ? (SIP_PHONE_MODELS[nextBrand] || []) : [];
                                     const nextModel = autoBrand && !modelsForBrand.includes(prev.model) ? (modelsForBrand[0] || prev.model) : prev.model;
                                     return { ...prev, mac: formatted, brand: nextBrand, model: nextModel };
                                   });
@@ -10225,14 +10225,15 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                               </label>
                               <select
                                 id="inspect-brand-select"
-                                value={inspectDraft.brand || "Yealink"}
+                                value={inspectDraft.brand || ""}
                                 onChange={(e) => {
                                   const newBrand = e.target.value;
-                                  const firstModel = (SIP_PHONE_MODELS[newBrand] || [])[0] || "";
+                                  const firstModel = newBrand ? ((SIP_PHONE_MODELS[newBrand] || [])[0] || "") : "";
                                   setInspectDraft((prev) => ({ ...prev, brand: newBrand, model: firstModel }));
                                 }}
                                 className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
                               >
+                                <option value="">Seçilmedi (Oto Provizyon)</option>
                                 {Object.keys(SIP_PHONE_MODELS).map((b) => (
                                   <option key={b} value={b}>{b}</option>
                                 ))}
@@ -10245,10 +10246,12 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                               </label>
                               <select
                                 id="inspect-model-select"
-                                value={inspectDraft.model || brandModels[0] || ""}
+                                value={inspectDraft.model || ""}
+                                disabled={!inspectDraft.brand}
                                 onChange={(e) => setInspectDraft((prev) => ({ ...prev, model: e.target.value }))}
-                                className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none disabled:opacity-50"
                               >
+                                <option value="">{inspectDraft.brand ? "Model Seçiniz..." : "Önce marka / Oto Provizyon"}</option>
                                 {brandModels.map((m) => (
                                   <option key={m} value={m}>{m}</option>
                                 ))}

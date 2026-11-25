@@ -751,8 +751,8 @@ def normalize_user_sip_devices(
 
             ap0 = bound_ap_devices[0] if bound_ap_devices else {}
             mac0, _ = normalize_mac_address(ap0.get("mac") or legacy_dp.get("mac") or "")
-            brand0 = str(ap0.get("brand") or legacy_dp.get("brand") or (detect_brand_from_mac(mac0, "Yealink") if mac0 else "Yealink")).strip()
-            model0 = str(ap0.get("model") or legacy_dp.get("model") or "T46U").strip()
+            brand0 = str(ap0.get("brand") or legacy_dp.get("brand") or (detect_brand_from_mac(mac0, "") if mac0 else "")).strip()
+            model0 = str(ap0.get("model") or legacy_dp.get("model") or "").strip()
             ip0 = str(ap0.get("ip") or legacy_dp.get("ip") or "").strip()
             dss0 = ap0.get("dss_keys") if isinstance(ap0.get("dss_keys"), list) and ap0.get("dss_keys") else (legacy_dp.get("dss_keys") if isinstance(legacy_dp.get("dss_keys"), list) else [])
             soft0 = ap0.get("soft_keys") if isinstance(ap0.get("soft_keys"), list) and ap0.get("soft_keys") else (legacy_dp.get("soft_keys") if isinstance(legacy_dp.get("soft_keys"), list) else [])
@@ -888,8 +888,8 @@ def normalize_user_sip_devices(
 
         mac_colon, _ = normalize_mac_address(dev.get("mac") or "")
         raw_brand = str(dev.get("brand") or "").strip()
-        dev_brand = detect_brand_from_mac(mac_colon, raw_brand or "Yealink") if mac_colon and not raw_brand else (raw_brand or "Yealink")
-        dev_model = str(dev.get("model") or "T46U").strip()
+        dev_brand = detect_brand_from_mac(mac_colon, "") if (mac_colon and not raw_brand) else raw_brand
+        dev_model = str(dev.get("model") or "").strip()
         dev_ip = str(dev.get("ip") or "").strip()
 
         raw_codecs = dev.get("codecs")
