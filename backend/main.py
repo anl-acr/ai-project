@@ -15223,6 +15223,99 @@ def _check_phone_firmware_perm(user_info: dict, action: str = "read") -> None:
         raise HTTPException(status_code=403, detail=f"Bu işlem için 'phone_firmware:{action}' yetkisi gereklidir.")
 
 
+@app.get("/api/settings/autoprovision-inspect/{lookup_key}")
+async def inspect_autoprovision_config_endpoint(
+    lookup_key: str,
+    request: Request,
+    mode: str = Query("auto"),
+    user_info: dict = Depends(get_user_info),
+):
+    """
+    Belirli bir masa telefonu için (MAC veya SIP kullanıcı adı ile):
+      1. Telefona en son gönderilen gerçek provizyon dosyasını (disk snapshot + IP + User-Agent + zaman)
+      2. Şu an üretilecek canlı provizyon dosyasını (LAN / WAN / Auto)
+    döndürür.
+    """
+    from backend.services.autoprovision_service import (
+        normalize_mac_address,
+        get_or_create_provisioning_token,
+        read_provision_snapshot,
+    )
+
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    devices = _build_enriched_autoprovision_list(target_tenant)
+    lk_clean = str(lookup_key or "").strip()
+    _, lk_mh = normalize_mac_address(lk_clean)
+    target = next(
+        (
+            d for d in devices
+            if (lk_mh and d.get("mac_hex") == lk_mh)
+            or str(d.get("sip_username") or "").strip().lower() == lk_clean.lower()
+        ),
+        None,
+    )
+    if not target:
+        raise HTTPException(status_code=404, detail="Eşleşen masa telefonu kaydı bulunamadı.")
+
+    mh = str(target.get("mac_hex") or "")
+    prov_fname = str(target.get("prov_filename") or (f"{mh}.cfg" if mh else ""))
+    dev_mode = str(target.get("connection_mode") or "lan").strip().lower()
+    req_mode = str(mode or "auto").strip().lower()
+    eff_mode = req_mode if req_mode in ("lan", "wan") else (dev_mode if dev_mode in ("lan", "wan") else "lan")
+
+    token = get_or_create_provisioning_token(settings_db, target_tenant)
+    live_content = ""
+    live_media_type = "text/plain; charset=utf-8"
+    live_error = ""
+    try:
+        resp_obj = await _render_autoprovision_file_for_phone(
+            token=token,
+            filename=prov_fname,
+            request=request,
+            explicit_mode=eff_mode,
+            is_admin_preview=True,
+            override_user_agent=str(target.get("user_agent") or ""),
+        )
+        raw_body = getattr(resp_obj, "body", b"")
+        live_content = raw_body.decode("utf-8", errors="replace") if isinstance(raw_body, (bytes, bytearray)) else str(raw_body or "")
+        live_media_type = str(getattr(resp_obj, "media_type", None) or live_media_type)
+    except HTTPException as he:
+        live_error = str(he.detail or "Canlı dosya üretilemedi.")
+    except Exception as e_live:
+        live_error = str(e_live)
+
+    snapshot = read_provision_snapshot(mh)
+    now_tr = (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
+    return {
+        "device": {
+            "mac": target.get("mac") or "",
+            "mac_hex": mh,
+            "brand": target.get("brand") or "",
+            "model": target.get("model") or "",
+            "sip_username": target.get("sip_username") or "",
+            "extension": target.get("assigned_extension") or "",
+            "user_name": target.get("assigned_user_name") or "",
+            "connection_mode": dev_mode,
+            "status": target.get("status") or "offline",
+            "live_ip": target.get("live_ip") or target.get("ip") or "",
+            "user_agent": target.get("user_agent") or "",
+            "current_fw_version": target.get("current_fw_version") or "",
+            "last_provisioned_at": target.get("last_provisioned_at") or "",
+        },
+        "live": {
+            "filename": prov_fname,
+            "mode": eff_mode,
+            "media_type": live_media_type,
+            "content": live_content,
+            "line_count": len(live_content.splitlines()) if live_content else 0,
+            "size_bytes": len(live_content.encode("utf-8")) if live_content else 0,
+            "generated_at": now_tr,
+            "error": live_error,
+        },
+        "snapshot": snapshot,
+    }
+
+
 @app.get("/api/settings/phone-firmware")
 async def get_phone_firmware_overview(user_info: dict = Depends(get_user_info)):
     """Yüklenmiş firmware paketleri, model politikaları, canlı cihaz sürüm matrisi ve logları döner."""
@@ -16886,6 +16979,8 @@ async def _render_autoprovision_file_for_phone(
     filename: str,
     request: Request,
     explicit_mode: Optional[str] = None,
+    is_admin_preview: bool = False,
+    override_user_agent: Optional[str] = None,
 ):
     from backend.services.autoprovision_service import (
         resolve_tenant_by_provisioning_token,
@@ -16895,9 +16990,10 @@ async def _render_autoprovision_file_for_phone(
         generate_yealink_common_boot_cfg,
         generate_provisioning_config,
         resolve_provisioning_endpoints,
+        save_provision_snapshot,
     )
     client_ip = extract_client_ip(request)
-    user_agent = request.headers.get("user-agent") or ""
+    user_agent = str(override_user_agent) if override_user_agent is not None else (request.headers.get("user-agent") or "")
     fn_clean = str(filename or "").strip()
     fn_low = fn_clean.lower()
     req_host = (request.headers.get("x-forwarded-host") or request.headers.get("host") or "").split(",")[0].strip()
@@ -17176,36 +17272,59 @@ async def _render_autoprovision_file_for_phone(
                     fwd_codes=_fwd_codes_cfg,
                     firmware_directive=_fw_directive,
                 )
-                # Stamp live provisioning fetch timestamp so Desk Phone Studio progress bar & Autoprovision panel detect pull!
-                try:
-                    now_prov_tr = (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
-                    if "user_deskphone_configs" not in settings_db or not isinstance(settings_db.get("user_deskphone_configs"), dict):
-                        settings_db["user_deskphone_configs"] = {}
-                    for k_stamp in (f"{ext_s}::{dev_su}", ext_s):
-                        if isinstance(settings_db["user_deskphone_configs"].get(k_stamp), dict):
-                            settings_db["user_deskphone_configs"][k_stamp]["last_provisioned_at"] = now_prov_tr
-                            settings_db["user_deskphone_configs"][k_stamp]["last_provisioned_ip"] = client_ip or ""
-                    if isinstance(ap_rec, dict) and ap_rec:
-                        ap_rec["last_provisioned_at"] = now_prov_tr
-                        if client_ip and not str(ap_rec.get("ip") or "").strip():
-                            ap_rec["ip"] = client_ip
-                    for u_mem in settings_db.get("users", []) or []:
-                        if isinstance(u_mem, dict) and str(u_mem.get("extension") or "").strip() == ext_s and isinstance(u_mem.get("sip_devices"), list):
-                            for sd_item in u_mem["sip_devices"]:
-                                if isinstance(sd_item, dict) and str(sd_item.get("sip_username") or "").strip() == dev_su:
-                                    sd_item["last_provisioned_at"] = now_prov_tr
-                                    sd_item["last_provisioned_ip"] = client_ip or ""
-                                    break
-                except Exception:
-                    pass
-                _log_autoprovision_hit(
-                    tenant_id, fn_clean, client_ip, user_agent, 200,
-                    f"Konfigürasyon gönderildi ({prov_ep['effective_mode'].upper()} • SIP: {prov_ep['pbx_host']}:5060 {eff_transport})",
-                    mode=prov_ep["effective_mode"],
-                    mac_hex=dev_mac_hex or mac_hex,
-                    ext=ext_s,
-                    sip_username=dev_su,
-                )
+                # Stamp live provisioning fetch timestamp & persist disk snapshot for real phone pulls (not admin preview)
+                is_preview_req = is_admin_preview or (request.query_params.get("preview") == "1")
+                if not is_preview_req:
+                    try:
+                        now_prov_tr = (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
+                        if "user_deskphone_configs" not in settings_db or not isinstance(settings_db.get("user_deskphone_configs"), dict):
+                            settings_db["user_deskphone_configs"] = {}
+                        for k_stamp in (f"{ext_s}::{dev_su}", ext_s):
+                            if isinstance(settings_db["user_deskphone_configs"].get(k_stamp), dict):
+                                settings_db["user_deskphone_configs"][k_stamp]["last_provisioned_at"] = now_prov_tr
+                                settings_db["user_deskphone_configs"][k_stamp]["last_provisioned_ip"] = client_ip or ""
+                        if isinstance(ap_rec, dict) and ap_rec:
+                            ap_rec["last_provisioned_at"] = now_prov_tr
+                            if client_ip and not str(ap_rec.get("ip") or "").strip():
+                                ap_rec["ip"] = client_ip
+                        for u_mem in settings_db.get("users", []) or []:
+                            if isinstance(u_mem, dict) and str(u_mem.get("extension") or "").strip() == ext_s and isinstance(u_mem.get("sip_devices"), list):
+                                for sd_item in u_mem["sip_devices"]:
+                                    if isinstance(sd_item, dict) and str(sd_item.get("sip_username") or "").strip() == dev_su:
+                                        sd_item["last_provisioned_at"] = now_prov_tr
+                                        sd_item["last_provisioned_ip"] = client_ip or ""
+                                        break
+                        # Save exact file served to the physical phone on disk (skip generic desktop browsers)
+                        if "mozilla/" not in str(user_agent or "").lower():
+                            save_provision_snapshot(
+                                mac_hex=dev_mac_hex or mac_hex,
+                                filename=fn_clean,
+                                content_text=content_text,
+                                meta={
+                                    "fetched_at": now_prov_tr,
+                                    "client_ip": client_ip or "",
+                                    "user_agent": str(user_agent or "")[:200],
+                                    "mode": prov_ep["effective_mode"],
+                                    "pbx_host": prov_ep["pbx_host"],
+                                    "transport": eff_transport,
+                                    "extension": ext_s,
+                                    "sip_username": dev_su,
+                                    "brand": _eff_brand_fw,
+                                    "model": _eff_model_fw,
+                                    "fw_directive_active": bool((_fw_directive or {}).get("active")),
+                                    "fw_target_version": str((_fw_directive or {}).get("fw_version") or ""),
+                                },
+                            )
+                    except Exception:
+                        pass
+                    _log_autoprovision_hit(
+                        tenant_id, fn_clean, client_ip, user_agent, 200,
+                        f"Konfigürasyon gönderildi ({prov_ep['effective_mode'].upper()} • SIP: {prov_ep['pbx_host']}:5060 {eff_transport})",
+                        mode=prov_ep["effective_mode"],
+                        mac_hex=dev_mac_hex or mac_hex,
+                        ext=ext_s,
+                        sip_username=dev_su,
+                    )
                 return Response(content=content_text, media_type=media_type)
 
     _log_autoprovision_hit(
@@ -45545,18 +45664,32 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.10.14",
+        "version": "v3.10.15",
         "commit_hash": live_commit,
         "release_date": "25 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.10.14",
+                "version": "v3.10.15",
                 "commit_hash": live_commit,
                 "release_date": "25 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Provizyon Dosya İnceleyici & Otomatik Disk Snapshot Arşivi",
+                "summary": "Sorun giderme sırasında fiziksel telefonlara gönderilen ham .cfg / .xml provizyon dosyalarının hem arayüzden hem diskten birebir incelenebilmesi için otomatik snapshot kaydı ve arama özellikli kod inceleyici eklendi.",
+                "features": [
+                    "Otomatik Disk Snapshot: Telefon her provizyon çektiğinde gönderilen birebir dosya, IP, User-Agent ve saat bilgisiyle backend/data/provision_snapshots/<mac>_last.<xml|cfg> dosyasına kaydedilir.",
+                    "Arayüz Provizyon Dosya İnceleyici: Oto Provizyon cihaz satırlarından ve Büyüteç penceresinden tek tıkla açılır; 'Telefona Giden Son Dosya' ve 'Şu An Üretilecek (LAN/WAN)' sekmeleri, canlı metin arama, şifre maskeleme, kopyalama ve indirme desteği sunar."
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.10.14",
+                "commit_hash": "8be25a76",
+                "release_date": "25 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "Arayüzden Sunucu & Servis Yönetimi (Başlat/Durdur/Yeniden Başlat, Reboot & Kapatma)",
                 "summary": "Sistem Ayarları altına 'Sunucu & Servis Yönetimi' paneli eklendi. Yöneticiler Asterisk, Nornia Backend/Frontend (PM2), PostgreSQL, Nginx, Fail2Ban, WireGuard ve SSH servislerini arayüzden başlatıp durdurabilir, canlı loglarını görebilir ve sunucuyu aktif çağrı uyarısı + çift onay ile yeniden başlatıp kapatabilir.",
                 "features": [

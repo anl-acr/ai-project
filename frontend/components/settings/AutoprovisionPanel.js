@@ -32,6 +32,7 @@ import {
 import * as XLSX from "../../utils/excelHelper";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import PhoneFirmwareTab from "./PhoneFirmwareTab";
+import ProvisionConfigInspectorModal from "./ProvisionConfigInspectorModal";
 import { useTheme } from "../../utils/theme";
 import { resolvePhonePhotoSpec } from "../../utils/deskphonePhotoCatalog";
 
@@ -86,6 +87,7 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
   const [editingOriginalMac, setEditingOriginalMac] = useState("");
   const [scanResults, setScanResults] = useState([]);
   const [deleteTargetMac, setDeleteTargetMac] = useState(null);
+  const [inspectConfigTarget, setInspectConfigTarget] = useState(null); // { key, label }
 
   // Form states
   const [macAddress, setMacAddress] = useState("");
@@ -1153,13 +1155,28 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
                             >
                               <Power size={14} />
                             </button>
+                            {(dev.mac || dev.sip_username) && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setInspectConfigTarget({
+                                    key: dev.mac_hex || dev.mac || dev.sip_username,
+                                    label: `${dev.brand || ""} ${dev.model || ""} (${dev.mac || dev.sip_username})`,
+                                  })
+                                }
+                                className="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 rounded-lg transition-colors cursor-pointer"
+                                title="Provizyon Dosyasını İncele (Telefona Giden Son Dosya + Canlı Önizleme)"
+                              >
+                                <FileCode size={14} />
+                              </button>
+                            )}
                             {netConfig?.token && dev.mac && (
                               <a
-                                href={`${API_BASE}/api/prov/${netConfig.token}/${provModePath}/${provFname}`}
+                                href={`${API_BASE}/api/prov/${netConfig.token}/${provModePath}/${provFname}?preview=1`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="p-1.5 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded-lg transition-colors"
-                                title={`Provizyon Dosyasını Önizle / İndir (${provFname})`}
+                                title={`Provizyon Dosyasını İndir (${provFname})`}
                               >
                                 <Download size={14} />
                               </a>
@@ -1192,6 +1209,15 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
       </div>
       </>
       )}
+
+      {/* Provisioning File Inspector Modal (Last Snapshot + Live Preview) */}
+      <ProvisionConfigInspectorModal
+        isOpen={Boolean(inspectConfigTarget)}
+        lookupKey={inspectConfigTarget?.key || ""}
+        deviceLabel={inspectConfigTarget?.label || ""}
+        backendHost={backendHost}
+        onClose={() => setInspectConfigTarget(null)}
+      />
 
       {/* Network Scanner Popup Modal */}
       {showScanModal && (

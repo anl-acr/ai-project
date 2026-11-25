@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { Plus, Trash2, Edit2, X, User, Mail, Phone, Shield, Check, CheckCircle, ToggleLeft, ToggleRight, Search, Copy, RefreshCw, KeyRound, PhoneCall, Settings, Image as ImageIcon, Monitor, Smartphone, AlertTriangle, PhoneOutgoing, Users, Forward, Mic, MicOff, Download, Upload, Building2, Eye, EyeOff, Cable, ExternalLink, Database, Play, LayoutGrid, ChevronRight, Lock, Unlock, Terminal, Wifi, Cpu, ArrowUp, ArrowDown, Power, Sparkles, Layers, Sliders, Palette, Sun, Moon, Clock, Volume2, Square, BellRing, BellOff, GripVertical, RotateCcw, List, PanelTop, Keyboard, Pin } from "lucide-react";
+import { Plus, Trash2, Edit2, X, User, Mail, Phone, Shield, Check, CheckCircle, ToggleLeft, ToggleRight, Search, Copy, RefreshCw, KeyRound, PhoneCall, Settings, Image as ImageIcon, Monitor, Smartphone, AlertTriangle, PhoneOutgoing, Users, Forward, Mic, MicOff, Download, Upload, Building2, Eye, EyeOff, Cable, ExternalLink, Database, Play, LayoutGrid, ChevronRight, Lock, Unlock, Terminal, Wifi, Cpu, ArrowUp, ArrowDown, Power, Sparkles, Layers, Sliders, Palette, Sun, Moon, Clock, Volume2, Square, BellRing, BellOff, GripVertical, RotateCcw, List, PanelTop, Keyboard, Pin, FileCode } from "lucide-react";
 import * as XLSX from "../../utils/excelHelper";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import {
@@ -32,6 +32,7 @@ import TablePagination from "../ui/TablePagination";
 import BulkConfigPanel from "./BulkConfigPanel";
 import UserApplicationsPanel from "./UserApplicationsPanel";
 import AdminDeskphoneVisualEditor from "./AdminDeskphoneVisualEditor";
+import ProvisionConfigInspectorModal from "./ProvisionConfigInspectorModal";
 
 import { getApiBaseUrl, tenantFetch } from "../../utils/apiHost";
 import { webphoneManager } from "../../utils/webphoneManager";
@@ -386,6 +387,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   const sipDeviceInspectDialogRef = useRef(null);
   const inspectTabRefs = useRef({});
   const [isSipDeviceInspectOpen, setIsSipDeviceInspectOpen] = useState(false);
+  const [inspectProvFileTarget, setInspectProvFileTarget] = useState(null); // { key, label }
   const [inspectTab, setInspectTab] = useState("overview"); // 'overview' | 'blf' | 'phone_settings' | 'pjsip'
   const [inspectDraft, setInspectDraft] = useState(null);
   const [inspectLiveInfo, setInspectLiveInfo] = useState(null);
@@ -10274,6 +10276,22 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
+                  {!isWebInspect && (inspectDraft?.mac || inspectDraft?.sip_username) && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setInspectProvFileTarget({
+                          key: inspectDraft.mac || inspectDraft.sip_username,
+                          label: `${inspectDraft.brand || ""} ${inspectDraft.model || ""} (${inspectDraft.sip_username || ""})`,
+                        })
+                      }
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-extrabold border bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 transition-all cursor-pointer"
+                      title="Bu telefona giden son provizyon dosyasını ve canlı yapılandırmayı incele"
+                    >
+                      <FileCode size={13} />
+                      <span>Provizyon Dosyası</span>
+                    </button>
+                  )}
                   {!isWebInspect && extension && (() => {
                     const inspDnd = getUserDndInfo(editingUser);
                     const isOn = Boolean(inspDnd.active);
@@ -10953,6 +10971,13 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
             </div>
           );
         })()}
+        <ProvisionConfigInspectorModal
+          isOpen={Boolean(inspectProvFileTarget)}
+          lookupKey={inspectProvFileTarget?.key || ""}
+          deviceLabel={inspectProvFileTarget?.label || ""}
+          backendHost={backendHost}
+          onClose={() => setInspectProvFileTarget(null)}
+        />
       </dialog>
 
       {/* Confirm Delete Modal for SIP Cihazı */}

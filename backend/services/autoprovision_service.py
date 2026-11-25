@@ -2746,3 +2746,99 @@ def generate_provisioning_config(
 
     fname = f"{mac_hex}.cfg" if mac_hex else f"deskphone_{ext_s}.cfg"
     return "\n".join(lines) + "\n", "text/plain; charset=utf-8", fname
+
+
+def get_provision_snapshots_dir() -> str:
+    """Returns `/opt/ai-project/backend/data/provision_snapshots` (auto-created)."""
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    snap_dir = os.path.join(base_dir, "data", "provision_snapshots")
+    os.makedirs(snap_dir, exist_ok=True)
+    return snap_dir
+
+
+def save_provision_snapshot(
+    mac_hex: str,
+    filename: str,
+    content_text: str,
+    meta: Optional[Dict[str, Any]] = None,
+) -> Optional[str]:
+    """
+    Persists the exact provisioning file last served to a physical phone as
+    `backend/data/provision_snapshots/<mac_hex>_last.<xml|cfg>` + `.meta.json`.
+    """
+    import hashlib as _hl
+    import json as _js
+
+    _, mh = normalize_mac_address(mac_hex or "")
+    if not mh:
+        return None
+    try:
+        snap_dir = get_provision_snapshots_dir()
+        is_xml = str(filename or "").strip().lower().endswith(".xml") or str(content_text or "").lstrip().startswith("<")
+        ext_sfx = "xml" if is_xml else "cfg"
+        # Clean up opposite extension if device brand was ever changed
+        other_path = os.path.join(snap_dir, f"{mh}_last.{'cfg' if ext_sfx == 'xml' else 'xml'}")
+        if os.path.isfile(other_path):
+            try:
+                os.remove(other_path)
+            except Exception:
+                pass
+        file_path = os.path.join(snap_dir, f"{mh}_last.{ext_sfx}")
+        meta_path = os.path.join(snap_dir, f"{mh}_last.meta.json")
+        raw_bytes = (content_text or "").encode("utf-8")
+        with open(file_path, "wb") as f_out:
+            f_out.write(raw_bytes)
+        meta_obj = dict(meta or {})
+        meta_obj.update({
+            "mac_hex": mh,
+            "filename": str(filename or f"{mh}.{ext_sfx}"),
+            "disk_path": file_path,
+            "size_bytes": len(raw_bytes),
+            "line_count": len((content_text or "").splitlines()),
+            "sha256": _hl.sha256(raw_bytes).hexdigest(),
+        })
+        with open(meta_path, "w", encoding="utf-8") as f_meta:
+            _js.dump(meta_obj, f_meta, ensure_ascii=False, indent=2)
+        return file_path
+    except Exception as e_snap:
+        print(f"[Provision Snapshot Save Warning]: {e_snap}")
+        return None
+
+
+def read_provision_snapshot(mac_hex: str) -> Dict[str, Any]:
+    """Reads the last real provisioning snapshot served to `mac_hex`, if any."""
+    import json as _js
+
+    _, mh = normalize_mac_address(mac_hex or "")
+    if not mh:
+        return {"exists": False, "content": "", "meta": {}, "disk_path": ""}
+    snap_dir = get_provision_snapshots_dir()
+    meta_path = os.path.join(snap_dir, f"{mh}_last.meta.json")
+    meta_obj: Dict[str, Any] = {}
+    if os.path.isfile(meta_path):
+        try:
+            with open(meta_path, "r", encoding="utf-8") as fm:
+                meta_obj = _js.load(fm)
+        except Exception:
+            meta_obj = {}
+    cand_paths = [
+        meta_obj.get("disk_path") or "",
+        os.path.join(snap_dir, f"{mh}_last.xml"),
+        os.path.join(snap_dir, f"{mh}_last.cfg"),
+    ]
+    for cp in cand_paths:
+        if cp and os.path.isfile(cp):
+            try:
+                with open(cp, "r", encoding="utf-8", errors="replace") as fp:
+                    txt = fp.read()
+                return {
+                    "exists": True,
+                    "content": txt,
+                    "line_count": len(txt.splitlines()),
+                    "size_bytes": len(txt.encode("utf-8")),
+                    "disk_path": cp,
+                    "meta": meta_obj,
+                }
+            except Exception:
+                pass
+    return {"exists": False, "content": "", "line_count": 0, "size_bytes": 0, "disk_path": "", "meta": {}}
