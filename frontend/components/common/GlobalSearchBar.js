@@ -46,6 +46,7 @@ import {
 import { useTheme } from "../../utils/theme";
 import { getTurkishSlugForSubtab } from "../../utils/slugHelper";
 import { webphoneManager } from "../../utils/webphoneManager";
+import { isProviderRootSession } from "../../utils/authStorage";
 import DictationButton from "./DictationButton";
 
 export default function GlobalSearchBar({
@@ -1180,8 +1181,23 @@ export default function GlobalSearchBar({
           onLogout?.();
         }
       }
-    ];
-  }, [isDarkMode, hasPendingChanges, currentUser?.role]);
+    ].filter((item) => {
+      if (isProviderRootSession(currentUser)) return true;
+      const providerOnlyMenuIds = new Set([
+        "menu-settings-pbx",
+        "menu-settings-federation-multisite",
+        "menu-settings-nat",
+        "menu-settings-tenants",
+        "menu-settings-backup",
+        "menu-troubleshooting",
+        "menu-troubleshooting-sngrep",
+        "menu-security",
+        "menu-system-status",
+        "menu-changelog"
+      ]);
+      return !providerOnlyMenuIds.has(item.id);
+    });
+  }, [isDarkMode, hasPendingChanges, currentUser]);
 
   // Build combined & filtered results
   const results = useMemo(() => {

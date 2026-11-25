@@ -616,18 +616,24 @@ def enforce_primary_line_key(
     return items
 
 
-def resolve_user_sip_username(ext_val: Any, raw_sip_user: Any = "") -> str:
+def resolve_user_sip_username(ext_val: Any, raw_sip_user: Any = "", tenant_id: Any = "tenant-default") -> str:
     """
     Returns a clean, deterministic PJSIP endpoint identifier for physical IP phones / SIP clients.
     - Uses user's configured `sip_username` (Kullanıcı Ayarları > SIP > Kullanıcı Adı) when valid and non-numeric.
-    - Otherwise derives a stable 8-character alphanumeric SIP username from `ext_val` so it never changes randomly across restarts
-      and never exposes numeric extension numbers in Asterisk PJSIP.
+    - For `tenant-default` (single-tenant/local installs), preserves the exact legacy seed so existing
+      provisioned phones keep their SIP usernames untouched.
+    - For secondary cloud tenants (`tenant-acme`, etc.), salts the seed with `tenant_id` so two tenants
+      can both have extension 1000 without colliding in Asterisk PJSIP.
     """
     ext_s = str(ext_val or "").strip()
     cand = re.sub(r"[^a-zA-Z0-9_.-]", "", str(raw_sip_user or "").strip())
     if cand and cand != ext_s and not cand.isdigit():
         return cand
-    seed = f"AIDA_SIP_USER_V1_{ext_s or '1000'}"
+    t_clean = str(tenant_id or "tenant-default").strip()
+    if t_clean in ("", "tenant-default", "default"):
+        seed = f"AIDA_SIP_USER_V1_{ext_s or '1000'}"
+    else:
+        seed = f"AIDA_SIP_USER_V1_{t_clean}_{ext_s or '1000'}"
     digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()
     alpha_up = "ABCDEFGHJKLMNPQRSTUVWXYZ"
     alpha_lo = "abcdefghijkmnopqrstuvwxyz"
@@ -646,16 +652,21 @@ def resolve_user_sip_username(ext_val: Any, raw_sip_user: Any = "") -> str:
     return "".join(chars)
 
 
-def resolve_user_webphone_sip_username(ext_val: Any, raw_web_sip_user: Any = "") -> str:
+def resolve_user_webphone_sip_username(ext_val: Any, raw_web_sip_user: Any = "", tenant_id: Any = "tenant-default") -> str:
     """
     Returns a clean, deterministic alphanumeric PJSIP endpoint identifier for the browser WebRTC phone (`web_phone`).
     Never returns a numeric extension so Asterisk `pjsip show endpoints` contains zero extension numbers.
+    Salts secondary cloud tenants by `tenant_id` while preserving exact legacy values for `tenant-default`.
     """
     ext_s = str(ext_val or "").strip()
     cand = re.sub(r"[^a-zA-Z0-9_.-]", "", str(raw_web_sip_user or "").strip())
     if cand and cand != ext_s and not cand.isdigit():
         return cand
-    seed = f"AIDA_WEBPHONE_SIP_V1_{ext_s or '1000'}"
+    t_clean = str(tenant_id or "tenant-default").strip()
+    if t_clean in ("", "tenant-default", "default"):
+        seed = f"AIDA_WEBPHONE_SIP_V1_{ext_s or '1000'}"
+    else:
+        seed = f"AIDA_WEBPHONE_SIP_V1_{t_clean}_{ext_s or '1000'}"
     digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()
     alpha_up = "ABCDEFGHJKLMNPQRSTUVWXYZ"
     alpha_lo = "abcdefghijkmnopqrstuvwxyz"
@@ -702,6 +713,7 @@ def normalize_user_sip_devices(
 
     ext_s = str(user_dict.get("extension") or "").strip()
     uid_s = str(user_dict.get("id") or "").strip()
+    u_tid = str(user_dict.get("tenant_id") or "tenant-default").strip() or "tenant-default"
     raw_devices = user_dict.get("sip_devices")
     if isinstance(raw_devices, str):
         try:
@@ -717,6 +729,11 @@ def normalize_user_sip_devices(
     match_keys = {k for k in (ext_s, uid_s) if k}
     for d in ap_list:
         if not isinstance(d, dict):
+            continue
+        d_tid = str(d.get("tenant_id") or "tenant-default").strip() or "tenant-default"
+        if (u_tid in ("tenant-default", "default")) != (d_tid in ("tenant-default", "default")):
+            continue
+        if u_tid not in ("tenant-default", "default") and d_tid != u_tid:
             continue
         assigned = str(d.get("assigned_user") or d.get("extension") or "").strip()
         if assigned and assigned in match_keys:
@@ -745,7 +762,7 @@ def normalize_user_sip_devices(
         if explicitly_empty:
             raw_devices = []
         else:
-            primary_sip_u = resolve_user_sip_username(ext_s, user_dict.get("sip_username") or "")
+            primary_sip_u = resolve_user_sip_username(ext_s, user_dict.get("sip_username") or "", tenant_id=u_tid)
             primary_pwd = _clean_pwd(user_dict.get("sip_password") or "")
             try:
                 primary_max_act = max(1, min(5, int(user_dict.get("max_activations") or 1)))
@@ -847,7 +864,7 @@ def normalize_user_sip_devices(
             dev_pwd = ""
         elif dev_type == "web_phone":
             raw_su = str(dev.get("sip_username") or "").strip()
-            cand_su = resolve_user_webphone_sip_username(ext_s, raw_su)
+            cand_su = resolve_user_webphone_sip_username(ext_s, raw_su, tenant_id=u_tid)
             while cand_su.lower() in seen_sip_users or cand_su.isdigit():
                 cand_su = "W" + generate_random_sip_device_username(ext_s, idx + 1)[1:]
             seen_sip_users.add(cand_su.lower())
@@ -855,7 +872,7 @@ def normalize_user_sip_devices(
         else:
             raw_su = str(dev.get("sip_username") or "").strip()
             if not assigned_primary_real_sip:
-                cand_su = resolve_user_sip_username(ext_s, raw_su or user_dict.get("sip_username") or "")
+                cand_su = resolve_user_sip_username(ext_s, raw_su or user_dict.get("sip_username") or "", tenant_id=u_tid)
                 assigned_primary_real_sip = True
             else:
                 cand_su = re.sub(r"[^a-zA-Z0-9_.-]", "", raw_su)

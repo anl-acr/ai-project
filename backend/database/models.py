@@ -1,5 +1,5 @@
 import datetime
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean, JSON, Float
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean, JSON, Float, UniqueConstraint
 from sqlalchemy.orm import relationship
 from pgvector.sqlalchemy import Vector
 from backend.database.config import Base
@@ -156,6 +156,7 @@ class InternalChatMessage(Base):
     __tablename__ = "internal_chat_messages"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    tenant_id = Column(String, default="tenant-default", index=True)
     sender_id = Column(String, nullable=False, index=True) # extension or username
     receiver_id = Column(String, nullable=False, index=True) # extension, username or 'broadcast'
     text = Column(Text, nullable=False)
@@ -163,41 +164,50 @@ class InternalChatMessage(Base):
     delivered_at = Column(DateTime, nullable=True)
     read_at = Column(DateTime, nullable=True)
     deleted_by = Column(Text, nullable=True)
+
 class Contact(Base):
     __tablename__ = "contacts"
+    __table_args__ = (UniqueConstraint("tenant_id", "phone_number", name="uq_contacts_tenant_phone"),)
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    tenant_id = Column(String, default="tenant-default", index=True)
     first_name = Column(String, nullable=False)
     last_name = Column(String, nullable=False)
-    phone_number = Column(String, nullable=False, unique=True, index=True)
-    email = Column(String, nullable=True, unique=True, index=True)
+    phone_number = Column(String, nullable=False, index=True)
+    email = Column(String, nullable=True, index=True)
     voiceprint = Column(Text, nullable=True)
 
 
 class CannedResponse(Base):
     __tablename__ = "canned_responses"
+    __table_args__ = (UniqueConstraint("tenant_id", "shortcut", name="uq_canned_tenant_shortcut"),)
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    shortcut = Column(String, nullable=False, unique=True, index=True)
+    tenant_id = Column(String, default="tenant-default", index=True)
+    shortcut = Column(String, nullable=False, index=True)
     title = Column(String, nullable=False)
     content = Column(Text, nullable=False)
 
 
 class BlacklistItem(Base):
     __tablename__ = "blacklist_items"
+    __table_args__ = (UniqueConstraint("tenant_id", "value", name="uq_blacklist_tenant_value"),)
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    tenant_id = Column(String, default="tenant-default", index=True)
     type = Column(String, nullable=False)  # phone or email
-    value = Column(String, nullable=False, unique=True, index=True)
+    value = Column(String, nullable=False, index=True)
     reason = Column(String, nullable=True)
     timestamp = Column(DateTime, default=datetime.datetime.utcnow)
 
 
 class BlockWord(Base):
     __tablename__ = "block_words"
+    __table_args__ = (UniqueConstraint("tenant_id", "word", name="uq_blockword_tenant_word"),)
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    word = Column(String, nullable=False, unique=True, index=True)
+    tenant_id = Column(String, default="tenant-default", index=True)
+    word = Column(String, nullable=False, index=True)
     timestamp = Column(DateTime, default=datetime.datetime.utcnow)
 
 
@@ -205,6 +215,7 @@ class QAQuestion(Base):
     __tablename__ = "qa_questions"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    tenant_id = Column(String, default="tenant-default", index=True)
     question = Column(String, nullable=False)
     max_score = Column(Integer, default=10)
     is_active = Column(Boolean, default=True)
@@ -214,6 +225,7 @@ class EventLog(Base):
     __tablename__ = "event_logs"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    tenant_id = Column(String, default="tenant-default", index=True)
     timestamp = Column(DateTime, default=datetime.datetime.utcnow)
     user_id = Column(String, nullable=True)  # Who did the action
     action = Column(String, nullable=False)  # e.g., UPDATE_USER, DELETE_QUEUE
@@ -229,11 +241,12 @@ class SystemSetting(Base):
 
 class SystemUser(Base):
     __tablename__ = "system_users"
+    __table_args__ = (UniqueConstraint("tenant_id", "extension", name="uq_system_users_tenant_ext"),)
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     tenant_id = Column(String, default="tenant-default", index=True)
     full_name = Column(String, nullable=False)
     email = Column(String, nullable=False)
-    extension = Column(String, nullable=False, unique=True)
+    extension = Column(String, nullable=False, index=True)
     avatar = Column(Text, nullable=True)
     role = Column(String, nullable=False, default="agent")
     is_active = Column(Boolean, default=True)
@@ -279,8 +292,10 @@ class SystemUser(Base):
 
 class SystemRole(Base):
     __tablename__ = "system_roles"
+    __table_args__ = (UniqueConstraint("tenant_id", "role_code", name="uq_system_roles_tenant_code"),)
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    role_code = Column(String, nullable=False, unique=True)
+    tenant_id = Column(String, default="tenant-default", index=True)
+    role_code = Column(String, nullable=False, index=True)
     name = Column(String, nullable=False)
     permissions = Column(JSON, default=list)
     allowed_breaks = Column(JSON, default=list)
@@ -422,6 +437,7 @@ class AIAgent(Base):
 class BreakType(Base):
     __tablename__ = "break_types"
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    tenant_id = Column(String, default="tenant-default", index=True)
     name = Column(String, nullable=False)
     color = Column(String, nullable=False)
 

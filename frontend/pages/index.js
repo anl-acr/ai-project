@@ -7,7 +7,8 @@ import {
   loadCachedUserProfile,
   clearAuthenticatedSession,
   updateRememberedPasswordIfSaved,
-  setAuthToken
+  setAuthToken,
+  isProviderRootSession
 } from "../utils/authStorage";
 import {
   getDeviceKeySync,
@@ -922,7 +923,10 @@ export default function Home() {
             // Ensure both extension and full name are shown (e.g. "1005 - ANIL ACAR")
             try {
               if (!window.__aidaChatUsersMap || Date.now() - (window.__aidaChatUsersMapTs || 0) > 60000) {
-                const uRes = await fetch(`${protocol}//${backendHostUrl}/api/settings/users?tenant_id=all`);
+                const uUrl = isProviderRootSession()
+                  ? `${protocol}//${backendHostUrl}/api/settings/users?tenant_id=all`
+                  : `${protocol}//${backendHostUrl}/api/settings/users`;
+                const uRes = await fetch(uUrl);
                 if (uRes.ok) {
                   const uList = await uRes.json();
                   if (Array.isArray(uList)) {
@@ -1854,7 +1858,10 @@ export default function Home() {
     setConfirmPassword("");
     setPasswordStatusMsg(null);
 
-    fetch(`${protocol}//${backendHost}/api/settings/users?tenant_id=all`, { cache: "no-store" })
+    const profileUsersUrl = isProviderRootSession(currentUser)
+      ? `${protocol}//${backendHost}/api/settings/users?tenant_id=all`
+      : `${protocol}//${backendHost}/api/settings/users`;
+    fetch(profileUsersUrl, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then((list) => {
         if (!Array.isArray(list)) return;
@@ -2705,8 +2712,11 @@ export default function Home() {
       let rolesData = [];
       let licData = null;
       try {
+        const initUsersUrl = isProviderRootSession(providedUser)
+          ? `${protocol}//${backendHost}/api/settings/users?tenant_id=all`
+          : `${protocol}//${backendHost}/api/settings/users`;
         const [resUsers, resRoles, resLic] = await Promise.all([
-          fetch(`${protocol}//${backendHost}/api/settings/users?tenant_id=all`).catch(() => null),
+          fetch(initUsersUrl).catch(() => null),
           fetch(`${protocol}//${backendHost}/api/settings/roles`).catch(() => null),
           fetch(`${protocol}//${backendHost}/api/settings/license/status`).catch(() => null)
         ]);
@@ -6037,7 +6047,7 @@ export default function Home() {
               </div>
             )}
 
-            {!isDesktopMode && ((currentUser?.username === "admin" || currentUser?.id === "admin") || (typeof window !== "undefined" && (localStorage.getItem("current_user_id") === "admin" || sessionStorage.getItem("current_user_id") === "admin"))) && (
+            {!isDesktopMode && isProviderRootSession(currentUser) && (
               <TenantSwitcher backendHost={backendHost} currentUser={currentUser} />
             )}
 

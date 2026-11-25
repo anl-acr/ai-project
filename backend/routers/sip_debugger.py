@@ -521,7 +521,32 @@ async def clear_sip_traces():
 
 @router.websocket("/ws")
 async def sip_debugger_websocket(websocket: WebSocket):
-    """WebSocket endpoint streaming live captured SIP messages."""
+    """WebSocket endpoint streaming live captured SIP messages (Provider-Root authenticated only)."""
+    from backend.services.auth_service import verify_session_token, SESSION_COOKIE_NAME
+
+    tok = (
+        websocket.cookies.get(SESSION_COOKIE_NAME)
+        or websocket.query_params.get("token")
+        or ""
+    )
+    if not tok:
+        auth_h = websocket.headers.get("authorization") or ""
+        if auth_h.lower().startswith("bearer "):
+            tok = auth_h[7:].strip()
+    auth_u = verify_session_token(tok) if tok else None
+    is_allowed = False
+    if isinstance(auth_u, dict) and auth_u.get("uid"):
+        role_l = str(auth_u.get("role") or "").strip().lower()
+        tid_v = str(auth_u.get("tid") or "tenant-default").strip().lower()
+        if role_l == "nornia_root" or (
+            (bool(auth_u.get("root")) or role_l in ("admin", "superadmin"))
+            and tid_v in ("", "tenant-default", "default")
+        ):
+            is_allowed = True
+    if not is_allowed:
+        await websocket.close(code=4403)
+        return
+
     await websocket.accept()
     sip_trapper.bind_event_loop()
     sip_trapper.subscribers.add(websocket)

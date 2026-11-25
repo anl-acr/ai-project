@@ -134,10 +134,11 @@ export default function LoginPage() {
     router.replace("/");
   };
 
-  const handleLogin = async (username, password, rememberMe = true) => {
+  const handleLogin = async (username, password, rememberMe = true, tenantCode = "") => {
     setError("");
     try {
       const cleanUsername = (username || "").trim();
+      const cleanTenantCode = (tenantCode || "").trim();
       const protocol = typeof window !== "undefined" ? window.location.protocol : "http:";
       const curDk = getDeviceKeySync();
       const res = await fetch(`${protocol}//${backendHost}/api/auth/login`, {
@@ -152,6 +153,7 @@ export default function LoginPage() {
           password: password || "",
           remember_me: Boolean(rememberMe),
           device_key: curDk || undefined,
+          tenant_code: cleanTenantCode || undefined,
           client_type: "web"
         })
       });
@@ -163,19 +165,28 @@ export default function LoginPage() {
       }
 
       if (data.requires_2fa && data.user) {
-        const p = build2faPayloadFromUser(data.user, data.user.id || "admin");
+        const enriched2faUser = {
+          ...data.user,
+          tenant_id: data.tenant_id || data.user.tenant_id || "tenant-default",
+          is_provider_root: Boolean(data.is_provider_root)
+        };
+        const p = build2faPayloadFromUser(enriched2faUser, enriched2faUser.id || "admin");
         return {
           ...p,
           two_factor_token: data.two_factor_token || ""
         };
       }
 
-      const loggedUser = data.user || { id: "admin", username: cleanUsername, role: "admin" };
+      const loggedUser = {
+        ...(data.user || { id: "admin", username: cleanUsername, role: "admin" }),
+        tenant_id: data.tenant_id || data.user?.tenant_id || "tenant-default",
+        is_provider_root: Boolean(data.is_provider_root)
+      };
       if (data.access_token) {
         setAuthToken(data.access_token, rememberMe);
       }
       const storeId = String(loggedUser.id ?? "admin");
-      persistAuthenticatedSession(storeId, rememberMe, loggedUser);
+      persistAuthenticatedSession(storeId, rememberMe, loggedUser, Boolean(data.is_provider_root));
       saveRememberedCredentials(cleanUsername, "", rememberMe);
       handleLoginSuccess();
       return { success: true };
@@ -187,7 +198,8 @@ export default function LoginPage() {
 
   const complete2FALogin = (userId, rememberMe) => {
     const storeId = String(userId);
-    persistAuthenticatedSession(storeId, rememberMe, pending2faUserRef.current || undefined);
+    const pendingU = pending2faUserRef.current || undefined;
+    persistAuthenticatedSession(storeId, rememberMe, pendingU, typeof pendingU?.is_provider_root === "boolean" ? pendingU.is_provider_root : null);
     handleLoginSuccess();
   };
 

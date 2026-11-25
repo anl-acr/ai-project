@@ -3,6 +3,30 @@ const REMEMBER_USER_KEY = "aida_remembered_username";
 const REMEMBER_SECRET_KEY = "aida_remembered_secret";
 const CACHED_USER_PROFILE_KEY = "aida_cached_user_profile";
 const AUTH_TOKEN_KEY = "nornia_auth_token";
+const PROVIDER_ROOT_KEY = "nornia_is_provider_root";
+
+export function isProviderRootSession(userObj = null) {
+  if (typeof window === "undefined") {
+    return Boolean(userObj?.is_provider_root);
+  }
+  try {
+    if (sessionStorage.getItem("is_nornia_root") === "true") return true;
+    const storedFlag = sessionStorage.getItem(PROVIDER_ROOT_KEY) || localStorage.getItem(PROVIDER_ROOT_KEY);
+    if (storedFlag === "true") return true;
+    if (storedFlag === "false") return false;
+    if (userObj && typeof userObj === "object") {
+      if (typeof userObj.is_provider_root === "boolean") return userObj.is_provider_root;
+      const role = String(userObj.role || "").trim().toLowerCase();
+      const tid = String(userObj.tenant_id || "tenant-default").trim();
+      return (role === "admin" || role === "superadmin") && (tid === "" || tid === "tenant-default" || tid === "default");
+    }
+    const activeTid = localStorage.getItem("active_tenant_id") || "tenant-default";
+    const savedUid = sessionStorage.getItem("current_user_id") || localStorage.getItem("current_user_id") || "";
+    return savedUid === "admin" && (activeTid === "" || activeTid === "tenant-default" || activeTid === "default" || activeTid === "all");
+  } catch (e) {
+    return false;
+  }
+}
 
 export function setAuthToken(token, rememberMe = true) {
   if (typeof window === "undefined") return;
@@ -92,7 +116,7 @@ export function loadRememberedCredentials() {
   }
 }
 
-export function persistAuthenticatedSession(userId, rememberMe, userObj = null) {
+export function persistAuthenticatedSession(userId, rememberMe, userObj = null, isProviderRootOverride = null) {
   if (typeof window === "undefined") return;
   const uidStr = String(userId || "").trim();
   if (!uidStr) return;
@@ -101,9 +125,23 @@ export function persistAuthenticatedSession(userId, rememberMe, userObj = null) 
     sessionStorage.setItem("is_logged_in", "true");
     sessionStorage.setItem("current_user_id", uidStr);
 
+    const resolvedTenantId = String(userObj?.tenant_id || "tenant-default").trim() || "tenant-default";
+    const roleLower = String(userObj?.role || "").trim().toLowerCase();
+    const resolvedProviderRoot =
+      typeof isProviderRootOverride === "boolean"
+        ? isProviderRootOverride
+        : typeof userObj?.is_provider_root === "boolean"
+          ? userObj.is_provider_root
+          : (roleLower === "admin" || roleLower === "superadmin") &&
+            (resolvedTenantId === "tenant-default" || resolvedTenantId === "default");
+
+    sessionStorage.setItem(PROVIDER_ROOT_KEY, resolvedProviderRoot ? "true" : "false");
+    localStorage.setItem("active_tenant_id", resolvedTenantId);
+
     if (rememberMe) {
       localStorage.setItem("is_logged_in", "true");
       localStorage.setItem("current_user_id", uidStr);
+      localStorage.setItem(PROVIDER_ROOT_KEY, resolvedProviderRoot ? "true" : "false");
       if (userObj && typeof userObj === "object") {
         const safeSnapshot = {
           id: userObj.id,
@@ -112,7 +150,8 @@ export function persistAuthenticatedSession(userId, rememberMe, userObj = null) 
           email: userObj.email,
           extension: userObj.extension,
           role: userObj.role,
-          tenant_id: userObj.tenant_id,
+          tenant_id: resolvedTenantId,
+          is_provider_root: resolvedProviderRoot,
           avatar: userObj.avatar,
           theme_color: userObj.theme_color,
           theme_mode: userObj.theme_mode,
@@ -125,6 +164,7 @@ export function persistAuthenticatedSession(userId, rememberMe, userObj = null) 
     } else {
       localStorage.removeItem("is_logged_in");
       localStorage.removeItem("current_user_id");
+      localStorage.removeItem(PROVIDER_ROOT_KEY);
       localStorage.removeItem(CACHED_USER_PROFILE_KEY);
     }
   } catch (e) {}
@@ -159,8 +199,13 @@ export function clearAuthenticatedSession() {
     localStorage.removeItem(CACHED_USER_PROFILE_KEY);
     localStorage.removeItem("agent_avatar");
     localStorage.removeItem(AUTH_TOKEN_KEY);
+    localStorage.removeItem(PROVIDER_ROOT_KEY);
+    localStorage.removeItem("active_tenant_id");
+    localStorage.removeItem("active_tenant_name");
     sessionStorage.removeItem("is_logged_in");
     sessionStorage.removeItem("current_user_id");
     sessionStorage.removeItem(AUTH_TOKEN_KEY);
+    sessionStorage.removeItem(PROVIDER_ROOT_KEY);
+    sessionStorage.removeItem("is_nornia_root");
   } catch (e) {}
 }

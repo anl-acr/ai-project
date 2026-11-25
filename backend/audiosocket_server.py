@@ -2280,13 +2280,20 @@ async def end_call_db(call_id: str, summary: str = None, hangup_source: str = No
             except Exception as e:
                 print(f"[AMI] Failed to schedule dynamic recording retention & analyzer task: {e}")
 
-async def get_all_knowledge_base_context() -> str:
-    """Fetches all indexed knowledge base document chunks from PostgreSQL to inject into system_instruction."""
+async def get_all_knowledge_base_context(tenant_id: str = "tenant-default") -> str:
+    """Fetches indexed knowledge base document chunks strictly scoped to `tenant_id`."""
     try:
         from sqlalchemy import select
         from backend.database.models import DocumentChunk
+        tid_s = str(tenant_id or "tenant-default").strip() or "tenant-default"
         async with AsyncSessionLocal() as session:
-            stmt = select(DocumentChunk).limit(30)
+            stmt = select(DocumentChunk)
+            if tid_s not in ("all", "global"):
+                if tid_s in ("tenant-default", "default"):
+                    stmt = stmt.where((DocumentChunk.tenant_id.in_(["tenant-default", "default"])) | (DocumentChunk.tenant_id.is_(None)))
+                else:
+                    stmt = stmt.where(DocumentChunk.tenant_id == tid_s)
+            stmt = stmt.limit(30)
             res = await session.execute(stmt)
             chunks = res.scalars().all()
             if not chunks:
@@ -2661,7 +2668,21 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
             from backend.main import get_tenant_concurrent_call_info
             settings_data = load_settings()
             tenants_list = settings_data.get("tenants", [])
-            target_tenant = tenants_list[0] if tenants_list else None
+            # Resolve actual tenant_id of this call from DB Call record before falling back to tenant-default
+            resolved_call_tid = "tenant-default"
+            try:
+                from sqlalchemy import select as _sel_c
+                from backend.database.models import Call as _CallM
+                async with AsyncSessionLocal() as _c_sess:
+                    _c_row = (await _c_sess.execute(_sel_c(_CallM).where(_CallM.id == call_id))).scalars().first()
+                    if _c_row and getattr(_c_row, "tenant_id", None):
+                        resolved_call_tid = str(_c_row.tenant_id)
+            except Exception:
+                pass
+            target_tenant = next(
+                (t for t in tenants_list if isinstance(t, dict) and t.get("id") == resolved_call_tid),
+                tenants_list[0] if tenants_list else None,
+            )
             if target_tenant:
                 lic_eval = evaluate_tenant_effective_license(target_tenant)
                 if lic_eval.get("hard_expired") or not lic_eval.get("valid"):
@@ -3058,12 +3079,13 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
         max_silence_retries = int(ai_agent.get("max_silence_retries", 2) or 2) if ai_agent else 2
         max_call_duration_sec = int(ai_agent.get("max_call_duration_sec", 600) or 600) if ai_agent else 600
 
-        # Inject RAG Knowledge Base directly into system prompt if enabled for this agent
+        # Inject RAG Knowledge Base directly into system prompt (strictly scoped to this agent/call tenant!)
+        call_eff_tid = str((ai_agent or {}).get("tenant_id") or "tenant-default").strip() or "tenant-default"
         if use_rag_kb:
-            kb_context = await get_all_knowledge_base_context()
+            kb_context = await get_all_knowledge_base_context(tenant_id=call_eff_tid)
             if kb_context:
                 system_instruction += kb_context
-                print(f"[RAG Live Inject] Bilgi bankası dökümanları doğrudan zeka motoruna yüklendi ({len(kb_context)} karakter).")
+                print(f"[RAG Live Inject] Bilgi bankası dökümanları doğrudan zeka motoruna yüklendi ({len(kb_context)} karakter, tenant={call_eff_tid}).")
         else:
             print("[RAG Live Inject] Bu AI temsilcisi için Bilgi Bankası (RAG) kullanımı devre dışı bırakıldı.")
 

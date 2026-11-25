@@ -104,16 +104,59 @@ def extract_client_ip(request: Optional[Request]) -> str:
             return request.client.host
     return resolve_real_ip(None, raw_uid)
 
+def is_request_provider_root(request: Request) -> bool:
+    """
+    Returns True ONLY for the platform provider super-root (Nornia Root SSO or default-tenant host admin
+    when hide_provider_infra_from_customer_admin is not enabled).
+    Secondary customer tenant admins (e.g. tenant-firma1) NEVER qualify as provider root.
+    """
+    auth_user = getattr(request.state, "auth_user", None) if request is not None else None
+    if not isinstance(auth_user, dict) or not auth_user.get("uid"):
+        # Direct loopback internal Asterisk/local CLI calls (already verified by security_auth_middleware)
+        from backend.services.auth_service import is_direct_loopback_request
+        return bool(request is not None and is_direct_loopback_request(request))
+    role_low = str(auth_user.get("role") or "").strip().lower()
+    tid_val = str(auth_user.get("tid") or "tenant-default").strip()
+    is_default_tid = tid_val in ("", "tenant-default", "default")
+    # Explicit Nornia Root SSO session
+    if role_low == "nornia_root":
+        return True
+    # Host default-tenant admin (local on-prem OR cloud provider master admin)
+    if (bool(auth_user.get("root")) or role_low in ("admin", "superadmin")) and is_default_tid:
+        # Check if license explicitly hides provider infra from host admin
+        try:
+            t_list = settings_db.get("tenants") or []
+            def_t = next((t for t in t_list if isinstance(t, dict) and t.get("id") in ("tenant-default", "default")), None)
+            if isinstance(def_t, dict) and def_t.get("hide_provider_infra_from_customer_admin"):
+                return False
+        except Exception:
+            pass
+        return True
+    return False
+
+
+def require_provider_root(request: Request) -> None:
+    """Enforces platform provider-root access on host/multi-tenant infrastructure endpoints."""
+    if not is_request_provider_root(request):
+        raise HTTPException(
+            status_code=403,
+            detail="Bu işlem yalnızca Platform Sağlayıcı (Ana Sunucu Yöneticisi) yetkisiyle yapılabilir.",
+        )
+
+
 def get_user_info(request: Request):
     auth_user = getattr(request.state, "auth_user", None)
+    is_prov_root = is_request_provider_root(request)
+    auth_role = ""
     if isinstance(auth_user, dict) and auth_user.get("uid"):
         raw_user_id = str(auth_user["uid"])
         user_label = resolve_audit_user_label(raw_user_id)
-        is_privileged = bool(auth_user.get("root")) or str(auth_user.get("role") or "").lower() in ("admin", "superadmin", "nornia_root")
+        auth_role = str(auth_user.get("role") or "").strip().lower()
         req_tenant = request.headers.get("X-Tenant-ID") or request.headers.get("Tenant-ID") or request.query_params.get("tenant_id")
-        if is_privileged and req_tenant:
-            tenant_id = req_tenant
+        if is_prov_root and req_tenant:
+            tenant_id = str(req_tenant).strip()
         else:
+            # Customer tenant admins & agents are strictly locked to their signed session tenant_id
             tenant_id = str(auth_user.get("tid") or "tenant-default")
     else:
         raw_user_id = request.headers.get("X-User-ID", "system")
@@ -122,7 +165,14 @@ def get_user_info(request: Request):
     client_ip = extract_client_ip(request)
     from backend.services.audit_logger import record_known_user_ip
     record_known_user_ip(user_label, client_ip)
-    return {"user_id": user_label, "raw_user_id": raw_user_id, "tenant_id": tenant_id, "ip_address": client_ip}
+    return {
+        "user_id": user_label,
+        "raw_user_id": raw_user_id,
+        "tenant_id": tenant_id,
+        "ip_address": client_ip,
+        "role": auth_role,
+        "is_provider_root": is_prov_root,
+    }
 
 _ENABLE_OPENAPI_DOCS = os.getenv("NORNIA_ENABLE_DOCS", "0") == "1"
 app = FastAPI(
@@ -167,6 +217,35 @@ async def security_auth_middleware(request: Request, call_next):
     request.state.auth_user = auth_payload
 
     if auth_payload is not None:
+        # Multi-Tenant Cloud PBX Central Provider-Infrastructure Guard:
+        # Secondary customer tenants (tid not in tenant-default/default) can NEVER reach shared host infrastructure APIs.
+        req_p = str(request.url.path or "").lower()
+        provider_only_prefixes = (
+            "/api/tenants",
+            "/api/settings/tenants",
+            "/api/server/control",
+            "/api/settings/ras/web-ssh",
+            "/api/settings/network",
+            "/api/settings/nat",
+            "/api/settings/ssl",
+            "/api/system/backup",
+            "/api/system/backups",
+            "/api/system/update",
+            "/api/security/fail2ban",
+        )
+        is_provider_infra_req = (
+            any(req_p == pfx or req_p.startswith(pfx + "/") for pfx in provider_only_prefixes)
+            or (req_p.startswith("/api/sip-debugger") and not req_p.startswith("/api/sip-debugger/ingest/webrtc"))
+        )
+        if is_provider_infra_req and not is_request_provider_root(request):
+            # Allow default-tenant users with explicit RBAC role permissions on /api/server/control (e.g. local custom role)
+            auth_tid_low = str(auth_payload.get("tid") or "tenant-default").strip().lower()
+            is_def_tid = auth_tid_low in ("", "tenant-default", "default")
+            if not (is_def_tid and req_p.startswith("/api/server/control")):
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "Bu sunucu altyapı modülü yalnızca Platform Sağlayıcı (Ana Sunucu Yöneticisi) erişimine açıktır."},
+                )
         return await call_next(request)
 
     try:
@@ -415,7 +494,7 @@ async def auto_api_prefix_middleware(request: Request, call_next):
 os.makedirs(RECORDINGS_DIR, exist_ok=True)
 
 @app.get("/api/recordings/{call_id}/channels")
-async def get_recording_split_channels(call_id: str):
+async def get_recording_split_channels(call_id: str, user_info: dict = Depends(get_user_info)):
     """Returns separate caller (RX) and callee (TX) WAV recording URLs + instant PCM signal level diagnostics."""
     import wave as _wave_ch
     import struct as _struct_ch
@@ -424,6 +503,19 @@ async def get_recording_split_channels(call_id: str):
     safe_id = os.path.basename(str(call_id or "").strip())
     if not safe_id or safe_id.startswith("."):
         return {"available": False, "rx": None, "tx": None}
+
+    caller_tenant = user_info.get("tenant_id") or "tenant-default"
+    if not user_info.get("is_provider_root") and caller_tenant not in ("all", "global"):
+        try:
+            async with AsyncSessionLocal() as _rec_ch_db:
+                _ch_res = await _rec_ch_db.execute(select(Call.tenant_id).where(Call.id == safe_id))
+                _ch_row = _ch_res.first()
+                if _ch_row is not None and not _tenant_owns_record(_ch_row[0], caller_tenant):
+                    raise HTTPException(status_code=403, detail="Bu çağrının ses kanallarına erişim yetkiniz yok.")
+        except HTTPException:
+            raise
+        except Exception:
+            pass
 
     ret_cfg = settings_db.get("recording_retention") or {}
     custom_ext_dir = str(ret_cfg.get("external_mount_path") or "/mnt/nas/ai-recordings").strip() or "/mnt/nas/ai-recordings"
@@ -490,11 +582,23 @@ async def get_recording_split_channels(call_id: str):
     }
 
 
+def _tenant_owns_record(record_tid: Optional[str], caller_tid: Optional[str]) -> bool:
+    """Returns True if `record_tid` belongs to `caller_tid` (preserving default/None compatibility for tenant-default)."""
+    c_t = str(caller_tid or "tenant-default").strip().lower()
+    if c_t in ("all", "global"):
+        return True
+    r_t = str(record_tid or "").strip().lower()
+    if c_t in ("", "default", "tenant-default"):
+        return r_t in ("", "default", "tenant-default")
+    return r_t == c_t
+
+
 @app.get("/api/recordings/{filename}")
-async def get_recording_file(filename: str):
-    """Dynamically serves call audio recording files from project recordings directory, Asterisk spool directory, or configured external NAS/File Server storage."""
+async def get_recording_file(filename: str, user_info: dict = Depends(get_user_info)):
+    """Dynamically serves call audio recording files strictly scoped to the caller's tenant."""
     safe_name = os.path.basename(filename)
     call_id_part = os.path.splitext(safe_name)[0].split("_")[0]
+    caller_tid = user_info.get("tenant_id") or "tenant-default"
     ret_cfg = settings_db.get("recording_retention") or {}
     custom_ext_dir = str(ret_cfg.get("external_mount_path") or "/mnt/nas/ai-recordings").strip() or "/mnt/nas/ai-recordings"
     sub_remote = str(ret_cfg.get("external_remote_path") or "").strip().strip("/")
@@ -505,15 +609,20 @@ async def get_recording_file(filename: str):
     try:
         async with AsyncSessionLocal() as session:
             db_call = await session.get(Call, call_id_part)
-            if db_call and str(db_call.recording_path or "") in ("DELETED_BY_DYNAMIC_POLICY", "DISABLED_BY_USER_SETTING"):
-                for _cand_dir in [RECORDINGS_DIR, "/var/spool/asterisk/monitor"] + ext_candidates:
-                    _cand_fp = os.path.join(_cand_dir, safe_name)
-                    if os.path.exists(_cand_fp):
-                        try:
-                            os.remove(_cand_fp)
-                        except Exception:
-                            pass
-                raise HTTPException(status_code=404, detail="Bu çağrının ses kaydı saklama politikası gereği silinmiştir veya kullanıcı için ses kaydı kapalıdır.")
+            if db_call:
+                if not _tenant_owns_record(getattr(db_call, "tenant_id", None), caller_tid):
+                    raise HTTPException(status_code=403, detail="Bu çağrının ses kaydına erişim yetkiniz bulunmamaktadır.")
+                if str(db_call.recording_path or "") in ("DELETED_BY_DYNAMIC_POLICY", "DISABLED_BY_USER_SETTING"):
+                    for _cand_dir in [RECORDINGS_DIR, "/var/spool/asterisk/monitor"] + ext_candidates:
+                        _cand_fp = os.path.join(_cand_dir, safe_name)
+                        if os.path.exists(_cand_fp):
+                            try:
+                                os.remove(_cand_fp)
+                            except Exception:
+                                pass
+                    raise HTTPException(status_code=404, detail="Bu çağrının ses kaydı saklama politikası gereği silinmiştir veya kullanıcı için ses kaydı kapalıdır.")
+            elif not is_default_tenant(caller_tid) and not is_global_tenant(caller_tid):
+                raise HTTPException(status_code=404, detail="Ses kaydı bulunamadı.")
     except HTTPException:
         raise
     except Exception:
@@ -2398,6 +2507,68 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                         session.commit()
                 except Exception:
                     session.rollback()
+
+                # Multi-Tenant Cloud PBX Schema Migration: ensure tenant_id column and per-tenant composite uniqueness
+                for _mt_tbl in (
+                    "contacts",
+                    "canned_responses",
+                    "blacklist_items",
+                    "block_words",
+                    "qa_questions",
+                    "event_logs",
+                    "system_roles",
+                    "break_types",
+                    "internal_chat_messages",
+                    "system_users",
+                    "pbx_queues",
+                    "trunks",
+                    "calls",
+                    "transcripts",
+                    "appointments",
+                    "chat_sessions",
+                    "chat_messages",
+                    "document_chunks",
+                    "rules",
+                ):
+                    try:
+                        session.execute(text("SET LOCAL lock_timeout = '2s'"))
+                        session.execute(
+                            text(f"ALTER TABLE {_mt_tbl} ADD COLUMN IF NOT EXISTS tenant_id VARCHAR DEFAULT 'tenant-default';")
+                        )
+                        session.commit()
+                    except Exception:
+                        session.rollback()
+
+                for _drop_ddl in (
+                    "ALTER TABLE system_users DROP CONSTRAINT IF EXISTS system_users_extension_key;",
+                    "ALTER TABLE contacts DROP CONSTRAINT IF EXISTS contacts_phone_number_key;",
+                    "ALTER TABLE contacts DROP CONSTRAINT IF EXISTS contacts_email_key;",
+                    "ALTER TABLE canned_responses DROP CONSTRAINT IF EXISTS canned_responses_shortcut_key;",
+                    "ALTER TABLE blacklist_items DROP CONSTRAINT IF EXISTS blacklist_items_value_key;",
+                    "ALTER TABLE block_words DROP CONSTRAINT IF EXISTS block_words_word_key;",
+                    "ALTER TABLE system_roles DROP CONSTRAINT IF EXISTS system_roles_role_code_key;",
+                ):
+                    try:
+                        session.execute(text("SET LOCAL lock_timeout = '2s'"))
+                        session.execute(text(_drop_ddl))
+                        session.commit()
+                    except Exception:
+                        session.rollback()
+
+                for _idx_ddl in (
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_system_users_tenant_ext ON system_users (tenant_id, extension) WHERE extension IS NOT NULL;",
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_contacts_tenant_phone ON contacts (tenant_id, phone_number) WHERE phone_number IS NOT NULL;",
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_canned_responses_tenant_shortcut ON canned_responses (tenant_id, shortcut) WHERE shortcut IS NOT NULL;",
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_blacklist_tenant_value ON blacklist_items (tenant_id, value) WHERE value IS NOT NULL;",
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_block_words_tenant_word ON block_words (tenant_id, word) WHERE word IS NOT NULL;",
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_system_roles_tenant_code ON system_roles (tenant_id, role_code) WHERE role_code IS NOT NULL;",
+                ):
+                    try:
+                        session.execute(text("SET LOCAL lock_timeout = '2s'"))
+                        session.execute(text(_idx_ddl))
+                        session.commit()
+                    except Exception:
+                        session.rollback()
                 _settings_schema_migrated = True
 
             disk_confs = list(db.get("conferences") or []) if isinstance(db.get("conferences"), list) else []
@@ -5114,21 +5285,23 @@ trust_id_inbound={trust_id_in}
         if not is_act:
             continue
         ext = str(u.get("extension") or "").strip()
+        u_tenant = str(u.get("tenant_id") or "tenant-default").strip() or "tenant-default"
         has_custom_devs = isinstance(u.get("sip_devices"), list) and len(u.get("sip_devices")) > 0
         if not ext and not has_custom_devs:
             continue
-        if ext and ext in seen_exts:
+        ext_t_key = (u_tenant, ext)
+        if ext and ext_t_key in seen_exts:
             continue
         if ext:
-            seen_exts.add(ext)
-            seen_sip_eps.add(ext.lower())
+            seen_exts.add(ext_t_key)
         pwd = resolve_secure_sip_password(ext or "1000", u.get("sip_password") or "")
         name = _safe_cid_label(u.get("full_name") or u.get("username") or ext, ext or "1000")
         pg_names = _resolve_user_pickup_group_names(u, ext) if ext else ""
         pg_lines = f"named_call_group={pg_names}\nnamed_pickup_group={pg_names}\n" if pg_names else ""
+        tenant_var_line = f"set_var=__TENANT_ID={u_tenant}\n"
 
         if ext:
-            conf_content += f"\n; --- USER: {name} ({ext}) ---\n"
+            conf_content += f"\n; --- USER: {name} ({ext}) [{u_tenant}] ---\n"
 
         raw_u_devs = u.get("sip_devices") if isinstance(u.get("sip_devices"), list) else []
         had_empty_raw_devs = len(raw_u_devs) == 0
@@ -5179,7 +5352,7 @@ media_use_received_transport=yes
 send_pai=yes
 send_rpid=yes
 rpid_immediate=yes
-{pg_lines}auth={dev_su}-auth
+{pg_lines}{tenant_var_line}auth={dev_su}-auth
 aors={dev_su}
 callerid="{name}" <{cid_ext_val}>
 
@@ -5271,7 +5444,7 @@ send_pai=yes
 send_rpid=yes
 rpid_immediate=yes
 mailboxes={cid_ext_val}@default
-{pg_lines}auth={dev_su}-auth
+{pg_lines}{tenant_var_line}auth={dev_su}-auth
 aors={dev_su}
 callerid="{name}" <{cid_ext_val}>
 
@@ -7786,14 +7959,6 @@ async def resolve_outbound_dial_endpoint(
         raw_target_in = str(callee or dial_num or "").strip()
         is_em = bool(int(is_emergency or 0) == 1 or is_configured_emergency_number(raw_target_in, settings_db))
 
-        # Lisans süresi (ve ek süre) dolduysa acil durum dışındaki tüm giden trunk aramalarını engelle
-        if not is_em:
-            from backend.services.license_service import is_tenant_license_hard_expired
-            is_hard_exp, exp_rsn = is_tenant_license_hard_expired(settings_db, "tenant-default")
-            if is_hard_exp:
-                print(f"[License Block] Outbound trunk dial blocked (non-emergency): {caller} -> {raw_target_in} ({exp_rsn})")
-                return "EXHAUSTED"
-
         trunks_list = []
         users_list = []
         try:
@@ -7806,17 +7971,46 @@ async def resolve_outbound_dial_endpoint(
         except Exception:
             pass
         if not trunks_list:
-            trunks_list = settings_db.get("trunks", [])
+            trunks_list = list(settings_db.get("trunks", []))
         if not users_list:
-            users_list = settings_db.get("users", [])
+            users_list = list(settings_db.get("users", []))
         else:
-            disk_u_by_ext = {str(du.get("extension") or "").strip(): du for du in (settings_db.get("users") or []) if isinstance(du, dict)}
+            disk_u_by_key = {
+                (str(du.get("tenant_id") or "tenant-default"), str(du.get("extension") or "").strip()): du
+                for du in (settings_db.get("users") or []) if isinstance(du, dict)
+            }
             for mu in users_list:
-                d_match = disk_u_by_ext.get(str(mu.get("extension") or "").strip())
+                d_match = disk_u_by_key.get((str(mu.get("tenant_id") or "tenant-default"), str(mu.get("extension") or "").strip()))
                 if d_match:
-                    for fk in ("outbound_caller_id", "location_id", "full_name"):
+                    for fk in ("outbound_caller_id", "location_id", "full_name", "sip_username", "sip_devices"):
                         if not mu.get(fk) and d_match.get(fk):
                             mu[fk] = d_match.get(fk)
+
+        # Resolve caller's tenant_id (from channel PJSIP endpoint or caller extension) for strict multi-tenant trunk isolation!
+        caller_tenant_id = "tenant-default"
+        ch_ep = ""
+        if channel and "/" in str(channel):
+            ch_ep = str(channel).split("/", 1)[1].split("-", 1)[0].strip()
+        caller_clean = str(caller or "").strip()
+        for u_cand in users_list:
+            u_ext = str(u_cand.get("extension") or "").strip()
+            u_su = str(u_cand.get("sip_username") or "").strip()
+            u_devs = [str(d.get("sip_username") or "").strip() for d in (u_cand.get("sip_devices") or []) if isinstance(d, dict)]
+            if (ch_ep and (ch_ep == u_su or ch_ep in u_devs or ch_ep == u_ext)) or (caller_clean and (caller_clean == u_ext or caller_clean == u_su or caller_clean in u_devs)):
+                caller_tenant_id = str(u_cand.get("tenant_id") or "tenant-default").strip() or "tenant-default"
+                break
+
+        # Lisans süresi (ve ek süre) dolduysa acil durum dışındaki tüm giden trunk aramalarını engelle (caller'ın kendi tenant'ına göre!)
+        if not is_em:
+            from backend.services.license_service import is_tenant_license_hard_expired
+            is_hard_exp, exp_rsn = is_tenant_license_hard_expired(settings_db, caller_tenant_id)
+            if is_hard_exp:
+                print(f"[License Block] Outbound trunk dial blocked (non-emergency, tenant={caller_tenant_id}): {caller} -> {raw_target_in} ({exp_rsn})")
+                return "EXHAUSTED"
+
+        # Strict multi-tenant isolation: filter trunks & users strictly to caller_tenant_id so Tenant A can NEVER use Tenant B's trunk/CallerID!
+        trunks_list = [t for t in trunks_list if _tenant_owns_record(t.get("tenant_id"), caller_tenant_id)]
+        users_list = [u for u in users_list if _tenant_owns_record(u.get("tenant_id"), caller_tenant_id)]
 
         disk_trunks_map = {str(dt.get("trunk_name") or dt.get("id") or ""): dt for dt in settings_db.get("trunks", [])}
         for t in trunks_list:
@@ -8062,15 +8256,21 @@ async def resolve_outbound_dial_endpoint(
 
 @app.get("/api/settings/trunks/status")
 @app.get("/settings/trunks/status")
-async def get_trunks_status(db: AsyncSession = Depends(get_db)):
+async def get_trunks_status(user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
     from backend.services.pbx_enterprise_features import inspect_live_trunks_pjsip_status
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
     trunks_list = []
-    disk_trunks = [dt for dt in (settings_db.get("trunks") or []) if isinstance(dt, dict)]
+    disk_trunks = [
+        dt for dt in (settings_db.get("trunks") or [])
+        if isinstance(dt, dict) and (target_tenant in ("all", "global") or _tenant_owns_record(dt.get("tenant_id"), target_tenant))
+    ]
     disk_trunks_map = {str(dt.get("trunk_name") or dt.get("id") or ""): dt for dt in disk_trunks}
     try:
         res = await db.execute(select(Trunk).order_by(Trunk.id))
         for row in res.scalars().all():
             row_d = {c.name: getattr(row, c.name) for c in row.__table__.columns}
+            if target_tenant not in ("all", "global") and not _tenant_owns_record(row_d.get("tenant_id"), target_tenant):
+                continue
             tk = str(row_d.get("trunk_name") or row_d.get("id") or "")
             dt = disk_trunks_map.get(tk)
             if dt:
@@ -8088,8 +8288,13 @@ async def get_trunks_status(db: AsyncSession = Depends(get_db)):
 
 @app.get("/api/settings/channels")
 @app.get("/settings/channels")
-async def get_channel_settings():
-    existing = settings_db.get("channels")
+async def get_channel_settings(user_info: dict = Depends(get_user_info)):
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    t_channels_map = settings_db.get("tenant_channels") if isinstance(settings_db.get("tenant_channels"), dict) else {}
+    if is_default_tenant(target_tenant):
+        existing = t_channels_map.get(target_tenant) or settings_db.get("channels") or {}
+    else:
+        existing = t_channels_map.get(target_tenant) or {}
     if not isinstance(existing, dict):
         existing = {}
     merged = dict(DEFAULT_SETTINGS["channels"])
@@ -8098,8 +8303,14 @@ async def get_channel_settings():
 
 @app.post("/api/settings/channels")
 @app.post("/settings/channels")
-async def save_channel_settings(payload: ChannelSettingsSchema, request: Request):
-    existing = settings_db.get("channels")
+async def save_channel_settings(payload: ChannelSettingsSchema, request: Request, user_info: dict = Depends(get_user_info)):
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    if not isinstance(settings_db.get("tenant_channels"), dict):
+        settings_db["tenant_channels"] = {}
+    if is_default_tenant(target_tenant):
+        existing = settings_db["tenant_channels"].get(target_tenant) or settings_db.get("channels") or {}
+    else:
+        existing = settings_db["tenant_channels"].get(target_tenant) or {}
     merged = dict(DEFAULT_SETTINGS["channels"])
     if isinstance(existing, dict):
         merged.update(existing)
@@ -8119,9 +8330,11 @@ async def save_channel_settings(payload: ChannelSettingsSchema, request: Request
     merged["email_smtp_pass"] = str(merged.get("email_smtp_pass") or "").strip()
     merged["email_imap_host"] = str(merged.get("email_imap_host") or "").strip()
     merged["email_imap_port"] = str(merged.get("email_imap_port") or "993").strip()
-    settings_db["channels"] = merged
+    settings_db["tenant_channels"][target_tenant] = merged
+    if is_default_tenant(target_tenant):
+        settings_db["channels"] = merged
     save_settings(settings_db)
-    add_system_log("CHANNELS", "INFO", f"Kanal ve E-Posta (SMTP) ayarları kaydedildi ({merged.get('email_smtp_user') or 'WhatsApp/Meta'}).")
+    add_system_log("CHANNELS", "INFO", f"[{target_tenant}] Kanal ve E-Posta (SMTP) ayarları kaydedildi ({merged.get('email_smtp_user') or 'WhatsApp/Meta'}).")
     return {
         "status": "success",
         "message": "Kanal ve E-Posta entegrasyon ayarları başarıyla kaydedildi.",
@@ -10332,22 +10545,34 @@ async def control_dialer(payload: DialerControlPayload, user_info: dict = Depend
 
 @app.get("/api/settings/breaks")
 @app.get("/settings/breaks")
-async def get_breaks_endpoint():
-    return settings_db.get("breaks", [])
+async def get_breaks_endpoint(user_info: dict = Depends(get_user_info)):
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    all_breaks = settings_db.get("breaks", []) or []
+    if target_tenant in ("all", "global"):
+        return all_breaks
+    return [b for b in all_breaks if isinstance(b, dict) and _tenant_owns_record(b.get("tenant_id"), target_tenant)]
 
 @app.post("/api/settings/breaks")
 @app.post("/settings/breaks")
-async def save_breaks_endpoint(payload: Union[List[BreakSchema], BreakSchema]):
+async def save_breaks_endpoint(payload: Union[List[BreakSchema], BreakSchema], user_info: dict = Depends(get_user_info)):
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
     is_single = not isinstance(payload, list)
     items_list = [payload] if is_single else payload
+    existing_breaks = settings_db.get("breaks", []) or []
     if not is_single:
-        settings_db["breaks"] = []
+        settings_db["breaks"] = [b for b in existing_breaks if isinstance(b, dict) and not _tenant_owns_record(b.get("tenant_id"), target_tenant)]
     for idx, item in enumerate(items_list):
         data = item.model_dump()
+        data["tenant_id"] = target_tenant
         if not data.get("id"):
-            data["id"] = len(settings_db.get("breaks", [])) + 1
+            max_id = max([int(b.get("id") or 0) for b in settings_db.get("breaks", []) if isinstance(b, dict) and str(b.get("id") or "").isdigit()] or [0])
+            data["id"] = max_id + 1
         if is_single:
-            existing_idx = next((i for i, b in enumerate(settings_db.get("breaks", [])) if b.get("id") == data["id"]), None)
+            existing_idx = next(
+                (i for i, b in enumerate(settings_db.get("breaks", []))
+                 if isinstance(b, dict) and b.get("id") == data["id"] and _tenant_owns_record(b.get("tenant_id"), target_tenant)),
+                None,
+            )
             if existing_idx is not None:
                 settings_db["breaks"][existing_idx] = data
             else:
@@ -10355,7 +10580,8 @@ async def save_breaks_endpoint(payload: Union[List[BreakSchema], BreakSchema]):
         else:
             settings_db["breaks"].append(data)
     save_settings(settings_db)
-    return {"status": "success", "breaks": settings_db["breaks"]}
+    scoped_breaks = [b for b in settings_db.get("breaks", []) if isinstance(b, dict) and _tenant_owns_record(b.get("tenant_id"), target_tenant)]
+    return {"status": "success", "breaks": scoped_breaks}
 
 
 def _parse_hhmm_to_minutes(val_str: str, fallback_min: int = 540) -> int:
@@ -10644,15 +10870,22 @@ async def save_locations_endpoint(payload: Union[List[LocationSchema], LocationS
         data = item.model_dump() if hasattr(item, "model_dump") else item
         check_name_uniqueness(data.get("name"), "locations", data.get("id"), label="Lokasyon")
 
+    existing_locs = settings_db.get("locations", [])
     if not is_single:
-        settings_db["locations"] = []
+        # Preserve other tenants' locations when saving a tenant's list
+        other_locs = [l for l in existing_locs if not _tenant_owns_record(l.get("tenant_id"), target_tenant)]
+        settings_db["locations"] = other_locs
     for item in items_list:
         data = item.model_dump() if hasattr(item, "model_dump") else item
         data["tenant_id"] = target_tenant
         if not data.get("id"):
             data["id"] = str(uuid.uuid4())
         if is_single:
-            existing_idx = next((i for i, loc in enumerate(settings_db.get("locations", [])) if loc.get("id") == data["id"]), None)
+            existing_idx = next(
+                (i for i, loc in enumerate(settings_db.get("locations", []))
+                 if loc.get("id") == data["id"] and _tenant_owns_record(loc.get("tenant_id"), target_tenant)),
+                None,
+            )
             if existing_idx is not None:
                 settings_db["locations"][existing_idx] = data
             else:
@@ -10660,7 +10893,8 @@ async def save_locations_endpoint(payload: Union[List[LocationSchema], LocationS
         else:
             settings_db["locations"].append(data)
     save_settings(settings_db)
-    return {"status": "success", "locations": settings_db["locations"]}
+    tenant_locs = [l for l in settings_db.get("locations", []) if _tenant_owns_record(l.get("tenant_id"), target_tenant)]
+    return {"status": "success", "locations": tenant_locs}
 
 @app.get("/api/settings/departments")
 @app.get("/settings/departments")
@@ -10682,15 +10916,21 @@ async def save_departments_endpoint(payload: Union[List[DepartmentSchema], Depar
         data = item.model_dump() if hasattr(item, "model_dump") else item
         check_name_uniqueness(data.get("name"), "departments", data.get("id"), label="Departman")
 
+    existing_deps = settings_db.get("departments", [])
     if not is_single:
-        settings_db["departments"] = []
+        other_deps = [d for d in existing_deps if not _tenant_owns_record(d.get("tenant_id"), target_tenant)]
+        settings_db["departments"] = other_deps
     for item in items_list:
         data = item.model_dump() if hasattr(item, "model_dump") else item
         data["tenant_id"] = target_tenant
         if not data.get("id"):
             data["id"] = str(uuid.uuid4())
         if is_single:
-            existing_idx = next((i for i, d in enumerate(settings_db.get("departments", [])) if d.get("id") == data["id"]), None)
+            existing_idx = next(
+                (i for i, d in enumerate(settings_db.get("departments", []))
+                 if d.get("id") == data["id"] and _tenant_owns_record(d.get("tenant_id"), target_tenant)),
+                None,
+            )
             if existing_idx is not None:
                 settings_db["departments"][existing_idx] = data
             else:
@@ -10698,7 +10938,8 @@ async def save_departments_endpoint(payload: Union[List[DepartmentSchema], Depar
         else:
             settings_db["departments"].append(data)
     save_settings(settings_db)
-    return {"status": "success", "departments": settings_db["departments"]}
+    tenant_deps = [d for d in settings_db.get("departments", []) if _tenant_owns_record(d.get("tenant_id"), target_tenant)]
+    return {"status": "success", "departments": tenant_deps}
 
 
 _USER_LAST_CLIENT_ENV_MEM: Dict[str, dict] = {}
@@ -13700,8 +13941,10 @@ async def get_announcements(category: Optional[str] = None, type: Optional[str] 
     all_announcements = settings_db.get("announcements", [])
     if is_global_tenant(target_tenant):
         filtered = all_announcements
+    elif is_default_tenant(target_tenant):
+        filtered = [a for a in all_announcements if not a.get("tenant_id") or a.get("tenant_id") in ["tenant-default", "default"]]
     else:
-        filtered = [a for a in all_announcements if not a.get("tenant_id") or a.get("tenant_id") in [target_tenant, "tenant-default", "default"]]
+        filtered = [a for a in all_announcements if a.get("tenant_id") == target_tenant]
 
     builtin_by_id = {b["id"]: b for b in BUILTIN_SYSTEM_ANNOUNCEMENTS}
     builtin_moh_by_id = {b["id"]: b for b in BUILTIN_MOH_ANNOUNCEMENTS}
@@ -14667,6 +14910,7 @@ def _build_enriched_autoprovision_list(target_tenant: str) -> list:
                 model=str(entry.get("model") or ""),
                 mac_hex=mh,
                 current_version=_cur_fw,
+                tenant_id=target_tenant,
             )
             _st_rec = (settings_db.get("phone_firmware_status") or {}).get(mh) or {}
             _tgt_fw = _fw_res.get("fw") or {}
@@ -15323,19 +15567,56 @@ async def get_phone_firmware_overview(user_info: dict = Depends(get_user_info)):
     from backend.services.firmware_service import (
         ensure_firmware_settings_schema,
         compute_firmware_storage_stats,
+        fw_belongs_to_tenant,
     )
     from backend.services.autoprovision_service import PHONE_MODEL_CATALOG, SUPPORTED_PHONE_MODELS
 
     ensure_firmware_settings_schema(settings_db)
     target_tenant = user_info.get("tenant_id") or "tenant-default"
     devices = _build_enriched_autoprovision_list(target_tenant)
+    dev_macs = {str(d.get("mac_hex") or "").lower() for d in devices if d.get("mac_hex")}
+
+    # Multi-tenant isolation: filter firmware packages, policies, overrides and logs by tenant
+    # Default/global packages uploaded by provider-root are visible for use, while secondary tenant packages remain strictly isolated.
+    all_pkgs = settings_db.get("phone_firmwares", []) or []
+    visible_pkgs = [p for p in all_pkgs if fw_belongs_to_tenant(p, target_tenant, include_shared_default=True)]
+
+    all_policies = settings_db.get("phone_firmware_policies", {}) or {}
+    scoped_policies = {}
+    for pkey, pval in all_policies.items():
+        if not isinstance(pval, dict):
+            continue
+        p_tid = str(pval.get("tenant_id") or "tenant-default").strip()
+        if target_tenant in ("all", "global") or _tenant_owns_record(p_tid, target_tenant):
+            # Normalize display key to brand::model (matching make_policy_key) for UI compatibility
+            b_k = str(pval.get("brand") or "").strip().lower()
+            m_k = str(pval.get("model") or "").strip().lower()
+            norm_k = f"{b_k}::{m_k}" if (b_k and m_k) else pkey
+            scoped_policies[norm_k] = pval
+
+    all_overrides = settings_db.get("phone_firmware_overrides", {}) or {}
+    scoped_overrides = {
+        mh: ov for mh, ov in all_overrides.items()
+        if target_tenant in ("all", "global") or str(mh).lower() in dev_macs
+    }
+
+    all_logs = settings_db.get("phone_firmware_logs", []) or []
+    scoped_logs = [
+        lg for lg in all_logs
+        if isinstance(lg, dict) and (
+            target_tenant in ("all", "global")
+            or _tenant_owns_record(lg.get("tenant_id"), target_tenant)
+            or (lg.get("mac_hex") and str(lg.get("mac_hex")).lower() in dev_macs)
+        )
+    ][:80]
+
     return {
-        "packages": settings_db.get("phone_firmwares", []),
-        "policies": settings_db.get("phone_firmware_policies", {}),
-        "overrides": settings_db.get("phone_firmware_overrides", {}),
+        "packages": visible_pkgs,
+        "policies": scoped_policies,
+        "overrides": scoped_overrides,
         "devices": devices,
-        "logs": (settings_db.get("phone_firmware_logs") or [])[:80],
-        "stats": compute_firmware_storage_stats(settings_db),
+        "logs": scoped_logs,
+        "stats": compute_firmware_storage_stats(settings_db, target_tenant=target_tenant),
         "model_catalog": PHONE_MODEL_CATALOG,
         "supported_models": SUPPORTED_PHONE_MODELS,
     }
@@ -15405,9 +15686,10 @@ async def delete_phone_firmware_endpoint(fw_id: str, user_info: dict = Depends(g
     from backend.services.firmware_service import delete_firmware_package
 
     actor = str(user_info.get("username") or user_info.get("full_name") or user_info.get("id") or "admin")
-    removed = delete_firmware_package(settings_db, fw_id, actor=actor)
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    removed = delete_firmware_package(settings_db, fw_id, actor=actor, tenant_id=target_tenant)
     if not removed:
-        raise HTTPException(status_code=404, detail="Firmware paketi bulunamadı.")
+        raise HTTPException(status_code=404, detail="Firmware paketi bulunamadı veya silme yetkiniz yok.")
     save_settings(settings_db)
     return {
         "status": "success",
@@ -15432,6 +15714,7 @@ async def set_phone_firmware_policy_endpoint(
         raise HTTPException(status_code=400, detail="Marka ve model seçimi zorunludur.")
 
     actor = str(user_info.get("username") or user_info.get("full_name") or user_info.get("id") or "admin")
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
     try:
         res = set_model_firmware_policy(
             settings_db=settings_db,
@@ -15440,6 +15723,7 @@ async def set_phone_firmware_policy_endpoint(
             fw_id=fw_id,
             auto_apply=auto_apply,
             actor=actor,
+            tenant_id=target_tenant,
         )
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
@@ -17217,6 +17501,7 @@ async def _render_autoprovision_file_for_phone(
                         mac_hex=(dev_mac_hex or mac_hex or ""),
                         provision_server_url=prov_ep["active_prov_url"],
                         current_user_agent=_eff_ua_fw,
+                        tenant_id=tenant_id,
                     )
                     _seen_ver_fw = _pfw_ua(_eff_ua_fw, brand=_eff_brand_fw)
                     if _seen_ver_fw and (dev_mac_hex or mac_hex):
@@ -17527,6 +17812,9 @@ async def _serve_phone_firmware_binary(
     fw, abs_path, served_name = resolve_firmware_file_on_disk(settings_db, fw_id, filename)
     if not fw or not abs_path or not os.path.isfile(abs_path):
         raise HTTPException(status_code=404, detail="Firmware dosyası bulunamadı.")
+    from backend.services.firmware_service import fw_belongs_to_tenant as _fw_belongs_t
+    if not _fw_belongs_t(fw, tenant_id, include_shared_default=True):
+        raise HTTPException(status_code=403, detail="Bu firmware paketine erişim yetkiniz yok.")
 
     # Identify requesting device MAC from Grandstream DevId UA or client IP
     req_mac = ""
@@ -18062,16 +18350,28 @@ async def delete_phonebook(pb_id: str, user_info: dict = Depends(get_user_info))
     return {"status": "success", "phonebooks": tenant_pbs}
 
 
-async def _resolve_phonebook_directory_items(target_id: str, db: AsyncSession) -> tuple:
+async def _resolve_phonebook_directory_items(target_id: str, db: AsyncSession, tenant_id: str = "tenant-default") -> tuple:
     """
     Resolves (title_str, list_of_dicts[{'name': str, 'number': str, 'type': 'internal'|'external'}])
-    for a given phonebook ID (`pb_xxx`) or extension (`1000` / `all`).
+    for a given phonebook ID (`pb_xxx`) or extension (`1000` / `all`), strictly scoped to `tenant_id`.
     """
     t_clean = str(target_id or "all").strip()
-    all_pbs = [p for p in (settings_db.get("phonebooks") or []) if isinstance(p, dict)]
-    all_users = [u for u in (settings_db.get("users") or []) if isinstance(u, dict) and u.get("is_active") is not False]
+    eff_tenant = str(tenant_id or "tenant-default").strip() or "tenant-default"
+    all_pbs = [
+        p for p in (settings_db.get("phonebooks") or [])
+        if isinstance(p, dict) and _tenant_owns_record(p.get("tenant_id"), eff_tenant)
+    ]
+    all_users = [
+        u for u in (settings_db.get("users") or [])
+        if isinstance(u, dict) and u.get("is_active") is not False and _tenant_owns_record(u.get("tenant_id"), eff_tenant)
+    ]
 
-    res_c = await db.execute(select(Contact).order_by(Contact.first_name.asc()))
+    c_stmt = select(Contact).order_by(Contact.first_name.asc())
+    if is_default_tenant(eff_tenant):
+        c_stmt = c_stmt.where((Contact.tenant_id == "tenant-default") | (Contact.tenant_id == "default") | (Contact.tenant_id.is_(None)))
+    else:
+        c_stmt = c_stmt.where(Contact.tenant_id == eff_tenant)
+    res_c = await db.execute(c_stmt)
     all_contacts = res_c.scalars().all()
 
     matched_pb = next((p for p in all_pbs if str(p.get("id")) == t_clean), None)
@@ -18139,10 +18439,24 @@ async def _resolve_phonebook_directory_items(target_id: str, db: AsyncSession) -
     return book_title, items
 
 
+@app.get("/api/prov/{token}/phonebook/{target_id}/{vendor_file}")
+async def serve_tokenized_xml_phonebook(token: str, target_id: str, vendor_file: str, db: AsyncSession = Depends(get_db)):
+    from backend.services.autoprovision_service import resolve_tenant_by_provisioning_token
+    tenant_id = resolve_tenant_by_provisioning_token(settings_db, token)
+    if not tenant_id:
+        raise HTTPException(status_code=403, detail="Geçersiz provizyon anahtarı.")
+    return await _render_dynamic_xml_phonebook(target_id, vendor_file, db, tenant_id=tenant_id)
+
+
 @app.get("/api/phonebook/{target_id}/{vendor_file}")
 async def serve_dynamic_xml_phonebook(target_id: str, vendor_file: str, db: AsyncSession = Depends(get_db)):
+    # Legacy untokenized path strictly restricted to tenant-default so secondary cloud tenants never leak
+    return await _render_dynamic_xml_phonebook(target_id, vendor_file, db, tenant_id="tenant-default")
+
+
+async def _render_dynamic_xml_phonebook(target_id: str, vendor_file: str, db: AsyncSession, tenant_id: str = "tenant-default"):
     import html as _html
-    book_title, items = await _resolve_phonebook_directory_items(target_id, db)
+    book_title, items = await _resolve_phonebook_directory_items(target_id, db, tenant_id=tenant_id)
     vf_low = str(vendor_file or "yealink.xml").strip().lower()
 
     if "grandstream" in vf_low or vf_low == "phonebook.xml":
@@ -18305,7 +18619,7 @@ async def is_phone_or_value_blacklisted(val_to_check: str, session=None) -> tupl
 
 
 @app.get("/api/acl/check_subscriber_call")
-async def check_subscriber_call(caller: str, callee: str):
+async def check_subscriber_call(caller: str, callee: str, tenant_id: str = ""):
     from fastapi import Response
     from backend.services.pbx_enterprise_features import is_configured_emergency_number
     from backend.services.license_service import is_tenant_license_hard_expired
@@ -18313,7 +18627,25 @@ async def check_subscriber_call(caller: str, callee: str):
     callee_str = str(callee or "").strip()
     if is_configured_emergency_number(callee_str, settings_db):
         return Response(content="ALLOW", media_type="text/plain")
-    is_hard_exp, exp_rsn = is_tenant_license_hard_expired(settings_db, "tenant-default")
+
+    # Strict multi-tenant internal call isolation: block cross-tenant extension-to-extension calls!
+    users_list_all = settings_db.get("users", []) or []
+    caller_u = next(
+        (u for u in users_list_all if isinstance(u, dict) and (str(u.get("extension") or "").strip() == caller_str or str(u.get("sip_username") or "").strip() == caller_str)),
+        None,
+    )
+    callee_u = next(
+        (u for u in users_list_all if isinstance(u, dict) and (str(u.get("extension") or "").strip() == callee_str or str(u.get("sip_username") or "").strip() == callee_str)),
+        None,
+    )
+    caller_tid = str(tenant_id or (caller_u.get("tenant_id") if caller_u else "") or "tenant-default").strip() or "tenant-default"
+    if caller_u and callee_u:
+        callee_tid = str(callee_u.get("tenant_id") or "tenant-default").strip() or "tenant-default"
+        if not _tenant_owns_record(callee_tid, caller_tid):
+            print(f"[Multi-Tenant Block] Cross-tenant internal call denied: {caller_str} ({caller_tid}) -> {callee_str} ({callee_tid})")
+            return Response(content="DENY", media_type="text/plain")
+
+    is_hard_exp, exp_rsn = is_tenant_license_hard_expired(settings_db, caller_tid)
     if is_hard_exp:
         print(f"[License Block] Internal subscriber call denied (expired license): {caller_str} -> {callee_str} ({exp_rsn})")
         await record_call_error_event(
@@ -20051,14 +20383,21 @@ async def _apply_deskphone_dnd_state(
 
 
 
-async def _load_merged_user_by_ext(ext_str: str, db: Optional[AsyncSession] = None) -> Optional[Dict[str, Any]]:
+async def _load_merged_user_by_ext(ext_str: str, db: Optional[AsyncSession] = None, tenant_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
     ext_clean = str(ext_str or "").strip()
     if not ext_clean:
         return None
+    t_filter = str(tenant_id or "").strip()
     u_dict: Optional[Dict[str, Any]] = None
     if db is not None:
         try:
-            res = await db.execute(select(SystemUser).where(SystemUser.extension == ext_clean))
+            stmt_u = select(SystemUser).where(SystemUser.extension == ext_clean)
+            if t_filter and t_filter not in ("all", "global"):
+                if is_default_tenant(t_filter):
+                    stmt_u = stmt_u.where((SystemUser.tenant_id == "tenant-default") | (SystemUser.tenant_id == "default") | (SystemUser.tenant_id.is_(None)))
+                else:
+                    stmt_u = stmt_u.where(SystemUser.tenant_id == t_filter)
+            res = await db.execute(stmt_u)
             db_u = res.scalars().first()
             if db_u:
                 u_dict = {c.name: getattr(db_u, c.name) for c in db_u.__table__.columns}
@@ -20066,6 +20405,8 @@ async def _load_merged_user_by_ext(ext_str: str, db: Optional[AsyncSession] = No
             pass
     for du in (settings_db.get("users") or []):
         if isinstance(du, dict) and str(du.get("extension") or "").strip() == ext_clean:
+            if t_filter and t_filter not in ("all", "global") and not _tenant_owns_record(du.get("tenant_id"), t_filter):
+                continue
             if u_dict is None:
                 u_dict = copy.deepcopy(du)
             else:
@@ -21258,14 +21599,23 @@ async def _sync_rules_to_settings(db: AsyncSession):
         return settings_db.get("rules", [])
 
 @app.get("/api/rules")
-async def list_rules(db: AsyncSession = Depends(get_db)):
+async def list_rules(user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
     try:
         stmt = select(Rule).order_by(Rule.id.asc())
+        if target_tenant not in ("all", "global"):
+            if is_default_tenant(target_tenant):
+                stmt = stmt.where((Rule.tenant_id == "tenant-default") | (Rule.tenant_id == "default") | (Rule.tenant_id.is_(None)))
+            else:
+                stmt = stmt.where(Rule.tenant_id == target_tenant)
         result = await db.execute(stmt)
         db_rules = result.scalars().all()
-        if not db_rules and settings_db.get("rules"):
+        if not db_rules and is_default_tenant(target_tenant) and settings_db.get("rules"):
             for sr in settings_db.get("rules", []):
+                if not _tenant_owns_record(sr.get("tenant_id"), target_tenant):
+                    continue
                 new_r = Rule(
+                    tenant_id=target_tenant,
                     rule_type=sr.get("rule_type", "faq"),
                     trigger_keyword=sr.get("trigger_keyword"),
                     response_text=sr.get("response_text"),
@@ -21274,17 +21624,19 @@ async def list_rules(db: AsyncSession = Depends(get_db)):
                 )
                 db.add(new_r)
             await db.commit()
-            result = await db.execute(select(Rule).order_by(Rule.id.asc()))
+            result = await db.execute(stmt)
             db_rules = result.scalars().all()
         await _sync_rules_to_settings(db)
         return db_rules
     except Exception as e:
         print(f"[Rules GET Fallback]: {e}")
-        return settings_db.get("rules", [])
+        return [r for r in (settings_db.get("rules") or []) if isinstance(r, dict) and _tenant_owns_record(r.get("tenant_id"), target_tenant)]
 
 @app.post("/api/rules")
-async def create_rule(rule: RuleCreateSchema, db: AsyncSession = Depends(get_db)):
+async def create_rule(rule: RuleCreateSchema, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
     db_rule = Rule(
+        tenant_id=target_tenant,
         rule_type=rule.rule_type,
         trigger_keyword=rule.trigger_keyword,
         response_text=rule.response_text,
@@ -21298,12 +21650,15 @@ async def create_rule(rule: RuleCreateSchema, db: AsyncSession = Depends(get_db)
     return db_rule
 
 @app.put("/api/rules/{rule_id}")
-async def update_rule(rule_id: int, rule: RuleCreateSchema, db: AsyncSession = Depends(get_db)):
+async def update_rule(rule_id: int, rule: RuleCreateSchema, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
     stmt = select(Rule).where(Rule.id == rule_id)
     res = await db.execute(stmt)
     db_rule = res.scalar_one_or_none()
     if not db_rule:
         raise HTTPException(status_code=404, detail="Kural bulunamadı.")
+    if target_tenant not in ("all", "global") and not _tenant_owns_record(getattr(db_rule, "tenant_id", None), target_tenant):
+        raise HTTPException(status_code=403, detail="Bu kuralı düzenleme yetkiniz yok.")
     db_rule.rule_type = rule.rule_type
     db_rule.trigger_keyword = rule.trigger_keyword
     db_rule.response_text = rule.response_text
@@ -21315,9 +21670,15 @@ async def update_rule(rule_id: int, rule: RuleCreateSchema, db: AsyncSession = D
     return db_rule
 
 @app.delete("/api/rules/{rule_id}")
-async def delete_rule(rule_id: int, db: AsyncSession = Depends(get_db)):
-    stmt = delete(Rule).where(Rule.id == rule_id)
-    await db.execute(stmt)
+async def delete_rule(rule_id: int, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    res = await db.execute(select(Rule).where(Rule.id == rule_id))
+    db_rule = res.scalar_one_or_none()
+    if not db_rule:
+        raise HTTPException(status_code=404, detail="Kural bulunamadı.")
+    if target_tenant not in ("all", "global") and not _tenant_owns_record(getattr(db_rule, "tenant_id", None), target_tenant):
+        raise HTTPException(status_code=403, detail="Bu kuralı silme yetkiniz yok.")
+    await db.execute(delete(Rule).where(Rule.id == rule_id))
     await db.commit()
     await _sync_rules_to_settings(db)
     return {"status": "success", "message": "Kural başarıyla silindi."}
@@ -23234,8 +23595,9 @@ def compute_tenant_usage_dict(current_settings: dict, t_id: str) -> dict:
 @app.get("/api/tenants/")
 @app.get("/api/settings/tenants")
 @app.get("/api/settings/tenants/")
-async def get_tenants():
+async def get_tenants(request: Request):
     """Returns list of registered tenants with license expiration checks, numeric tenant_num_id assignment, and live usage metrics."""
+    require_provider_root(request)
     current = load_settings()
     tenants = current.get("tenants", DEFAULT_SETTINGS["tenants"])
 
@@ -23289,8 +23651,9 @@ async def get_tenants():
 @app.post("/api/tenants/")
 @app.post("/api/settings/tenants")
 @app.post("/api/settings/tenants/")
-async def create_tenant(payload: TenantCreateSchema):
+async def create_tenant(payload: TenantCreateSchema, request: Request):
     """Creates a new Tenant with cryptographic license key and quota limits across 3 categories."""
+    require_provider_root(request)
     current = load_settings()
     tenants = current.get("tenants", DEFAULT_SETTINGS["tenants"])
     
@@ -23376,20 +23739,18 @@ async def create_tenant(payload: TenantCreateSchema):
     if "tenant_settings" not in current:
         current["tenant_settings"] = {}
         
+    # Initialize clean isolated per-tenant settings (NEVER clone tenant-default API keys, trunks, or rules!)
     current["tenant_settings"][tenant_id] = {
-        "ai_providers": dict(current.get("ai_providers", {})),
-        "api_budgets": dict(current.get("api_budgets", {})),
-        "pbx": dict(current.get("pbx", {})),
-        "smart_callback": dict(current.get("smart_callback", {})),
-        "call_flow": dict(current.get("call_flow", {}))
+        "ai_providers": {},
+        "api_budgets": {},
+        "pbx": {},
+        "smart_callback": {},
+        "call_flow": {},
     }
-    
+
     save_settings(current)
     settings_db["tenants"] = tenants
     settings_db["tenant_settings"] = current["tenant_settings"]
-    
-    # Clone configurations from default tenant
-    clone_tenant_config("tenant-default", tenant_id)
 
     try:
         from backend.services.telemetry_worker import send_single_telemetry_heartbeat
@@ -23405,8 +23766,9 @@ async def create_tenant(payload: TenantCreateSchema):
 @app.put("/api/tenants/{tenant_id}/")
 @app.put("/api/settings/tenants/{tenant_id}")
 @app.put("/api/settings/tenants/{tenant_id}/")
-async def update_tenant(tenant_id: str, payload: TenantCreateSchema):
+async def update_tenant(tenant_id: str, payload: TenantCreateSchema, request: Request):
     """Updates tenant metadata, license key, package tier, and quota limits."""
+    require_provider_root(request)
     current = load_settings()
     tenants = current.get("tenants", DEFAULT_SETTINGS["tenants"])
     
@@ -23501,8 +23863,9 @@ async def update_tenant(tenant_id: str, payload: TenantCreateSchema):
 @app.delete("/api/tenants/{tenant_id}/")
 @app.delete("/api/settings/tenants/{tenant_id}")
 @app.delete("/api/settings/tenants/{tenant_id}/")
-async def delete_tenant(tenant_id: str):
+async def delete_tenant(tenant_id: str, request: Request):
     """Deletes a tenant."""
+    require_provider_root(request)
     if tenant_id == "tenant-default":
         raise HTTPException(status_code=400, detail="Varsayılan ana müşteri silinemez.")
         
@@ -23643,11 +24006,18 @@ async def get_license_status(request: Request):
         else (embedded_q.get("enforced_max_backups") or 0)
     )
 
-    # Live Usage Metrics
-    used_users = len(current.get("users", []))
+    # Live Usage Metrics (strictly scoped to the matched tenant)
+    matched_tid = str(matched.get("id") or "tenant-default").strip() or "tenant-default"
+    used_users = len([
+        u for u in (current.get("users") or [])
+        if isinstance(u, dict) and _tenant_owns_record(u.get("tenant_id"), matched_tid)
+    ])
     used_channels = call_info["used_concurrent_calls"]
-    used_ai_agents = len(current.get("ai_agents", []))
-    used_tenants = len(current.get("tenants", []))
+    used_ai_agents = len([
+        a for a in (current.get("ai_agents") or [])
+        if isinstance(a, dict) and _tenant_owns_record(a.get("tenant_id"), matched_tid)
+    ])
+    used_tenants = len(current.get("tenants", [])) if is_default_tenant(matched_tid) else 1
 
     return {
         "tenant_id": matched.get("id"),
@@ -23775,8 +24145,9 @@ async def renew_license_key(payload: LicenseRenewSchema):
     }
 
 @app.post("/api/settings/tenants/generate-license-key")
-async def generate_license_key_endpoint(payload: LicenseGenerateSchema):
+async def generate_license_key_endpoint(payload: LicenseGenerateSchema, request: Request):
     """Generates a cryptographic HMAC-SHA256 signed license key with machine binding."""
+    require_provider_root(request)
     if not payload.tenant_code or not payload.expiry_date:
         raise HTTPException(status_code=400, detail="Müşteri kodu ve bitiş tarihi gereklidir.")
         
@@ -23797,18 +24168,66 @@ class AuthLoginSchema(BaseModel):
     device_key: Optional[str] = None
     client_type: Optional[str] = "web"
     device_name: Optional[str] = None
+    tenant_code: Optional[str] = None
 
 
-def _collect_all_users_for_auth() -> List[Dict[str, Any]]:
-    """Loads users from PostgreSQL + settings_db for server-side credential verification."""
+def _resolve_login_tenant_id(request: Optional[Request], explicit_tenant_code: Optional[str] = None) -> Optional[str]:
+    """
+    Resolves target tenant_id during login from:
+      1. Explicit `tenant_code` (Firma Kodu) in payload or header, OR
+      2. Request Host / X-Forwarded-Host subdomain (e.g. `acme.nornia.com.tr` -> `tenant-acme`).
+    Returns None for main platform domain / localhost / raw IP when no tenant_code is given
+    (keeping single-tenant / local on-premise login 100% seamless).
+    """
+    tenants = settings_db.get("tenants") or []
+    code_in = str(explicit_tenant_code or "").strip().lower()
+    if code_in:
+        for t in tenants:
+            if not isinstance(t, dict):
+                continue
+            tid = str(t.get("id") or "").strip().lower()
+            tc = str(t.get("code") or "").strip().lower()
+            if code_in in (tid, tc, f"tenant-{tc}"):
+                return str(t.get("id"))
+        raise HTTPException(status_code=404, detail=f"'{explicit_tenant_code}' firma kodu sistemde bulunamadı.")
+
+    if request is not None:
+        raw_host = (request.headers.get("x-forwarded-host") or request.headers.get("host") or "").split(",")[0].strip().lower()
+        host_only = raw_host.split(":")[0]
+        if host_only and not re.match(r"^\d{1,3}(\.\d{1,3}){3}$", host_only) and host_only not in ("localhost", "127.0.0.1"):
+            sub_part = host_only.split(".")[0]
+            if sub_part not in ("app", "www", "pbx", "santral", "panel", "api"):
+                for t in tenants:
+                    if not isinstance(t, dict):
+                        continue
+                    tc = str(t.get("code") or "").strip().lower()
+                    td = str(t.get("domain") or "").strip().lower()
+                    if (td and host_only == td) or (tc and tc not in ("default", "app") and sub_part == tc):
+                        return str(t.get("id"))
+    return None
+
+
+def _collect_all_users_for_auth(target_tenant: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Loads users from PostgreSQL + settings_db for server-side credential verification without cross-tenant collisions."""
     disk_users = list(settings_db.get("users") or [])
     by_key: Dict[str, Dict[str, Any]] = {}
     ordered: List[Dict[str, Any]] = []
 
+    def _matches_t(u_tid: str) -> bool:
+        if not target_tenant:
+            return True
+        if is_default_tenant(target_tenant):
+            return is_default_tenant(u_tid)
+        return str(u_tid or "").strip() == str(target_tenant).strip()
+
     def _add_u(u_obj: Dict[str, Any]):
         if not isinstance(u_obj, dict):
             return
-        k = str(u_obj.get("id") or u_obj.get("extension") or u_obj.get("email") or len(ordered))
+        u_tid = str(u_obj.get("tenant_id") or "tenant-default").strip()
+        if not _matches_t(u_tid):
+            return
+        u_id_part = str(u_obj.get("id") or u_obj.get("extension") or u_obj.get("email") or len(ordered))
+        k = f"{u_tid}::{u_id_part}"
         if k not in by_key:
             by_key[k] = u_obj
             ordered.append(u_obj)
@@ -23820,9 +24239,18 @@ def _collect_all_users_for_auth() -> List[Dict[str, Any]]:
             db_rows = session.query(SystemUser).order_by(SystemUser.id.asc()).all()
             for r in db_rows:
                 d = {c.name: getattr(r, c.name) for c in r.__table__.columns}
-                # Merge disk-only fields (e.g. username, device_lock_enabled, trusted_devices)
+                d_tid = str(d.get("tenant_id") or "tenant-default").strip()
+                if not _matches_t(d_tid):
+                    continue
+                # Merge disk-only fields ONLY within the same tenant
                 for du in disk_users:
-                    if isinstance(du, dict) and (
+                    if not isinstance(du, dict):
+                        continue
+                    du_tid = str(du.get("tenant_id") or "tenant-default").strip()
+                    same_tenant = (is_default_tenant(d_tid) and is_default_tenant(du_tid)) or (d_tid == du_tid)
+                    if not same_tenant:
+                        continue
+                    if (
                         str(du.get("id") or "") == str(d.get("id") or "")
                         or (d.get("extension") and str(du.get("extension") or "") == str(d.get("extension")))
                     ):
@@ -23913,7 +24341,8 @@ async def auth_login_endpoint(request: Request, response: Response, payload: Aut
         )
 
     lower_u = clean_user.lower()
-    all_users = _collect_all_users_for_auth()
+    login_target_tenant = _resolve_login_tenant_id(request, getattr(payload, "tenant_code", None))
+    all_users = _collect_all_users_for_auth(target_tenant=login_target_tenant)
 
     matched_user: Optional[Dict[str, Any]] = None
     password_ok = False
@@ -24038,7 +24467,8 @@ async def auth_login_endpoint(request: Request, response: Response, payload: Aut
         }
 
     # Issue signed session token + HttpOnly cookie
-    is_root_flag = role_val.lower() in ("admin", "superadmin")
+    # Only default-tenant host admin receives provider-root flag; customer tenant admins are strictly tenant-scoped!
+    is_root_flag = role_val.lower() in ("admin", "superadmin") and is_default_tenant(tenant_val)
     sess_token = create_session_token(
         user_id=uid_val,
         role=role_val,
@@ -24054,6 +24484,7 @@ async def auth_login_endpoint(request: Request, response: Response, payload: Aut
         "access_token": sess_token,
         "token_type": "Bearer",
         "tenant_id": tenant_val,
+        "is_provider_root": is_root_flag,
         "user": clean_user_resp,
     }
 
@@ -24079,7 +24510,8 @@ async def auth_me_endpoint(request: Request):
     if not payload:
         raise HTTPException(status_code=401, detail="Aktif oturum bulunamadı.")
     uid_s = str(payload.get("uid") or "")
-    all_users = _collect_all_users_for_auth()
+    tid_s = str(payload.get("tid") or "tenant-default")
+    all_users = _collect_all_users_for_auth(target_tenant=tid_s)
     matched = next(
         (u for u in all_users if str(u.get("id") or "") == uid_s or str(u.get("extension") or "") == uid_s),
         None,
@@ -24248,16 +24680,18 @@ async def add_manual_text(payload: ManualTextSchema, user_info: dict = Depends(g
         raise HTTPException(status_code=500, detail=f"Manuel indeksleme hatası: {str(e)}")
 
 @app.delete("/api/rag/sources")
-async def delete_source(name: str):
+async def delete_source(name: str, user_info: dict = Depends(get_user_info)):
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
     try:
-        await delete_indexed_source(name)
+        await delete_indexed_source(name, tenant_id=target_tenant)
         return {"status": "success", "message": f"'{name}' bilgi bankasından temizlendi."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Kaynak silme hatası: {str(e)}")
 
 @app.get("/api/rag/search")
-async def test_search(query: str):
-    results = await query_vector_search(query)
+async def test_search(query: str, user_info: dict = Depends(get_user_info)):
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    results = await query_vector_search(query, tenant_id=target_tenant)
     return {"results": results}
 
 @app.get("/api/rag/sources")
@@ -27471,6 +27905,15 @@ async def webrtc_resolve_pickup_channel(target_ext: str = "", picker_ext: str = 
     if not target_s:
         return Response(content="NONE", media_type="text/plain")
 
+    # Cross-tenant pickup protection: picker and target extensions must belong to the same tenant
+    if picker_s and target_s != "GROUP":
+        all_u_pk = [u for u in (settings_db.get("users") or []) if isinstance(u, dict)]
+        p_tids = {str(u.get("tenant_id") or "tenant-default") for u in all_u_pk if str(u.get("extension") or "").strip() == picker_s}
+        t_tids = {str(u.get("tenant_id") or "tenant-default") for u in all_u_pk if str(u.get("extension") or "").strip() == target_s}
+        if p_tids and t_tids and not (p_tids & t_tids):
+            print(f"[Multi-Tenant Pickup Block] Denied cross-tenant pickup picker={picker_s} ({p_tids}) -> target={target_s} ({t_tids})")
+            return Response(content="NONE", media_type="text/plain")
+
     info = live_extension_call_state.get(target_s) or {} if target_s != "GROUP" else {}
     caller_num = str(info.get("caller_number") or "").strip()
     call_id_val = str(info.get("call_id") or "").strip()
@@ -29099,12 +29542,19 @@ async def hangup_active_call_from_panel(
     user_info: dict = Depends(get_user_info),
 ):
     from backend.services.ami_manager import hangup_call
+    caller_tenant = user_info.get("tenant_id") or "tenant-default"
     caller_num = ""
     try:
         async with AsyncSessionLocal() as session:
             db_call = await session.get(Call, call_id)
-            if db_call and db_call.caller_number:
-                caller_num = str(db_call.caller_number)
+            if db_call:
+                if not user_info.get("is_provider_root") and caller_tenant not in ("all", "global"):
+                    if not _tenant_owns_record(getattr(db_call, "tenant_id", None), caller_tenant):
+                        raise HTTPException(status_code=403, detail="Bu çağrıyı sonlandırma yetkiniz yok.")
+                if db_call.caller_number:
+                    caller_num = str(db_call.caller_number)
+    except HTTPException:
+        raise
     except Exception:
         pass
 
@@ -29140,12 +29590,16 @@ async def resolve_recording_pause_dialplan_endpoint(
 
 
 @app.get("/api/calls/{call_id}")
-async def get_call_details(call_id: str, db: AsyncSession = Depends(get_db)):
+async def get_call_details(call_id: str, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
     stmt = select(Call).where(Call.id == call_id)
     result = await db.execute(stmt)
     call = result.scalar_one_or_none()
     if not call:
         raise HTTPException(status_code=404, detail="Call not found")
+    caller_tenant = user_info.get("tenant_id") or "tenant-default"
+    if not user_info.get("is_provider_root") and caller_tenant not in ("all", "global"):
+        if not _tenant_owns_record(getattr(call, "tenant_id", None), caller_tenant):
+            raise HTTPException(status_code=403, detail="Bu çağrı kaydına erişim yetkiniz yok.")
     try:
         resolved_talk_sec = _resolve_authoritative_talk_seconds(call)
         db.expunge(call)
@@ -29499,9 +29953,13 @@ async def _auto_transcribe_call_recording(call_id: str, db: AsyncSession) -> lis
 
 @app.get("/api/calls/{call_id}/transcripts")
 @app.get("/api/calls/{call_id}/transcript")
-async def get_call_transcripts(call_id: str, db: AsyncSession = Depends(get_db)):
+async def get_call_transcripts(call_id: str, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
     call_res = await db.execute(select(Call).where(Call.id == call_id).limit(1))
     db_call = call_res.scalar_one_or_none()
+    caller_tenant = user_info.get("tenant_id") or "tenant-default"
+    if db_call and not user_info.get("is_provider_root") and caller_tenant not in ("all", "global"):
+        if not _tenant_owns_record(getattr(db_call, "tenant_id", None), caller_tenant):
+            raise HTTPException(status_code=403, detail="Bu çağrının konuşma kayıtlarına erişim yetkiniz yok.")
 
     stmt = select(Transcript).where(Transcript.call_id == call_id).order_by(Transcript.timestamp.asc())
     result = await db.execute(stmt)
@@ -29630,13 +30088,41 @@ async def list_appointments(user_info: dict = Depends(get_user_info), db: AsyncS
 # ----------------------------------------------------
 # WebSockets: Real-time Transcript Stream
 # ----------------------------------------------------
+def _authenticate_websocket_session(websocket: WebSocket) -> Optional[dict]:
+    from backend.services.auth_service import verify_session_token, SESSION_COOKIE_NAME
+    tok = (
+        websocket.cookies.get(SESSION_COOKIE_NAME)
+        or websocket.query_params.get("token")
+        or ""
+    )
+    if not tok:
+        auth_h = websocket.headers.get("authorization") or ""
+        if auth_h.lower().startswith("bearer "):
+            tok = auth_h[7:].strip()
+    return verify_session_token(tok) if tok else None
+
+
 @app.websocket("/ws/transcripts/{call_id}")
 @app.websocket("/api/ws/transcripts/{call_id}")
 async def websocket_transcript_endpoint(websocket: WebSocket, call_id: str):
+    auth_u = _authenticate_websocket_session(websocket)
+    if not isinstance(auth_u, dict) or not auth_u.get("uid"):
+        await websocket.close(code=4401)
+        return
+    ws_tid = str(auth_u.get("tid") or "tenant-default")
+    is_prov = str(auth_u.get("role") or "").lower() == "nornia_root" or (bool(auth_u.get("root")) and is_default_tenant(ws_tid))
+    if not is_prov:
+        try:
+            async with AsyncSessionLocal() as _ws_sess:
+                _c = await _ws_sess.get(Call, call_id)
+                if _c and not _tenant_owns_record(getattr(_c, "tenant_id", None), ws_tid):
+                    await websocket.close(code=4403)
+                    return
+        except Exception:
+            pass
     await ws_manager.connect(call_id, websocket)
     try:
         while True:
-            # Keep connection alive
             await websocket.receive_text()
     except WebSocketDisconnect:
         ws_manager.disconnect(call_id, websocket)
@@ -29893,9 +30379,11 @@ async def spy_active_call(
     target_ext: str = "",
     caller_number: str = "",
     user_id: str = "",
+    user_info: dict = Depends(get_user_info),
     db: AsyncSession = Depends(get_db)
 ):
     from backend.services.ami_manager import spy_on_call
+    caller_tenant = user_info.get("tenant_id") or "tenant-default"
 
     body_data = {}
     try:
@@ -29930,15 +30418,20 @@ async def spy_active_call(
 
     resolved_sup_ext = resolve_supervisor_extension(eff_user_id or raw_agent_ext, fallback_ext=raw_agent_ext)
 
-    # If call_id is provided, enrich target_ext / caller_number from DB Call record if missing
-    if eff_call_id and (not eff_caller_num or not eff_target_ext):
+    # If call_id is provided, verify tenant ownership and enrich target_ext / caller_number from DB Call record
+    if eff_call_id:
         try:
             db_call = await db.get(Call, eff_call_id)
             if db_call:
+                if not user_info.get("is_provider_root") and caller_tenant not in ("all", "global"):
+                    if not _tenant_owns_record(getattr(db_call, "tenant_id", None), caller_tenant):
+                        raise HTTPException(status_code=403, detail="Başka bir firmanın aktif çağrısını dinleyemezsiniz.")
                 if not eff_caller_num and db_call.caller_number:
                     eff_caller_num = str(db_call.caller_number)
                 if not eff_target_ext and db_call.callee_number:
                     eff_target_ext = str(db_call.callee_number)
+        except HTTPException:
+            raise
         except Exception:
             pass
 
@@ -29988,11 +30481,18 @@ class WhisperPayload(BaseModel):
     text: str
 
 @app.post("/api/calls/{call_id}/whisper")
-async def whisper_to_call(call_id: str, payload: WhisperPayload, request: Request = None):
+async def whisper_to_call(call_id: str, payload: WhisperPayload, request: Request = None, user_info: dict = Depends(get_user_info)):
     import json
     # Check if whisper feature is enabled in system settings
     if not settings_db.get("pbx", {}).get("auto_whisper_enabled", True):
         raise HTTPException(status_code=400, detail="Fısıldama özelliği sistem genelinde devre dışı bırakılmıştır.")
+
+    caller_tenant = user_info.get("tenant_id") or "tenant-default"
+    if not user_info.get("is_provider_root") and caller_tenant not in ("all", "global"):
+        async with AsyncSessionLocal() as _ws_chk:
+            _w_call = await _ws_chk.get(Call, call_id)
+            if _w_call and not _tenant_owns_record(getattr(_w_call, "tenant_id", None), caller_tenant):
+                raise HTTPException(status_code=403, detail="Bu çağrıya sufle gönderme yetkiniz yok.")
 
     if request is not None:
         uid_hdr = request.headers.get("X-User-ID") or request.headers.get("x-user-id") or ""
@@ -30019,7 +30519,13 @@ async def whisper_to_call(call_id: str, payload: WhisperPayload, request: Reques
         raise HTTPException(status_code=500, detail=f"Fısıldama iletilirken hata oluştu: {e}")
 
 @app.post("/api/calls/{call_id}/transfer")
-async def transfer_call_endpoint(call_id: str, extension: str = "transfer_to_human", request: Request = None):
+async def transfer_call_endpoint(call_id: str, extension: str = "transfer_to_human", request: Request = None, user_info: dict = Depends(get_user_info)):
+    caller_tenant = user_info.get("tenant_id") or "tenant-default"
+    if not user_info.get("is_provider_root") and caller_tenant not in ("all", "global"):
+        async with AsyncSessionLocal() as _tr_chk:
+            _t_call = await _tr_chk.get(Call, call_id)
+            if _t_call and not _tenant_owns_record(getattr(_t_call, "tenant_id", None), caller_tenant):
+                raise HTTPException(status_code=403, detail="Bu çağrıyı aktarma yetkiniz yok.")
     from backend.services.ami_manager import redirect_call_to_human
     success = await redirect_call_to_human(call_id, extension=extension)
     if not success:
@@ -30051,12 +30557,16 @@ class CallNotesSchema(BaseModel):
     notes: str
 
 @app.post("/api/calls/{call_id}/notes")
-async def save_call_notes(call_id: str, payload: CallNotesSchema, db: AsyncSession = Depends(get_db)):
+async def save_call_notes(call_id: str, payload: CallNotesSchema, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
     stmt = select(Call).where(Call.id == call_id)
     result = await db.execute(stmt)
     call = result.scalar_one_or_none()
     if not call:
         raise HTTPException(status_code=404, detail="Call not found")
+    caller_tenant = user_info.get("tenant_id") or "tenant-default"
+    if not user_info.get("is_provider_root") and caller_tenant not in ("all", "global"):
+        if not _tenant_owns_record(getattr(call, "tenant_id", None), caller_tenant):
+            raise HTTPException(status_code=403, detail="Bu çağrıya not ekleme yetkiniz yok.")
         
     if payload.topic and str(payload.topic).strip():
         call.agent_topic = str(payload.topic).strip()
@@ -30376,10 +30886,19 @@ async def get_system_stats():
     }
 
 @app.get("/api/reports/wallboard")
-async def get_wallboard_stats():
+async def get_wallboard_stats(user_info: dict = Depends(get_user_info)):
     from backend.database.models import Call
     from backend.services.ami_manager import active_channels
     import datetime
+
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+
+    def _with_call_tenant(stmt):
+        if is_global_tenant(target_tenant):
+            return stmt
+        if is_default_tenant(target_tenant):
+            return stmt.where(or_(Call.tenant_id.in_(["tenant-default", "default"]), Call.tenant_id.is_(None)))
+        return stmt.where(Call.tenant_id == target_tenant)
 
     # 00:00:00 Turkey Local Time (UTC+3) -> UTC 21:00:00 of previous calendar day
     now_utc = datetime.datetime.utcnow()
@@ -30387,22 +30906,26 @@ async def get_wallboard_stats():
 
     async with AsyncSessionLocal() as session:
         # Total calls today
-        total_stmt = select(func.count(Call.id)).where(Call.start_time >= today_start_utc)
+        total_stmt = _with_call_tenant(select(func.count(Call.id)).where(Call.start_time >= today_start_utc))
         total_res = await session.execute(total_stmt)
         total_today_calls = total_res.scalar() or 0
 
         # AI / Answered Successful Resolutions today
-        ai_resolved_stmt = select(func.count(Call.id)).where(
-            Call.start_time >= today_start_utc,
-            Call.status == "completed"
+        ai_resolved_stmt = _with_call_tenant(
+            select(func.count(Call.id)).where(
+                Call.start_time >= today_start_utc,
+                Call.status == "completed"
+            )
         )
         ai_res = await session.execute(ai_resolved_stmt)
         ai_resolved_count = ai_res.scalar() or 0
 
         # Missed / Unanswered calls today
-        missed_stmt = select(func.count(Call.id)).where(
-            Call.start_time >= today_start_utc,
-            Call.status.in_(["no_answer", "missed", "failed", "busy", "cancelled"])
+        missed_stmt = _with_call_tenant(
+            select(func.count(Call.id)).where(
+                Call.start_time >= today_start_utc,
+                Call.status.in_(["no_answer", "missed", "failed", "busy", "cancelled"])
+            )
         )
         missed_res = await session.execute(missed_stmt)
         missed_calls_count = missed_res.scalar() or 0
@@ -30414,9 +30937,11 @@ async def get_wallboard_stats():
             service_level = 100.0
 
         # Average Hold / Duration for completed calls today
-        completed_calls_stmt = select(Call).where(
-            Call.start_time >= today_start_utc,
-            Call.status == "completed"
+        completed_calls_stmt = _with_call_tenant(
+            select(Call).where(
+                Call.start_time >= today_start_utc,
+                Call.status == "completed"
+            )
         )
         comp_res = await session.execute(completed_calls_stmt)
         completed_calls = comp_res.scalars().all()
@@ -30430,32 +30955,33 @@ async def get_wallboard_stats():
         else:
             avg_hold_time = 0
 
-        # Active Calls Count
-        active_calls_stmt = select(func.count(Call.id)).where(Call.status.in_(["in_progress", "ongoing"]))
+        # Active Calls Count (strictly scoped to tenant for secondary tenants)
+        active_calls_stmt = _with_call_tenant(select(func.count(Call.id)).where(Call.status.in_(["in_progress", "ongoing"])))
         active_res = await session.execute(active_calls_stmt)
         in_progress_count = active_res.scalar() or 0
-        active_calls_count = max(len(active_channels), in_progress_count)
+        active_calls_count = max(len(active_channels), in_progress_count) if (is_default_tenant(target_tenant) or is_global_tenant(target_tenant)) else in_progress_count
 
         queue_count = 0
 
-        # Recent Operational Logs
+        # Recent Operational Logs (only expose global in-memory logs to default/provider-root tenant)
         recent_logs = []
-        for log in reversed(system_logs[-8:]):
-            t_val = log.get("timestamp")
-            time_str = t_val.strftime("%H:%M:%S") if isinstance(t_val, datetime.datetime) else str(t_val)[-8:] if t_val else ""
-            lvl = str(log.get("level", "info")).lower()
-            typ = "system"
-            msg = str(log.get("message", ""))
-            if "arama" in msg.lower() or "call" in msg.lower():
-                typ = "call"
-            elif lvl in ("warning", "warn", "error"):
-                typ = "warning"
-            recent_logs.append({
-                "id": len(recent_logs) + 1,
-                "time": time_str,
-                "type": typ,
-                "text": msg
-            })
+        if is_default_tenant(target_tenant) or is_global_tenant(target_tenant):
+            for log in reversed(system_logs[-8:]):
+                t_val = log.get("timestamp")
+                time_str = t_val.strftime("%H:%M:%S") if isinstance(t_val, datetime.datetime) else str(t_val)[-8:] if t_val else ""
+                lvl = str(log.get("level", "info")).lower()
+                typ = "system"
+                msg = str(log.get("message", ""))
+                if "arama" in msg.lower() or "call" in msg.lower():
+                    typ = "call"
+                elif lvl in ("warning", "warn", "error"):
+                    typ = "warning"
+                recent_logs.append({
+                    "id": len(recent_logs) + 1,
+                    "time": time_str,
+                    "type": typ,
+                    "text": msg
+                })
 
         return {
             "queueCount": queue_count,
@@ -30562,29 +31088,48 @@ async def save_user_wallboard_layout(
     return {"status": "success", "layout": merged_layout}
 
 @app.get("/api/reports/agents")
-async def get_reports_agents():
+async def get_reports_agents(user_info: dict = Depends(get_user_info)):
     from backend.database.models import SystemUser, Call, AgentBreakLog
     from backend.services.ami_manager import active_channels, channel_states
     from backend.services.agent_presence import active_agent_status, update_agent_state
     import datetime
 
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
     now_utc = datetime.datetime.utcnow()
     today_start_utc = (now_utc + datetime.timedelta(hours=3)).replace(hour=0, minute=0, second=0, microsecond=0) - datetime.timedelta(hours=3)
     settings = load_settings()
-    breaks_cfg = settings.get("breaks", [])
+    breaks_cfg = [
+        b for b in (settings.get("breaks") or [])
+        if isinstance(b, dict) and (target_tenant in ("all", "global") or _tenant_owns_record(b.get("tenant_id"), target_tenant))
+    ]
 
     async with AsyncSessionLocal() as session:
         stmt = select(SystemUser)
+        if target_tenant not in ("all", "global"):
+            if is_default_tenant(target_tenant):
+                stmt = stmt.where((SystemUser.tenant_id == "tenant-default") | (SystemUser.tenant_id == "default") | (SystemUser.tenant_id.is_(None)))
+            else:
+                stmt = stmt.where(SystemUser.tenant_id == target_tenant)
         result = await session.execute(stmt)
         users = result.scalars().all()
 
         # Fetch ongoing calls from DB to correlate call_id & caller_number
         stmt_ongoing = select(Call).where(Call.status.in_(["ongoing", "in_progress"])).order_by(Call.start_time.desc())
+        if target_tenant not in ("all", "global"):
+            if is_default_tenant(target_tenant):
+                stmt_ongoing = stmt_ongoing.where((Call.tenant_id == "tenant-default") | (Call.tenant_id == "default") | (Call.tenant_id.is_(None)))
+            else:
+                stmt_ongoing = stmt_ongoing.where(Call.tenant_id == target_tenant)
         res_ongoing = await session.execute(stmt_ongoing)
         ongoing_calls = res_ongoing.scalars().all()
 
         # Fetch today's calls to compute per-agent daily call counts
         stmt_today = select(Call).where(Call.start_time >= today_start_utc)
+        if target_tenant not in ("all", "global"):
+            if is_default_tenant(target_tenant):
+                stmt_today = stmt_today.where((Call.tenant_id == "tenant-default") | (Call.tenant_id == "default") | (Call.tenant_id.is_(None)))
+            else:
+                stmt_today = stmt_today.where(Call.tenant_id == target_tenant)
         res_today = await session.execute(stmt_today)
         today_calls = res_today.scalars().all()
 
@@ -30978,9 +31523,16 @@ async def record_user_activity_audit(
 
 
 @app.get("/api/system/logs")
-async def get_system_logs(limit: int = 300, offset: int = 0, module: Optional[str] = None, category: Optional[str] = None):
+async def get_system_logs(
+    limit: int = 300,
+    offset: int = 0,
+    module: Optional[str] = None,
+    category: Optional[str] = None,
+    user_info: dict = Depends(get_user_info),
+):
     import json
     from backend.database.models import EventLog
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
     async with AsyncSessionLocal() as session:
         # Clean up legacy technical logs automatically so the table stays clean
         try:
@@ -31000,6 +31552,11 @@ async def get_system_logs(limit: int = 300, offset: int = 0, module: Optional[st
                 pass
 
         stmt = select(EventLog).order_by(EventLog.timestamp.desc())
+        if not is_global_tenant(target_tenant) and hasattr(EventLog, "tenant_id"):
+            if is_default_tenant(target_tenant):
+                stmt = stmt.where(or_(EventLog.tenant_id.in_(["tenant-default", "default"]), EventLog.tenant_id.is_(None)))
+            else:
+                stmt = stmt.where(EventLog.tenant_id == target_tenant)
         if module and module != "all":
             stmt = stmt.where(EventLog.module == module)
         stmt = stmt.offset(offset).limit(limit)
@@ -31359,28 +31916,40 @@ class CannedResponseSchema(BaseModel):
     content: str
 
 @app.get("/api/canned-responses")
-async def list_canned_responses():
+async def list_canned_responses(user_info: dict = Depends(get_user_info)):
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
     async with AsyncSessionLocal() as session:
         stmt = select(CannedResponse).order_by(CannedResponse.shortcut.asc())
+        if target_tenant not in ("all", "global"):
+            if is_default_tenant(target_tenant):
+                stmt = stmt.where((CannedResponse.tenant_id == "tenant-default") | (CannedResponse.tenant_id == "default") | (CannedResponse.tenant_id.is_(None)))
+            else:
+                stmt = stmt.where(CannedResponse.tenant_id == target_tenant)
         result = await session.execute(stmt)
         responses = result.scalars().all()
         return responses
 
 @app.post("/api/canned-responses")
-async def create_canned_response(payload: CannedResponseSchema):
+async def create_canned_response(payload: CannedResponseSchema, user_info: dict = Depends(get_user_info)):
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
     async with AsyncSessionLocal() as session:
         # Enforce leading slash for shortcut
         shortcut = payload.shortcut.strip()
         if not shortcut.startswith("/"):
             shortcut = "/" + shortcut
             
-        # Check if shortcut already exists
+        # Check if shortcut already exists within this tenant
         stmt_check = select(CannedResponse).where(CannedResponse.shortcut == shortcut)
+        if is_default_tenant(target_tenant):
+            stmt_check = stmt_check.where((CannedResponse.tenant_id == "tenant-default") | (CannedResponse.tenant_id == "default") | (CannedResponse.tenant_id.is_(None)))
+        else:
+            stmt_check = stmt_check.where(CannedResponse.tenant_id == target_tenant)
         res_check = await session.execute(stmt_check)
         if res_check.scalar_one_or_none():
             raise HTTPException(status_code=400, detail="Bu kısayol kelimesine ait bir şablon zaten mevcut.")
             
         db_response = CannedResponse(
+            tenant_id=target_tenant,
             shortcut=shortcut,
             title=payload.title.strip(),
             content=payload.content.strip()
@@ -31391,19 +31960,26 @@ async def create_canned_response(payload: CannedResponseSchema):
         return db_response
 
 @app.put("/api/canned-responses/{response_id}")
-async def update_canned_response(response_id: int, payload: CannedResponseSchema):
+async def update_canned_response(response_id: int, payload: CannedResponseSchema, user_info: dict = Depends(get_user_info)):
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
     async with AsyncSessionLocal() as session:
         db_response = await session.get(CannedResponse, response_id)
         if not db_response:
             raise HTTPException(status_code=404, detail="Hızlı cevap bulunamadı.")
+        if target_tenant not in ("all", "global") and not _tenant_owns_record(getattr(db_response, "tenant_id", None), target_tenant):
+            raise HTTPException(status_code=403, detail="Bu hızlı cevabı düzenleme yetkiniz yok.")
             
         shortcut = payload.shortcut.strip()
         if not shortcut.startswith("/"):
             shortcut = "/" + shortcut
             
-        # Check unique constraint if shortcut changed
+        # Check unique constraint within tenant if shortcut changed
         if db_response.shortcut != shortcut:
             stmt_check = select(CannedResponse).where(CannedResponse.shortcut == shortcut)
+            if is_default_tenant(target_tenant):
+                stmt_check = stmt_check.where((CannedResponse.tenant_id == "tenant-default") | (CannedResponse.tenant_id == "default") | (CannedResponse.tenant_id.is_(None)))
+            else:
+                stmt_check = stmt_check.where(CannedResponse.tenant_id == target_tenant)
             res_check = await session.execute(stmt_check)
             if res_check.scalar_one_or_none():
                 raise HTTPException(status_code=400, detail="Bu kısayol kelimesine ait başka bir şablon zaten mevcut.")
@@ -31416,11 +31992,14 @@ async def update_canned_response(response_id: int, payload: CannedResponseSchema
         return db_response
 
 @app.delete("/api/canned-responses/{response_id}")
-async def delete_canned_response(response_id: int):
+async def delete_canned_response(response_id: int, user_info: dict = Depends(get_user_info)):
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
     async with AsyncSessionLocal() as session:
         db_response = await session.get(CannedResponse, response_id)
         if not db_response:
             raise HTTPException(status_code=404, detail="Hızlı cevap bulunamadı.")
+        if target_tenant not in ("all", "global") and not _tenant_owns_record(getattr(db_response, "tenant_id", None), target_tenant):
+            raise HTTPException(status_code=403, detail="Bu hızlı cevabı silme yetkiniz yok.")
         await session.delete(db_response)
         await session.commit()
         return {"status": "success", "message": "Hızlı cevap taslağı başarıyla silindi."}
@@ -31439,18 +32018,25 @@ class BlockWordSchema(BaseModel):
     word: str
 
 @app.get("/api/blacklist")
-async def list_blacklist():
+async def list_blacklist(user_info: dict = Depends(get_user_info)):
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
     db_items = []
     db_ok = False
     try:
         async with AsyncSessionLocal() as session:
             stmt = select(BlacklistItem).order_by(BlacklistItem.timestamp.desc())
+            if target_tenant not in ("all", "global"):
+                if is_default_tenant(target_tenant):
+                    stmt = stmt.where((BlacklistItem.tenant_id == "tenant-default") | (BlacklistItem.tenant_id == "default") | (BlacklistItem.tenant_id.is_(None)))
+                else:
+                    stmt = stmt.where(BlacklistItem.tenant_id == target_tenant)
             result = await session.execute(stmt)
             rows = result.scalars().all()
             db_ok = True
             for r in rows:
                 db_items.append({
                     "id": r.id,
+                    "tenant_id": getattr(r, "tenant_id", None) or "tenant-default",
                     "type": r.type or "phone",
                     "value": r.value,
                     "reason": r.reason or "Manuel Engelleme",
@@ -31459,11 +32045,13 @@ async def list_blacklist():
     except Exception as e:
         print(f"[List Blacklist DB Warning]: {e}")
 
-    mem_items = settings_db.get("blacklist", [])
+    mem_items = [
+        m for m in (settings_db.get("blacklist", []) or [])
+        if isinstance(m, dict) and (target_tenant in ("all", "global") or _tenant_owns_record(m.get("tenant_id"), target_tenant))
+    ]
     if not db_ok:
         return mem_items
 
-    # Merge any memory-only items into DB so IDs and records stay 100% synchronized
     seen_keys = set()
     unified = []
     for item in db_items:
@@ -31474,7 +32062,6 @@ async def list_blacklist():
             seen_keys.add(key)
             unified.append(item)
 
-    mem_migrated = False
     for m in mem_items:
         m_val = (m.get("value") if isinstance(m, dict) else getattr(m, "value", "")).strip()
         if not m_val:
@@ -31487,30 +32074,27 @@ async def list_blacklist():
             m_reason = (m.get("reason") if isinstance(m, dict) else getattr(m, "reason", "Manuel Engelleme")) or "Manuel Engelleme"
             try:
                 async with AsyncSessionLocal() as session:
-                    new_db_item = BlacklistItem(type=m_type, value=m_val, reason=m_reason)
+                    new_db_item = BlacklistItem(tenant_id=target_tenant, type=m_type, value=m_val, reason=m_reason)
                     session.add(new_db_item)
                     await session.commit()
                     await session.refresh(new_db_item)
                     unified.append({
                         "id": new_db_item.id,
+                        "tenant_id": target_tenant,
                         "type": new_db_item.type,
                         "value": new_db_item.value,
                         "reason": new_db_item.reason,
                         "timestamp": new_db_item.timestamp.isoformat() if new_db_item.timestamp else datetime.datetime.utcnow().isoformat()
                     })
-                    mem_migrated = True
             except Exception:
-                unified.append(m if isinstance(m, dict) else {"id": getattr(m, "id", 0), "type": m_type, "value": m_val, "reason": m_reason})
-
-    if mem_migrated or len(unified) != len(mem_items):
-        settings_db["blacklist"] = unified
-        save_settings(settings_db)
+                unified.append(m if isinstance(m, dict) else {"id": getattr(m, "id", 0), "tenant_id": target_tenant, "type": m_type, "value": m_val, "reason": m_reason})
 
     return unified
 
 @app.post("/api/blacklist")
 @app.post("/blacklist")
-async def add_to_blacklist(payload: BlacklistItemSchema):
+async def add_to_blacklist(payload: BlacklistItemSchema, user_info: dict = Depends(get_user_info)):
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
     val = payload.value.strip()
     if not val:
         raise HTTPException(status_code=400, detail="Değer boş olamaz.")
@@ -31521,6 +32105,8 @@ async def add_to_blacklist(payload: BlacklistItemSchema):
 
     current_list = settings_db.setdefault("blacklist", [])
     for b in current_list:
+        if isinstance(b, dict) and not _tenant_owns_record(b.get("tenant_id"), target_tenant):
+            continue
         b_val = (b.get("value") if isinstance(b, dict) else getattr(b, "value", "")).strip()
         if b_val.lower() == val.lower():
             raise HTTPException(status_code=400, detail=f"Bu {label.lower()} ({val}) zaten kara listede mevcut.")
@@ -31531,6 +32117,7 @@ async def add_to_blacklist(payload: BlacklistItemSchema):
 
     new_item = {
         "id": int(datetime.datetime.now().timestamp() * 1000),
+        "tenant_id": target_tenant,
         "type": payload.type,
         "value": val,
         "reason": payload.reason.strip() if payload.reason else "Manuel Engelleme",
@@ -31540,6 +32127,10 @@ async def add_to_blacklist(payload: BlacklistItemSchema):
     try:
         async with AsyncSessionLocal() as session:
             stmt = select(BlacklistItem)
+            if is_default_tenant(target_tenant):
+                stmt = stmt.where((BlacklistItem.tenant_id == "tenant-default") | (BlacklistItem.tenant_id == "default") | (BlacklistItem.tenant_id.is_(None)))
+            else:
+                stmt = stmt.where(BlacklistItem.tenant_id == target_tenant)
             res = await session.execute(stmt)
             existing_items = res.scalars().all()
             for ex in existing_items:
@@ -31552,6 +32143,7 @@ async def add_to_blacklist(payload: BlacklistItemSchema):
                         raise HTTPException(status_code=400, detail=f"Bu {label.lower()} ({val}) zaten kara listede mevcut ({ex_val}).")
 
             item = BlacklistItem(
+                tenant_id=target_tenant,
                 type=payload.type,
                 value=val,
                 reason=payload.reason.strip() if payload.reason else "Manuel Engelleme"
@@ -31876,21 +32468,29 @@ async def list_chat_sessions(user_info: dict = Depends(get_user_info)):
     target_tenant = user_info.get("tenant_id") or "tenant-default"
     async with AsyncSessionLocal() as session:
         stmt = select(ChatSession)
-        if target_tenant not in ["all", "global"]:
+        if is_global_tenant(target_tenant):
+            pass
+        elif is_default_tenant(target_tenant):
             stmt = stmt.where(
                 or_(
-                    ChatSession.tenant_id == target_tenant,
                     ChatSession.tenant_id == "tenant-default",
                     ChatSession.tenant_id == "default",
                     ChatSession.tenant_id.is_(None)
                 )
             )
+        else:
+            stmt = stmt.where(ChatSession.tenant_id == target_tenant)
         stmt = stmt.order_by(ChatSession.last_message_time.desc())
         result = await session.execute(stmt)
         sessions = result.scalars().all()
         
-        # Load contacts to map caller numbers/emails to names
+        # Load contacts strictly scoped to this tenant
         stmt_contacts = select(Contact)
+        if not is_global_tenant(target_tenant) and hasattr(Contact, "tenant_id"):
+            if is_default_tenant(target_tenant):
+                stmt_contacts = stmt_contacts.where(or_(Contact.tenant_id.in_(["tenant-default", "default"]), Contact.tenant_id.is_(None)))
+            else:
+                stmt_contacts = stmt_contacts.where(Contact.tenant_id == target_tenant)
         res_contacts = await session.execute(stmt_contacts)
         contacts = res_contacts.scalars().all()
         contact_by_email = {
@@ -33189,7 +33789,15 @@ async def send_whatsapp_template_endpoint(payload: WhatsAppTemplateSendSchema, u
 
 @app.websocket("/ws/omnichannel")
 async def websocket_omnichannel(websocket: WebSocket):
-    await ws_manager.connect_omnichannel(websocket)
+    auth_u = _authenticate_websocket_session(websocket)
+    if not isinstance(auth_u, dict) or not auth_u.get("uid"):
+        await websocket.close(code=4401)
+        return
+    ws_tid = str(auth_u.get("tid") or "tenant-default")
+    is_prov = str(auth_u.get("role") or "").lower() == "nornia_root" or (bool(auth_u.get("root")) and is_default_tenant(ws_tid))
+    req_tid = (websocket.query_params.get("tenant_id") or "").strip()
+    eff_tid = req_tid if (is_prov and req_tid) else ws_tid
+    await ws_manager.connect_omnichannel(websocket, tenant_id=eff_tid)
     try:
         while True:
             await websocket.receive_text()
@@ -33208,16 +33816,24 @@ class QAQuestionSchema(BaseModel):
     is_active: bool = True
 
 @app.get("/api/qa/questions")
-async def get_qa_questions_endpoint(db: AsyncSession = Depends(get_db)):
+async def get_qa_questions_endpoint(user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
     from backend.database.models import QAQuestion
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
     stmt = select(QAQuestion).order_by(QAQuestion.id.asc())
+    if target_tenant not in ("all", "global"):
+        if is_default_tenant(target_tenant):
+            stmt = stmt.where((QAQuestion.tenant_id == "tenant-default") | (QAQuestion.tenant_id == "default") | (QAQuestion.tenant_id.is_(None)))
+        else:
+            stmt = stmt.where(QAQuestion.tenant_id == target_tenant)
     res = await db.execute(stmt)
     return res.scalars().all()
 
 @app.post("/api/qa/questions")
-async def create_qa_question_endpoint(payload: QAQuestionSchema, db: AsyncSession = Depends(get_db)):
+async def create_qa_question_endpoint(payload: QAQuestionSchema, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
     from backend.database.models import QAQuestion
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
     new_q = QAQuestion(
+        tenant_id=target_tenant,
         question=payload.question,
         max_score=payload.max_score,
         is_active=payload.is_active
@@ -33228,11 +33844,14 @@ async def create_qa_question_endpoint(payload: QAQuestionSchema, db: AsyncSessio
     return new_q
 
 @app.put("/api/qa/questions/{id}")
-async def update_qa_question_endpoint(id: int, payload: QAQuestionSchema, db: AsyncSession = Depends(get_db)):
+async def update_qa_question_endpoint(id: int, payload: QAQuestionSchema, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
     from backend.database.models import QAQuestion
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
     q = await db.get(QAQuestion, id)
     if not q:
         raise HTTPException(status_code=404, detail="Soru bulunamadı")
+    if target_tenant not in ("all", "global") and not _tenant_owns_record(getattr(q, "tenant_id", None), target_tenant):
+        raise HTTPException(status_code=403, detail="Bu soruyu düzenleme yetkiniz yok.")
     q.question = payload.question
     q.max_score = payload.max_score
     q.is_active = payload.is_active
@@ -33241,21 +33860,28 @@ async def update_qa_question_endpoint(id: int, payload: QAQuestionSchema, db: As
     return q
 
 @app.delete("/api/qa/questions/{id}")
-async def delete_qa_question_endpoint(id: int, db: AsyncSession = Depends(get_db)):
+async def delete_qa_question_endpoint(id: int, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
     from backend.database.models import QAQuestion
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
     q = await db.get(QAQuestion, id)
     if not q:
         raise HTTPException(status_code=404, detail="Soru bulunamadı")
+    if target_tenant not in ("all", "global") and not _tenant_owns_record(getattr(q, "tenant_id", None), target_tenant):
+        raise HTTPException(status_code=403, detail="Bu soruyu silme yetkiniz yok.")
     await db.delete(q)
     await db.commit()
     return {"status": "success", "message": "Soru silindi"}
 
 @app.get("/api/omnichannel/chats/{session_id}/qa")
-async def get_chat_session_qa(session_id: str, db: AsyncSession = Depends(get_db)):
+async def get_chat_session_qa(session_id: str, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
     from backend.database.models import ChatSession
     chat = await db.get(ChatSession, session_id)
     if not chat:
         raise HTTPException(status_code=404, detail="Sohbet oturumu bulunamadı")
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    if not user_info.get("is_provider_root") and target_tenant not in ("all", "global"):
+        if not _tenant_owns_record(getattr(chat, "tenant_id", None), target_tenant):
+            raise HTTPException(status_code=403, detail="Bu sohbete erişim yetkiniz yok.")
     return {
         "qa_score": chat.qa_score,
         "qa_report": chat.qa_report
@@ -36063,20 +36689,34 @@ async def get_agent_voicemails(
 
 
 @app.get("/api/voicemail/{vm_id}/audio")
-async def stream_voicemail_audio(vm_id: str, download: int = 0, db: AsyncSession = Depends(get_db)):
+async def stream_voicemail_audio(
+    vm_id: str,
+    download: int = 0,
+    user_info: dict = Depends(get_user_info),
+    db: AsyncSession = Depends(get_db),
+):
     clean_id = re.sub(r"[^a-zA-Z0-9_-]", "", str(vm_id or "").strip())
+    caller_tenant = user_info.get("tenant_id") or "tenant-default"
     stored_path = ""
+    vm_tenant = None
     try:
         row = await db.get(VoicemailMessage, clean_id)
-        if row and row.audio_path:
-            stored_path = str(row.audio_path)
+        if row:
+            vm_tenant = getattr(row, "tenant_id", None)
+            if row.audio_path:
+                stored_path = str(row.audio_path)
     except Exception:
         pass
     if not stored_path:
         for vm_d in (settings_db.get("voicemails") or []):
             if isinstance(vm_d, dict) and str(vm_d.get("id")) == clean_id:
                 stored_path = str(vm_d.get("audio_path") or "")
+                if vm_tenant is None:
+                    vm_tenant = vm_d.get("tenant_id")
                 break
+    if not user_info.get("is_provider_root") and caller_tenant not in ("all", "global"):
+        if vm_tenant is not None and not _tenant_owns_record(vm_tenant, caller_tenant):
+            raise HTTPException(status_code=403, detail="Bu sesli mesaja erişim yetkiniz yok.")
     wav_path = _resolve_voicemail_wav_path(clean_id, stored_path)
     if not os.path.exists(wav_path):
         raise HTTPException(status_code=404, detail="Sesli mesaj ses dosyası bulunamadı.")
@@ -38924,6 +39564,9 @@ async def verify_2fa(request: Request, response: Response, payload: Verify2FASch
         if payload.secret:
             return {}
         rem_flag = bool(payload.remember_me)
+        existing_auth = getattr(request.state, "auth_user", None)
+        if not payload.two_factor_token and not (isinstance(existing_auth, dict) and existing_auth.get("uid")):
+            raise HTTPException(status_code=401, detail="Geçerli 2FA doğrulama oturumu bulunamadı. Lütfen tekrar giriş yapın.")
         if payload.two_factor_token:
             chal = _verify_2fa_chal(payload.two_factor_token)
             if not chal:
@@ -38932,15 +39575,16 @@ async def verify_2fa(request: Request, response: Response, payload: Verify2FASch
         uid_s = str(u_obj.get("id") or u_obj.get("extension") or "admin")
         role_s = str(u_obj.get("role") or "agent")
         tid_s = str(u_obj.get("tenant_id") or "tenant-default")
+        is_root_2fa = role_s.lower() in ("admin", "superadmin") and is_default_tenant(tid_s)
         tok = _create_2fa_sess(
             user_id=uid_s,
             role=role_s,
             tenant_id=tid_s,
-            is_root=role_s.lower() in ("admin", "superadmin"),
+            is_root=is_root_2fa,
             remember_me=rem_flag,
         )
         _set_2fa_cookie(response, tok, request, remember_me=rem_flag)
-        return {"access_token": tok, "token_type": "Bearer"}
+        return {"access_token": tok, "token_type": "Bearer", "tenant_id": tid_s, "is_provider_root": is_root_2fa}
 
     uid_str = str(payload.user_id or "").strip()
     code = str(payload.code or "").strip()
@@ -40817,29 +41461,32 @@ async def startup_event():
                 if not isinstance(u, dict):
                     continue
                 u_ext = str(u.get("extension") or "").strip()
+                u_tid = str(u.get("tenant_id") or "tenant-default").strip() or "tenant-default"
                 if not u_ext:
                     continue
                 if str(u.get("sip_username") or "").strip().lower() == su_low or u_ext.lower() == su_low:
-                    return {"extension": u_ext, "sip_username": sip_user}
+                    return {"extension": u_ext, "sip_username": sip_user, "tenant_id": u_tid}
                 for d in u.get("sip_devices", []) or []:
                     if isinstance(d, dict) and str(d.get("sip_username") or "").strip().lower() == su_low:
-                        return {"extension": u_ext, "sip_username": sip_user}
+                        return {"extension": u_ext, "sip_username": sip_user, "tenant_id": u_tid}
             # 2. Check settings_db autoprovision table
             for ap in settings_db.get("autoprovision", []) or []:
                 if isinstance(ap, dict) and str(ap.get("sip_username") or "").strip().lower() == su_low:
                     ap_ext = str(ap.get("assigned_user") or ap.get("extension") or "").strip()
+                    ap_tid = str(ap.get("tenant_id") or "tenant-default").strip() or "tenant-default"
                     if ap_ext:
-                        return {"extension": ap_ext, "sip_username": sip_user}
+                        return {"extension": ap_ext, "sip_username": sip_user, "tenant_id": ap_tid}
             # 3. Fallback PostgreSQL SystemUser lookup
             try:
                 async with AsyncSessionLocal() as db_sess:
                     res_u = await db_sess.execute(select(SystemUser))
                     for su_row in res_u.scalars().all():
                         r_ext = str(su_row.extension or "").strip()
+                        r_tid = str(getattr(su_row, "tenant_id", None) or "tenant-default").strip() or "tenant-default"
                         if not r_ext:
                             continue
                         if str(su_row.sip_username or "").strip().lower() == su_low or r_ext.lower() == su_low:
-                            return {"extension": r_ext, "sip_username": sip_user}
+                            return {"extension": r_ext, "sip_username": sip_user, "tenant_id": r_tid}
                         raw_devs = su_row.sip_devices
                         if isinstance(raw_devs, str) and raw_devs.strip().startswith("["):
                             try:
@@ -40848,7 +41495,7 @@ async def startup_event():
                                 raw_devs = []
                         for d in (raw_devs or []):
                             if isinstance(d, dict) and str(d.get("sip_username") or "").strip().lower() == su_low:
-                                return {"extension": r_ext, "sip_username": sip_user}
+                                return {"extension": r_ext, "sip_username": sip_user, "tenant_id": r_tid}
             except Exception:
                 pass
             return None
@@ -41177,10 +41824,10 @@ async def clear_notification_history_endpoint(user_info: dict = Depends(get_user
 @app.get("/settings/users")
 async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
     explicit_q_tenant = request.query_params.get("tenant_id")
-    if explicit_q_tenant in ("all", "global"):
+    if explicit_q_tenant in ("all", "global") and user_info.get("is_provider_root"):
         target_tenant = explicit_q_tenant
     else:
-        target_tenant = user_info.get("tenant_id") or request.headers.get("X-Tenant-ID") or request.headers.get("Tenant-ID") or explicit_q_tenant or "tenant-default"
+        target_tenant = user_info.get("tenant_id") or "tenant-default"
     
     from backend.services.ami_manager import registered_endpoints, sync_pjsip_contacts_live
     await sync_pjsip_contacts_live(max_age_sec=4.0)
@@ -41714,6 +42361,7 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
                         model=str(_nd_item.get("model") or ""),
                         mac_hex=_nd_mh,
                         current_version=_nd_cur_fw,
+                        tenant_id=str(u.get("tenant_id") or "tenant-default"),
                     )
                     _nd_item["current_fw_version"] = _nd_cur_fw
                     _nd_item["target_fw_version"] = str((_nd_fw_res.get("fw") or {}).get("version") or "")
@@ -42707,6 +43355,9 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
 
         if not is_single and existing_users_db:
             for u in existing_users_db:
+                # Strict Multi-Tenant Guard: NEVER delete users belonging to other tenants during batch POST!
+                if not _tenant_owns_record(getattr(u, "tenant_id", None), target_tenant):
+                    continue
                 if u.id not in payload_user_ids and u.role != "admin" and str(u.id) != "admin":
                     changes.append({
                         "action": "DELETED",
@@ -43095,12 +43746,15 @@ async def update_single_user_endpoint(user_id: int, payload: UserSchema, backgro
 @app.delete("/settings/users/{user_id}")
 async def delete_single_user_endpoint(user_id: int, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
     try:
+        target_tenant = user_info.get("tenant_id") or "tenant-default"
         deleted_name = str(user_id)
         deleted_ext = ""
         try:
             res = await db.execute(select(SystemUser).where(SystemUser.id == user_id))
             u = res.scalars().first()
             if u:
+                if target_tenant not in ("all", "global") and not _tenant_owns_record(getattr(u, "tenant_id", None), target_tenant):
+                    raise HTTPException(status_code=403, detail="Başka bir firmanın kullanıcısını silemezsiniz.")
                 if u.role == "admin" or str(u.id) == "admin":
                     raise HTTPException(status_code=400, detail="Admin kullanıcısı silinemez.")
                 deleted_name = u.full_name or str(user_id)
@@ -43119,9 +43773,16 @@ async def delete_single_user_endpoint(user_id: int, user_info: dict = Depends(ge
         current_users = settings_db.get("users", [])
         for cu in current_users:
             if cu.get("id") == user_id:
+                if target_tenant not in ("all", "global") and not _tenant_owns_record(cu.get("tenant_id"), target_tenant):
+                    raise HTTPException(status_code=403, detail="Başka bir firmanın kullanıcısını silemezsiniz.")
                 deleted_name = cu.get("full_name") or cu.get("name") or deleted_name
                 deleted_ext = cu.get("extension") or deleted_ext
-        new_users = [u for u in current_users if u.get("id") != user_id or u.get("role") == "admin"]
+        new_users = [
+            u for u in current_users
+            if u.get("id") != user_id
+            or u.get("role") == "admin"
+            or (target_tenant not in ("all", "global") and not _tenant_owns_record(u.get("tenant_id"), target_tenant))
+        ]
         settings_db["needs_apply"] = True
         settings_db["users"] = new_users
 
@@ -43406,6 +44067,9 @@ def _extract_queue_member_exts(raw_members) -> set:
 @app.post("/settings/queues")
 async def new_save_queues_endpoint(payload: Union[List[Dict[str, Any]], Dict[str, Any]], background_tasks: BackgroundTasks, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
     try:
+        target_tenant = user_info.get("tenant_id") or "tenant-default"
+        if is_global_tenant(target_tenant):
+            target_tenant = "tenant-default"
         is_single = not isinstance(payload, list)
         items_list = [payload] if is_single else payload
 
@@ -43415,8 +44079,8 @@ async def new_save_queues_endpoint(payload: Union[List[Dict[str, Any]], Dict[str
             item_id = item_data.get("id")
             name_val = item_data.get("name")
             validate_number_range(ext_val, "queue")
-            check_extension_uniqueness(ext_val, "queue", item_id)
-            check_name_uniqueness(name_val, "queues", item_id, label="Kuyruk")
+            check_extension_uniqueness(ext_val, "queue", item_id, tenant_id=target_tenant)
+            check_name_uniqueness(name_val, "queues", item_id, label="Kuyruk", tenant_id=target_tenant)
 
         payload_queue_ids = set()
         queue_changes = []
@@ -43425,7 +44089,7 @@ async def new_save_queues_endpoint(payload: Union[List[Dict[str, Any]], Dict[str
 
         try:
             result = await db.execute(select(PBXQueue))
-            existing_queues_db = result.scalars().all()
+            existing_queues_db = [q for q in result.scalars().all() if _tenant_owns_record(getattr(q, "tenant_id", None), target_tenant)]
             existing_by_num = {str(getattr(q, 'extension', '')): q for q in existing_queues_db if getattr(q, 'extension', None)}
             existing_by_id = {q.id: q for q in existing_queues_db if q.id is not None}
 
@@ -43440,6 +44104,7 @@ async def new_save_queues_endpoint(payload: Union[List[Dict[str, Any]], Dict[str
                     target_q = existing_by_num[str(data.get("queue_number"))]
 
                 filtered_data = {k: v for k, v in data.items() if k in valid_keys and k != "id"}
+                filtered_data["tenant_id"] = target_tenant
                 if "periodic_announcement_interval" in filtered_data:
                     try:
                         filtered_data["periodic_announcement_interval"] = max(5, min(600, int(filtered_data.get("periodic_announcement_interval") or 30)))
@@ -43585,11 +44250,14 @@ async def update_single_queue_endpoint(queue_id: int, payload: Dict[str, Any], b
 @app.delete("/settings/queues/{queue_id}")
 async def delete_single_queue_endpoint(queue_id: int, background_tasks: BackgroundTasks, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
     try:
+        target_tenant = user_info.get("tenant_id") or "tenant-default"
         deleted_q_name = str(queue_id)
         deleted_q_ext = ""
         res = await db.execute(select(PBXQueue).where(PBXQueue.id == queue_id))
         q = res.scalars().first()
         if q:
+            if target_tenant not in ("all", "global") and not _tenant_owns_record(getattr(q, "tenant_id", None), target_tenant):
+                raise HTTPException(status_code=403, detail="Başka bir firmanın kuyruğunu silemezsiniz.")
             deleted_q_name = q.name or str(queue_id)
             deleted_q_ext = q.extension or ""
             await db.delete(q)
@@ -43618,7 +44286,13 @@ async def delete_single_queue_endpoint(queue_id: int, background_tasks: Backgrou
             ip_address=user_info.get("ip_address")
         ))
 
-        return {"status": "success", "queues": new_queues_out}
+        scoped_queues_out = (
+            new_queues_out if target_tenant in ("all", "global")
+            else [qi for qi in new_queues_out if _tenant_owns_record(qi.get("tenant_id"), target_tenant)]
+        )
+        return {"status": "success", "queues": scoped_queues_out}
+    except HTTPException:
+        raise
     except Exception as e:
         await db.rollback()
         raise HTTPException(status_code=500, detail=f"Kuyruk silinirken hata oluştu: {str(e)}")
@@ -44853,7 +45527,7 @@ async def new_add_or_update_trunk(payload: Union[List[Dict[str, Any]], Dict[str,
     trunk_changes = []
     try:
         res_existing = await db.execute(select(Trunk))
-        existing_trunks_db = res_existing.scalars().all()
+        existing_trunks_db = [t for t in res_existing.scalars().all() if _tenant_owns_record(getattr(t, "tenant_id", None), target_tenant)]
         existing_by_id = {t.id: t for t in existing_trunks_db if t.id}
         existing_by_name = {t.trunk_name: t for t in existing_trunks_db if t.trunk_name}
 
@@ -44864,6 +45538,7 @@ async def new_add_or_update_trunk(payload: Union[List[Dict[str, Any]], Dict[str,
             if isinstance(data.get("codecs"), list) and data.get("codecs"):
                 data["codec"] = ",".join([str(c).strip() for c in data["codecs"] if str(c).strip()])
             filtered_data = {k: v for k, v in data.items() if k in valid_keys and k != "id"}
+            filtered_data["tenant_id"] = target_tenant
 
             if "port" in filtered_data:
                 try:
@@ -44936,7 +45611,11 @@ async def new_add_or_update_trunk(payload: Union[List[Dict[str, Any]], Dict[str,
 
         res_all = await db.execute(select(Trunk).order_by(Trunk.id))
         all_trunks = res_all.scalars().all()
-        out = [{c.name: getattr(t, c.name) for c in t.__table__.columns} for t in all_trunks]
+        out = [
+            {c.name: getattr(t, c.name) for c in t.__table__.columns}
+            for t in all_trunks
+            if _tenant_owns_record(getattr(t, "tenant_id", None), target_tenant)
+        ]
     except Exception as e:
         await db.rollback()
         print(f"[Save Trunk DB Warning]: {e}")
@@ -45252,11 +45931,14 @@ async def get_trunk_package_usage_report(request: Request, user_info: dict = Dep
 @app.delete("/settings/trunks/{trunk_id}")
 async def new_delete_trunk(trunk_id: int, background_tasks: BackgroundTasks, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
     try:
+        target_tenant = user_info.get("tenant_id") or "tenant-default"
         deleted_trunk_name = str(trunk_id)
         deleted_trunk_host = ""
         res = await db.execute(select(Trunk).where(Trunk.id == trunk_id))
         t = res.scalars().first()
         if t:
+            if target_tenant not in ("all", "global") and not _tenant_owns_record(getattr(t, "tenant_id", None), target_tenant):
+                raise HTTPException(status_code=403, detail="Başka bir firmanın dış hattını (Trunk) silemezsiniz.")
             deleted_trunk_name = t.trunk_name or str(trunk_id)
             deleted_trunk_host = t.host or ""
             await db.delete(t)
@@ -45664,18 +46346,37 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.10.15",
+        "version": "v3.11.0",
         "commit_hash": live_commit,
         "release_date": "25 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
-        "environment": "Production (On-Premise)",
+        "environment": "Cloud Multi-Tenant & On-Premise",
         "changelog": [
             {
-                "version": "v3.10.15",
+                "version": "v3.11.0",
                 "commit_hash": live_commit,
                 "release_date": "25 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Bulut Santral (Multi-Tenant) Tam İzolasyon & Güvenlik Mimarisi",
+                "summary": "Çoklu müşteri (Cloud PBX) barındırma için tam tenant izolasyonu sağlandı. Yerel tek-tenant (tenant-default) kurulumlar %100 geriye uyumlu çalışırken ikincil müşteri tenant'ları birbirinin çağrılarını, kayıtlarını, kullanıcılarını, trunklarını, AI bilgi bankasını ve sunucu altyapısını göremez veya etkileyemez.",
+                "features": [
+                    "Oturum & Provider-Root Kilidi: X-Tenant-ID başlık sahteciliği (header spoofing) engellendi; yalnızca ana sağlayıcı yöneticisi (Provider Root) tenant değiştirebilir. Yeni tenant oluştururken ana sistem şifre/API anahtarı kopyalanması kapatıldı.",
+                    "Firma Kodu / Alt Alan Adı ile Bulut Giriş: Login ekranına isteğe bağlı (varsayılan gizli) Firma Kodu alanı ve subdomain (acme.nornia.com.tr) tespiti eklendi; yerel kurulumlarda ekstra adım gerektirmez.",
+                    "Asterisk & PJSIP Çoklu Tenant Temeli: İkincil tenant'larda SIP/WebPhone endpoint adları tenant bazlı tuzlanır (tenant-default mevcut telefonları aynen korunur), PJSIP endpoint'lerine __TENANT_ID atanır, dış hat seçimi ve dahili/pickup aramalarında çapraz-tenant bloklaması uygulanır.",
+                    "Tam API, Medya, WebSocket & AI İzolasyonu: Ses kayıtları, sesli mesajlar, transkriptler, wallboard, canlı dinleme/sufle/aktarma, RAG bilgi bankası, AI prompt & rehber transfer listesi, firma bazlı telefon firmware politikaları, tokenlı XML rehber ve WebSocket yayınları tenant bazlı izole edildi.",
+                    "Veritabanı Bileşik Benzersizlik (Composite Unique): Tüm çekirdek tablolara tenant_id sütunu ve (tenant_id, extension/phone/shortcut/role_code) bileşik tekillik indeksleri eklendi — farklı firmalar aynı dahili numaraları (1000, 1001...) çakışmadan kullanabilir."
+                ],
+                "fixes": [
+                    "Müşteri tenant yöneticilerinin Sunucu Kontrolü, Web SSH, NAT, Yedekleme, SSL, sngrep ve Tenant Yönetimi gibi host altyapı ekranlarına hem arayüzden (URL/Arama) hem API'den erişimi kapatıldı."
+                ]
+            },
+            {
+                "version": "v3.10.15",
+                "commit_hash": "30dad83c",
+                "release_date": "25 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "Provizyon Dosya İnceleyici & Otomatik Disk Snapshot Arşivi",
                 "summary": "Sorun giderme sırasında fiziksel telefonlara gönderilen ham .cfg / .xml provizyon dosyalarının hem arayüzden hem diskten birebir incelenebilmesi için otomatik snapshot kaydı ve arama özellikli kod inceleyici eklendi.",
                 "features": [
@@ -49876,13 +50577,15 @@ async def test_backup_external_storage_endpoint(payload: dict = Body(default={})
 
 
 @app.get("/api/system/backups/list")
-async def list_system_backups_endpoint():
+async def list_system_backups_endpoint(request: Request):
+    require_provider_root(request)
     items = await asyncio.to_thread(_list_all_backups_sync)
     return {"backups": items}
 
 
 @app.post("/api/system/backups/create")
-async def create_new_system_backup_endpoint(user_info: dict = Depends(get_user_info)):
+async def create_new_system_backup_endpoint(request: Request, user_info: dict = Depends(get_user_info)):
+    require_provider_root(request)
     try:
         res = await asyncio.to_thread(_create_full_system_backup_archive_sync, "manual")
         settings_db.setdefault("database_disaster_recovery", _get_db_dr_settings())["last_backup_at"] = res["created_at"]
@@ -49900,7 +50603,8 @@ async def create_new_system_backup_endpoint(user_info: dict = Depends(get_user_i
 
 
 @app.get("/api/system/backups/download/{filename}")
-async def download_named_backup_endpoint(filename: str):
+async def download_named_backup_endpoint(filename: str, request: Request):
+    require_provider_root(request)
     safe_fn = os.path.basename(filename)
     local_p = os.path.join(BACKUPS_DIR, safe_fn)
     if os.path.isfile(local_p):
@@ -49920,7 +50624,8 @@ async def download_named_backup_endpoint(filename: str):
 
 
 @app.delete("/api/system/backups/{filename}")
-async def delete_named_backup_endpoint(filename: str, user_info: dict = Depends(get_user_info)):
+async def delete_named_backup_endpoint(filename: str, request: Request, user_info: dict = Depends(get_user_info)):
+    require_provider_root(request)
     safe_fn = os.path.basename(filename)
     removed = False
     local_p = os.path.join(BACKUPS_DIR, safe_fn)
@@ -49953,7 +50658,8 @@ async def delete_named_backup_endpoint(filename: str, user_info: dict = Depends(
 
 
 @app.post("/api/system/backups/restore/{filename}")
-async def restore_named_backup_endpoint(filename: str, user_info: dict = Depends(get_user_info)):
+async def restore_named_backup_endpoint(filename: str, request: Request, user_info: dict = Depends(get_user_info)):
+    require_provider_root(request)
     safe_fn = os.path.basename(filename)
     target_path = os.path.join(BACKUPS_DIR, safe_fn)
     if not os.path.isfile(target_path):
@@ -49986,7 +50692,8 @@ async def restore_named_backup_endpoint(filename: str, user_info: dict = Depends
 
 
 @app.get("/api/system/backup")
-async def create_backup():
+async def create_backup(request: Request):
+    require_provider_root(request)
     try:
         res = await asyncio.to_thread(_create_full_system_backup_archive_sync, "direct_download")
         return FileResponse(path=res["local_path"], filename=res["filename"], media_type="application/gzip")
@@ -49995,7 +50702,8 @@ async def create_backup():
 
 
 @app.post("/api/system/backup/restore")
-async def restore_backup(file: UploadFile = File(...)):
+async def restore_backup(request: Request, file: UploadFile = File(...)):
+    require_provider_root(request)
     import tempfile
     temp_dir = tempfile.mkdtemp(prefix="ai_pbx_upload_")
     try:
@@ -53537,12 +54245,12 @@ async def ext_api_v1_download_recording(
     leg_index: Optional[int] = Query(None),
 ):
     """Çağrı Ses Kaydı Dosyasını (WAV) İndirme veya Dinleme (GET)"""
-    verify_external_api_request(request, settings_db, save_settings, "cdr:read")
+    auth = verify_external_api_request(request, settings_db, save_settings, "cdr:read")
     fname = f"{call_id}.wav" if not str(call_id).endswith(".wav") else str(call_id)
     if leg_index is not None:
         base_id = str(call_id).replace(".wav", "")
         fname = f"{base_id}_leg{leg_index}.wav"
-    return await get_recording_file(filename=fname)
+    return await get_recording_file(filename=fname, user_info=auth["user_info"])
 
 
 # --- 3. DAHİLİ ABONELER (KULLANICILAR) & MOLA YÖNETİMİ ---

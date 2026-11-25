@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { isProviderRootSession } from "../../utils/authStorage";
 import {
   Server,
   Smartphone,
@@ -650,11 +651,35 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
       "datetime-settings": "datetime_settings",
       version: "system_version"
     };
-    const providerInfraSubTabs = ["server-network", "server-control", "ras-settings", "server-ssh", "nat", "tenants"];
+    const providerInfraSubTabs = [
+      "server-network",
+      "server-control",
+      "ras-settings",
+      "server-ssh",
+      "nat",
+      "tenants",
+      "backup",
+      "restore-points",
+      "ssl",
+      "pbx",
+      "datetime-settings",
+      "federation-multisite",
+      "recording-retention",
+      "version"
+    ];
+    const activeTenantIdNow =
+      typeof window !== "undefined" ? (localStorage.getItem("active_tenant_id") || "tenant-default") : "tenant-default";
+    const isSecondaryCustomerTenant =
+      !isNorniaRoot &&
+      !isProviderRootSession() &&
+      activeTenantIdNow !== "tenant-default" &&
+      activeTenantIdNow !== "default" &&
+      activeTenantIdNow !== "all";
+    const enforceHideProviderInfra = hideProviderInfra || isSecondaryCustomerTenant;
 
     const isSubTabLicensed = (subId) => {
       if (isNorniaRoot) return true;
-      if (hideProviderInfra && providerInfraSubTabs.includes(subId)) return false;
+      if (enforceHideProviderInfra && providerInfraSubTabs.includes(subId)) return false;
       if (["roles", "kvkk-consent", "federation-multisite", "datetime-settings", "license", "version", "server-control"].includes(subId)) return true;
       if (!Array.isArray(licensedFeatures) || licensedFeatures.includes("*")) return true;
       const mappedFeat = subTabToFeatureMap[subId] || subId;
@@ -688,15 +713,33 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
     hideProviderInfra
   ]);
 
-  // Keep activeCategory synchronized whenever activeSubTab changes (e.g., via URL slug or GlobalSearchBar)
+  const allowedSubTabIds = useMemo(() => {
+    const s = new Set();
+    categories.forEach((cat) => {
+      (cat.items || []).forEach((it) => s.add(it.id));
+    });
+    return s;
+  }, [categories]);
+
+  // Keep activeCategory synchronized and redirect away from restricted/unlicensed subtabs (e.g. direct URL slug)
   useEffect(() => {
+    if (categories.length === 0) return;
+    if (!allowedSubTabIds.has(activeSubTab)) {
+      const firstCat = categories[0];
+      const firstSub = firstCat?.items?.[0]?.id;
+      if (firstSub && firstSub !== activeSubTab) {
+        setActiveCategory(firstCat.id);
+        setActiveSubTab(firstSub);
+      }
+      return;
+    }
     const matchedCat = categories.find((cat) =>
       cat.items.some((item) => item.id === activeSubTab)
     );
     if (matchedCat && matchedCat.id !== activeCategory) {
       setActiveCategory(matchedCat.id);
     }
-  }, [activeSubTab, categories]);
+  }, [activeSubTab, categories, allowedSubTabIds]);
 
   const handleCategorySelect = (categoryId) => {
     setActiveCategory(categoryId);
@@ -902,6 +945,8 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             key={activeSubTab}
             className="flex-1 min-w-0 w-full flex flex-col gap-6 aida-panel-enter"
           >
+            {allowedSubTabIds.has(activeSubTab) && (
+              <>
             {activeSubTab === "pbx" && <PBXSettings backendHost={backendHost} />}
             {activeSubTab === "server-network" && (
               <ServerNetworkSettingsPanel backendHost={backendHost} />
@@ -993,6 +1038,8 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
               />
             )}
             {activeSubTab === "version" && <ChangelogPanel backendHost={backendHost} />}
+              </>
+            )}
           </div>
         </div>
       )}

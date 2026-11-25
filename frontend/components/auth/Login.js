@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Lock, Mail, ArrowRight, BrainCircuit, User, Smartphone, KeyRound, RefreshCw, Copy, Check, PhoneCall, Eye, EyeOff, CheckCircle2, AlertCircle } from "lucide-react";
+import { Lock, Mail, ArrowRight, BrainCircuit, User, Smartphone, KeyRound, RefreshCw, Copy, Check, PhoneCall, Eye, EyeOff, CheckCircle2, AlertCircle, Building2 } from "lucide-react";
 import { useTheme } from "../../utils/theme";
 import { getApiBaseUrl } from "../../utils/apiHost";
 import {
@@ -15,6 +15,8 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
   
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [tenantCode, setTenantCode] = useState("");
+  const [showTenantInput, setShowTenantInput] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
@@ -28,6 +30,16 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
     if (saved.rememberMe) {
       if (saved.username) setUsername(saved.username);
       if (saved.password) setPassword(saved.password);
+    }
+    if (typeof window !== "undefined") {
+      try {
+        const params = new URLSearchParams(window.location.search || "");
+        const qTenant = (params.get("tenant") || params.get("firma") || params.get("tenant_code") || "").trim();
+        if (qTenant) {
+          setTenantCode(qTenant);
+          setShowTenantInput(true);
+        }
+      } catch (e) {}
     }
   }, []);
 
@@ -313,7 +325,7 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
     setShowPassword(false);
     setIsLoading(true);
     setTimeout(async () => {
-      const result = await Promise.resolve(onLogin(username, password, rememberMe));
+      const result = await Promise.resolve(onLogin(username, password, rememberMe, tenantCode));
       if (result && result.success && !result.requires2fa) {
         saveRememberedCredentials(username, password, rememberMe);
       }
@@ -614,6 +626,49 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
                     {showPassword ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}
                   </button>
                 </div>
+
+                {showTenantInput ? (
+                  <div className="relative">
+                    <label htmlFor="login-tenant-code" className="sr-only">
+                      Firma Kodu (Bulut Santral)
+                    </label>
+                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400 dark:text-slate-400/70 z-10">
+                      <Building2 size={17} aria-hidden="true" />
+                    </div>
+                    <input
+                      id="login-tenant-code"
+                      name="tenantCode"
+                      type="text"
+                      spellCheck={false}
+                      autoCapitalize="none"
+                      value={tenantCode}
+                      onChange={(e) => setTenantCode(e.target.value)}
+                      className="w-full pl-11 pr-20 py-3 bg-white/50 dark:bg-black/20 border border-slate-200/80 dark:border-white/5 rounded-2xl text-xs text-slate-800 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all hover:bg-white/80 dark:hover:bg-black/30"
+                      placeholder="Firma Kodu (örn: acme — yerel kurulumda boş bırakın)"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTenantCode("");
+                        setShowTenantInput(false);
+                      }}
+                      className="absolute inset-y-0 right-0 px-3 text-[11px] font-semibold text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                    >
+                      Gizle
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex justify-end px-1 -mt-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowTenantInput(true)}
+                      className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-400 hover:text-indigo-500 dark:text-slate-500 dark:hover:text-indigo-400 transition-colors cursor-pointer"
+                    >
+                      <Building2 size={12} aria-hidden="true" />
+                      <span>Firma kodu ile giriş (Bulut)</span>
+                    </button>
+                  </div>
+                )}
 
                 <div className="flex items-center justify-between px-1 pt-1 pb-0.5">
                   <label

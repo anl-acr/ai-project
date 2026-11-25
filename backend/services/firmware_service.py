@@ -78,10 +78,32 @@ def ensure_firmware_settings_schema(settings_db: Dict[str, Any]) -> None:
         settings_db["phone_firmware_logs"] = []
 
 
-def make_policy_key(brand: str, model: str) -> str:
+def _is_default_fw_tenant(tenant_id: Optional[str]) -> bool:
+    return str(tenant_id or "").strip().lower() in ("", "default", "tenant-default")
+
+
+def fw_belongs_to_tenant(fw_item: Dict[str, Any], target_tenant: str, include_shared_default: bool = False) -> bool:
+    if not isinstance(fw_item, dict):
+        return False
+    t_low = str(target_tenant or "tenant-default").strip().lower()
+    if t_low in ("all", "global"):
+        return True
+    item_tid = str(fw_item.get("tenant_id") or "tenant-default").strip().lower()
+    if _is_default_fw_tenant(t_low):
+        return _is_default_fw_tenant(item_tid)
+    if item_tid == t_low:
+        return True
+    if include_shared_default and _is_default_fw_tenant(item_tid):
+        return True
+    return False
+
+
+def make_policy_key(brand: str, model: str, tenant_id: str = "tenant-default") -> str:
     b = re.sub(r"\s+", " ", str(brand or "").strip()).lower()
     m = re.sub(r"\s+", " ", str(model or "").strip()).lower()
-    return f"{b}::{m}"
+    if _is_default_fw_tenant(tenant_id):
+        return f"{b}::{m}"
+    return f"{str(tenant_id).strip().lower()}::{b}::{m}"
 
 
 def normalize_model_key(model: str) -> str:
@@ -315,11 +337,18 @@ def save_uploaded_firmware(
     return record
 
 
-def delete_firmware_package(settings_db: Dict[str, Any], fw_id: str, actor: str = "admin") -> Optional[Dict[str, Any]]:
+def delete_firmware_package(
+    settings_db: Dict[str, Any],
+    fw_id: str,
+    actor: str = "admin",
+    tenant_id: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
     ensure_firmware_settings_schema(settings_db)
     target = next((f for f in settings_db["phone_firmwares"] if str(f.get("id")) == str(fw_id)), None)
     if not target:
         return None
+    if tenant_id and not fw_belongs_to_tenant(target, tenant_id):
+        raise PermissionError("Bu firmware paketi başka bir müşteriye (tenant) aittir.")
 
     settings_db["phone_firmwares"] = [
         f for f in settings_db["phone_firmwares"] if str(f.get("id")) != str(fw_id)
@@ -415,9 +444,10 @@ def set_model_firmware_policy(
     fw_id: Optional[str],
     auto_apply: bool = True,
     actor: str = "admin",
+    tenant_id: str = "tenant-default",
 ) -> Dict[str, Any]:
     ensure_firmware_settings_schema(settings_db)
-    pkey = make_policy_key(brand, model)
+    pkey = make_policy_key(brand, model, tenant_id=tenant_id)
     if not fw_id:
         settings_db["phone_firmware_policies"].pop(pkey, None)
         append_firmware_log(
@@ -427,17 +457,19 @@ def set_model_firmware_policy(
             version="",
             detail=f"{brand} {model} için hedef firmware politikası kaldırıldı.",
             actor=actor,
+            tenant_id=tenant_id,
         )
         return {"policy_key": pkey, "removed": True}
 
     fw = get_firmware_by_id(settings_db, fw_id)
-    if not fw:
+    if not fw or not fw_belongs_to_tenant(fw, tenant_id):
         raise ValueError("Seçilen firmware paketi bulunamadı.")
     if not model_matches_compatible_list(brand, model, fw):
         raise ValueError(f"Bu firmware ({fw.get('version')}) {brand} {model} modeli ile uyumlu değil.")
 
     pol = {
         "policy_key": pkey,
+        "tenant_id": tenant_id,
         "brand": brand,
         "model": model,
         "fw_id": fw["id"],
@@ -454,6 +486,7 @@ def set_model_firmware_policy(
         version=fw["version"],
         detail=f"{brand} {model} hedef sürümü {fw['version']} olarak ayarlandı.",
         actor=actor,
+        tenant_id=tenant_id,
     )
     return pol
 
@@ -464,10 +497,11 @@ def resolve_target_firmware_for_device(
     model: str,
     mac_hex: str = "",
     current_version: str = "",
+    tenant_id: str = "tenant-default",
 ) -> Dict[str, Any]:
     """
     Determines whether a device has a target firmware (via device override or model policy)
-    and whether the provisioning file should inject the firmware upgrade directive.
+    scoped strictly to `tenant_id`.
     """
     ensure_firmware_settings_schema(settings_db)
     mac_k = str(mac_hex or "").strip().lower()
@@ -480,29 +514,30 @@ def resolve_target_firmware_for_device(
     ov = settings_db["phone_firmware_overrides"].get(mac_k) if mac_k else None
     if isinstance(ov, dict) and ov.get("fw_id"):
         cand = get_firmware_by_id(settings_db, ov["fw_id"])
-        if cand and model_matches_compatible_list(brand, model, cand):
+        if cand and fw_belongs_to_tenant(cand, tenant_id) and model_matches_compatible_list(brand, model, cand):
             fw = cand
             source = "device_override"
             force_reinstall = bool(ov.get("force", False))
             allow_downgrade = bool(ov.get("allow_downgrade", False))
 
-    # 2. Model-level policy
+    # 2. Model-level policy (tenant-isolated)
     if fw is None:
-        pkey = make_policy_key(brand, model)
+        pkey = make_policy_key(brand, model, tenant_id=tenant_id)
         pol = settings_db["phone_firmware_policies"].get(pkey)
         if not isinstance(pol, dict):
-            # Fallback normalized match (e.g. GRP2602 vs GRP2602P)
             dev_m_n = normalize_model_key(model)
             b_low = str(brand or "").strip().lower()
             for _, p_val in settings_db["phone_firmware_policies"].items():
                 if not isinstance(p_val, dict):
+                    continue
+                if not fw_belongs_to_tenant(p_val, tenant_id):
                     continue
                 if str(p_val.get("brand") or "").strip().lower() == b_low and normalize_model_key(p_val.get("model") or "") == dev_m_n:
                     pol = p_val
                     break
         if isinstance(pol, dict) and pol.get("fw_id"):
             cand = get_firmware_by_id(settings_db, pol["fw_id"])
-            if cand and model_matches_compatible_list(brand, model, cand):
+            if cand and fw_belongs_to_tenant(cand, tenant_id) and model_matches_compatible_list(brand, model, cand):
                 fw = cand
                 source = "model_policy"
 
@@ -556,17 +591,10 @@ def build_firmware_provisioning_directive(
     mac_hex: str,
     provision_server_url: str,
     current_user_agent: str = "",
+    tenant_id: str = "tenant-default",
 ) -> Dict[str, Any]:
     """
     Builds brand-specific firmware provisioning directives for `generate_provisioning_config`.
-    Returns dict with keys:
-      - active (bool)
-      - brand_low (str)
-      - yealink_lines (List[str])
-      - grandstream_lines (List[str])
-      - fanvil_lines (List[str])
-      - cisco_lines (List[str])
-      - fw_id, fw_version, download_url
     """
     cur_ver = parse_firmware_version_from_ua(current_user_agent, brand=brand)
     res = resolve_target_firmware_for_device(
@@ -575,6 +603,7 @@ def build_firmware_provisioning_directive(
         model=model,
         mac_hex=mac_hex,
         current_version=cur_ver,
+        tenant_id=tenant_id,
     )
     b_low = str(brand or "").strip().lower()
     base_url = str(provision_server_url or "").strip().rstrip("/")
@@ -696,6 +725,7 @@ def append_firmware_log(
     mac_hex: str = "",
     detail: str = "",
     actor: str = "system",
+    tenant_id: str = "tenant-default",
 ) -> None:
     ensure_firmware_settings_schema(settings_db)
     logs = settings_db["phone_firmware_logs"]
@@ -703,6 +733,7 @@ def append_firmware_log(
         0,
         {
             "timestamp": _now_tr_str(),
+            "tenant_id": tenant_id,
             "event": event,
             "brand": brand,
             "version": version,
@@ -715,12 +746,14 @@ def append_firmware_log(
         del logs[200:]
 
 
-def compute_firmware_storage_stats(settings_db: Dict[str, Any]) -> Dict[str, Any]:
+def compute_firmware_storage_stats(settings_db: Dict[str, Any], target_tenant: str = "all") -> Dict[str, Any]:
     ensure_firmware_settings_schema(settings_db)
-    total_bytes = sum(int(f.get("size_bytes") or 0) for f in settings_db["phone_firmwares"])
+    pkgs = [f for f in settings_db["phone_firmwares"] if fw_belongs_to_tenant(f, target_tenant)]
+    pols = [p for p in settings_db["phone_firmware_policies"].values() if isinstance(p, dict) and fw_belongs_to_tenant(p, target_tenant)]
+    total_bytes = sum(int(f.get("size_bytes") or 0) for f in pkgs)
     return {
-        "package_count": len(settings_db["phone_firmwares"]),
-        "policy_count": len(settings_db["phone_firmware_policies"]),
+        "package_count": len(pkgs),
+        "policy_count": len(pols),
         "total_bytes": total_bytes,
         "total_mb": round(total_bytes / (1024 * 1024), 2),
     }

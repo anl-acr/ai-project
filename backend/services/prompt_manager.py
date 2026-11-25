@@ -83,18 +83,26 @@ def _compile_scenario_flow(scenario_flow: dict) -> str:
     return "\n".join(compiled_parts)
 
 
-async def get_active_rules_list() -> list:
+async def get_active_rules_list(tenant_id: str = "tenant-default") -> list:
     """
     Fetches active rules from both PostgreSQL Rule table and settings.json fallback,
-    returning a deduplicated list of dicts.
+    strictly isolated by `tenant_id`, returning a deduplicated list of dicts.
     """
     collected = []
     seen_keys = set()
+    tid_s = str(tenant_id or "tenant-default").strip() or "tenant-default"
+    is_def_tid = tid_s in ("tenant-default", "default")
 
     # 1. Fetch from PostgreSQL / SQLite database
     try:
         async with AsyncSessionLocal() as session:
-            stmt = select(Rule).where(Rule.is_active == True).order_by(Rule.id.asc())
+            stmt = select(Rule).where(Rule.is_active == True)
+            if tid_s not in ("all", "global"):
+                if is_def_tid:
+                    stmt = stmt.where((Rule.tenant_id.in_(["tenant-default", "default"])) | (Rule.tenant_id.is_(None)))
+                else:
+                    stmt = stmt.where(Rule.tenant_id == tid_s)
+            stmt = stmt.order_by(Rule.id.asc())
             result = await session.execute(stmt)
             db_rules = result.scalars().all()
             for r in db_rules:
@@ -113,12 +121,18 @@ async def get_active_rules_list() -> list:
     except Exception as e:
         print(f"[Prompt Manager] DB Rule okuma hatasi: {e}")
 
-    # 2. Merge any active rules from settings.json fallback
+    # 2. Merge any active rules from settings.json fallback (tenant-isolated)
     try:
         s_data = _load_settings_json()
         for sr in s_data.get("rules", []):
             if not isinstance(sr, dict) or not sr.get("is_active", True):
                 continue
+            sr_tid = str(sr.get("tenant_id") or "tenant-default").strip()
+            if tid_s not in ("all", "global"):
+                if is_def_tid and sr_tid not in ("tenant-default", "default", ""):
+                    continue
+                if not is_def_tid and sr_tid != tid_s:
+                    continue
             item = {
                 "id": sr.get("id"),
                 "rule_type": (sr.get("rule_type") or "faq").strip(),
@@ -281,13 +295,15 @@ async def compile_system_prompt(agent: dict = None) -> str:
         prompt += "\n[AKTİF DİNLEME VE ONAYLAMA (BACKCHANNELING)]: Müşterinin söylediklerini dikkatle dinlediğini hissettirmek için yanıtlarına doğal onaylama ifadeleriyle ('Anlıyorum', 'Tabii ki', 'Çok haklısınız', 'Memnuniyetle') başla.\n"
 
     try:
-        active_rules = await get_active_rules_list()
+        eff_tid = str((agent or {}).get("tenant_id") or "tenant-default").strip() or "tenant-default"
+        is_def_tid = eff_tid in ("tenant-default", "default")
+        active_rules = await get_active_rules_list(tenant_id=eff_tid)
         rules_block = build_mandatory_rules_block(active_rules, agent)
         if rules_block:
             prompt += "\n" + rules_block
-            print(f"[Prompt Manager] {len(active_rules)} aktif kural ve senaryo talimatı sisteme işlendi.")
+            print(f"[Prompt Manager] {len(active_rules)} aktif kural ve senaryo talimatı sisteme işlendi (tenant={eff_tid}).")
 
-        # Inject active system users directory for dynamic name-based extension transfer
+        # Inject active system users directory strictly scoped to this tenant
         if allow_directory_transfer:
             try:
                 user_list = []
@@ -295,6 +311,11 @@ async def compile_system_prompt(agent: dict = None) -> str:
                     from backend.database.models import SystemUser
                     async with AsyncSessionLocal() as session:
                         stmt = select(SystemUser).where(SystemUser.is_active == True)
+                        if eff_tid not in ("all", "global"):
+                            if is_def_tid:
+                                stmt = stmt.where((SystemUser.tenant_id.in_(["tenant-default", "default"])) | (SystemUser.tenant_id.is_(None)))
+                            else:
+                                stmt = stmt.where(SystemUser.tenant_id == eff_tid)
                         res = await session.execute(stmt)
                         db_users = res.scalars().all()
                         if db_users:
@@ -306,8 +327,15 @@ async def compile_system_prompt(agent: dict = None) -> str:
                 if not user_list:
                     s_data = _load_settings_json()
                     for u in s_data.get("users", []):
-                        if u.get("is_active", True):
-                            user_list.append({"full_name": u.get("full_name"), "extension": u.get("extension"), "role": u.get("role")})
+                        if not u.get("is_active", True):
+                            continue
+                        u_tid = str(u.get("tenant_id") or "tenant-default").strip()
+                        if eff_tid not in ("all", "global"):
+                            if is_def_tid and u_tid not in ("tenant-default", "default", ""):
+                                continue
+                            if not is_def_tid and u_tid != eff_tid:
+                                continue
+                        user_list.append({"full_name": u.get("full_name"), "extension": u.get("extension"), "role": u.get("role")})
 
                 if user_list:
                     dir_prompt = "\n\n--- SİSTEM DAHİLİ VE PERSONEL REHBERİ (İSİMLE TRANSFER) ---\n"

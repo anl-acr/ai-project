@@ -186,17 +186,22 @@ async def index_manual_text(title: str, text: str, tenant_id: str = "tenant-defa
         await session.commit()
     print(f"[RAG] Manuel metin indekslendi! Toplam chunk: {len(chunks)}")
 
-async def delete_indexed_source(source_name: str):
-    """Deletes all chunks belonging to a specific source from database."""
-    print(f"[RAG] Kaynak siliniyor: {source_name}")
+async def delete_indexed_source(source_name: str, tenant_id: str = None):
+    """Deletes all chunks belonging to a specific source scoped strictly to tenant_id."""
+    print(f"[RAG] Kaynak siliniyor: {source_name} (tenant={tenant_id or 'default'})")
     async with AsyncSessionLocal() as session:
         stmt = delete(DocumentChunk).where(DocumentChunk.filename == source_name)
+        if tenant_id and tenant_id not in ("all", "global"):
+            if tenant_id in ("tenant-default", "default"):
+                stmt = stmt.where((DocumentChunk.tenant_id.in_(["tenant-default", "default"])) | (DocumentChunk.tenant_id.is_(None)))
+            else:
+                stmt = stmt.where(DocumentChunk.tenant_id == tenant_id)
         await session.execute(stmt)
         await session.commit()
     print(f"[RAG] Kaynak başarıyla silindi: {source_name}")
 
-async def query_vector_search(query: str, limit: int = None) -> str:
-    """Performs semantic search using pgvector cosine distance, filtering by similarity_threshold."""
+async def query_vector_search(query: str, limit: int = None, tenant_id: str = "tenant-default") -> str:
+    """Performs semantic search using pgvector cosine distance, strictly isolated by tenant_id."""
     try:
         query_embedding = await generate_embedding(query)
         settings = get_rag_settings()
@@ -205,13 +210,14 @@ async def query_vector_search(query: str, limit: int = None) -> str:
         threshold = settings.get("similarity_threshold", 0.5)
         
         async with AsyncSessionLocal() as session:
-            # Query chunks along with cosine distance
             distance_expr = DocumentChunk.embedding.cosine_distance(query_embedding)
-            stmt = (
-                select(DocumentChunk, distance_expr)
-                .order_by(distance_expr)
-                .limit(top_k)
-            )
+            stmt = select(DocumentChunk, distance_expr)
+            if tenant_id and tenant_id not in ("all", "global"):
+                if tenant_id in ("tenant-default", "default"):
+                    stmt = stmt.where((DocumentChunk.tenant_id.in_(["tenant-default", "default"])) | (DocumentChunk.tenant_id.is_(None)))
+                else:
+                    stmt = stmt.where(DocumentChunk.tenant_id == tenant_id)
+            stmt = stmt.order_by(distance_expr).limit(top_k)
             result = await session.execute(stmt)
             rows = result.all()
             

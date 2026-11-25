@@ -56,6 +56,7 @@ class DFKSDialog:
     expires_at: float
     cseq_out: int = 1
     user_agent: str = ""
+    tenant_id: str = "tenant-default"
     updated_at: float = field(default_factory=time.time)
 
 
@@ -645,6 +646,7 @@ class NorniaDFKSServer:
             expires_at=time.time() + expires,
             cseq_out=(existing.cseq_out if existing else 1),
             user_agent=ua_h,
+            tenant_id=str(resolved.get("tenant_id") or "tenant-default").strip() or "tenant-default",
             updated_at=time.time(),
         )
         self._dialogs[call_id] = dlg
@@ -689,21 +691,31 @@ class NorniaDFKSServer:
         ext: str,
         live_state: Dict[str, Any],
         exclude_sip_username: Optional[str] = None,
+        tenant_id: Optional[str] = None,
     ) -> Set[str]:
         """
         Thread-safe push of live DND + 3-level Call Forwarding state to all active DFKS
-        subscriptions belonging to `ext`. Returns the set of `sip_username`s that received
-        a live DFKS NOTIFY push.
+        subscriptions belonging to `ext` (scoped to `tenant_id` when provided).
         """
         self._prune_expired()
         ext_s = str(ext or "").strip()
         excl = str(exclude_sip_username or "").strip().lower()
+        t_filter = str(tenant_id or "").strip()
         if not ext_s or not self._loop or not self._transport:
             return set()
 
+        def _tid_matches(d_tid: str) -> bool:
+            if not t_filter or t_filter in ("all", "global"):
+                return True
+            if t_filter in ("tenant-default", "default"):
+                return d_tid in ("", "tenant-default", "default")
+            return d_tid == t_filter
+
         matched_dialogs = [
             d for d in self._dialogs.values()
-            if d.extension == ext_s and (not excl or d.sip_username.lower() != excl)
+            if d.extension == ext_s
+            and _tid_matches(str(getattr(d, "tenant_id", "tenant-default") or "tenant-default"))
+            and (not excl or d.sip_username.lower() != excl)
         ]
         if not matched_dialogs:
             return set()

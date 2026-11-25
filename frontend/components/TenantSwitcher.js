@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Building2, ChevronDown, Check, ShieldCheck, Lock, Globe } from "lucide-react";
 import useClickOutside from "../utils/useClickOutside";
+import { isProviderRootSession } from "../utils/authStorage";
 
 const ALL_TENANTS_OPTION = { id: "all", name: "Tüm Sistemler (Tümünü Gör)", code: "all", is_all: true };
 
@@ -10,8 +11,7 @@ export default function TenantSwitcher({ backendHost, currentUser }) {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useClickOutside(() => setIsOpen(false));
 
-  const savedUserId = typeof window !== "undefined" ? (localStorage.getItem("current_user_id") || sessionStorage.getItem("current_user_id")) : "";
-  const isSuperAdmin = currentUser?.username === "admin" || currentUser?.id === "admin" || savedUserId === "admin";
+  const isSuperAdmin = isProviderRootSession(currentUser);
   const isAdmin = isSuperAdmin;
 
   useEffect(() => {

@@ -42,6 +42,28 @@ advanced_reports_router = APIRouter()
 
 
 def _extract_tenant_id(request: Request) -> str:
+    """
+    Strictly resolves tenant_id from the signed session (`request.state.auth_user`).
+    Only provider-root sessions may switch tenant via X-Tenant-ID / ?tenant_id=.
+    """
+    auth_u = getattr(request.state, "auth_user", None)
+    if isinstance(auth_u, dict) and auth_u.get("uid"):
+        sess_tid = str(auth_u.get("tid") or "tenant-default").strip() or "tenant-default"
+        role_low = str(auth_u.get("role") or "").strip().lower()
+        is_prov_root = role_low == "nornia_root" or (
+            (bool(auth_u.get("root")) or role_low in ("admin", "superadmin"))
+            and sess_tid in ("", "tenant-default", "default")
+        )
+        if is_prov_root:
+            req_tid = (
+                request.headers.get("X-Tenant-ID")
+                or request.headers.get("Tenant-ID")
+                or request.query_params.get("tenant_id")
+                or ""
+            ).strip()
+            if req_tid:
+                return req_tid
+        return sess_tid
     tid = (
         request.headers.get("X-Tenant-ID")
         or request.headers.get("Tenant-ID")

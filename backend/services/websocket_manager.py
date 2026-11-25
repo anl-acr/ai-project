@@ -1,13 +1,21 @@
 import asyncio
-from typing import Dict, List
+from typing import Dict, List, Optional
 from fastapi import WebSocket
+
+
+def _norm_ws_tid(tid: Optional[str]) -> str:
+    s = str(tid or "tenant-default").strip().lower()
+    if s in ("", "default", "tenant-default"):
+        return "tenant-default"
+    return s
+
 
 class ConnectionManager:
     def __init__(self):
         # Maps call_id -> list of WebSockets (agents viewing the call)
         self.active_connections: Dict[str, List[WebSocket]] = {}
-        # List of WebSockets connected to global omnichannel updates
-        self.omnichannel_connections: List[WebSocket] = []
+        # Maps WebSocket -> tenant_id ("tenant-default", "tenant-acme", or "all" for provider-root global monitor)
+        self.omnichannel_connections: Dict[WebSocket, str] = {}
 
     async def connect(self, call_id: str, websocket: WebSocket):
         await websocket.accept()
@@ -17,7 +25,8 @@ class ConnectionManager:
 
     def disconnect(self, call_id: str, websocket: WebSocket):
         if call_id in self.active_connections:
-            self.active_connections[call_id].remove(websocket)
+            if websocket in self.active_connections[call_id]:
+                self.active_connections[call_id].remove(websocket)
             if not self.active_connections[call_id]:
                 del self.active_connections[call_id]
 
@@ -28,34 +37,39 @@ class ConnectionManager:
                 "type": "transcript",
                 "call_id": call_id,
                 "speaker": speaker,
-                "text": text
+                "text": text,
             }
-            for connection in self.active_connections[call_id]:
+            for connection in list(self.active_connections[call_id]):
                 try:
                     await connection.send_json(message)
                 except Exception:
-                    # Connection closed or dead
                     pass
 
-    async def connect_omnichannel(self, websocket: WebSocket):
+    async def connect_omnichannel(self, websocket: WebSocket, tenant_id: str = "tenant-default"):
         await websocket.accept()
-        self.omnichannel_connections.append(websocket)
+        self.omnichannel_connections[websocket] = _norm_ws_tid(tenant_id)
 
     def disconnect_omnichannel(self, websocket: WebSocket):
-        if websocket in self.omnichannel_connections:
-            self.omnichannel_connections.remove(websocket)
+        self.omnichannel_connections.pop(websocket, None)
 
-    async def broadcast_omnichannel_event(self, event: dict):
-        """Sends a JSON event to all connected omnichannel workspace clients."""
+    async def broadcast_omnichannel_event(self, event: dict, tenant_id: Optional[str] = None):
+        """Sends a JSON event ONLY to connected omnichannel clients belonging to the same tenant."""
+        ev_tid = _norm_ws_tid(
+            tenant_id
+            or (event.get("tenant_id") if isinstance(event, dict) else None)
+            or ((event.get("session") or {}).get("tenant_id") if isinstance(event, dict) and isinstance(event.get("session"), dict) else None)
+        )
         to_remove = []
-        for connection in self.omnichannel_connections:
+        for connection, sock_tid in list(self.omnichannel_connections.items()):
+            if sock_tid not in ("all", "global") and sock_tid != ev_tid:
+                continue
             try:
                 await connection.send_json(event)
             except Exception:
                 to_remove.append(connection)
         for dead in to_remove:
-            if dead in self.omnichannel_connections:
-                self.omnichannel_connections.remove(dead)
+            self.omnichannel_connections.pop(dead, None)
+
 
 # Singleton manager
 ws_manager = ConnectionManager()
