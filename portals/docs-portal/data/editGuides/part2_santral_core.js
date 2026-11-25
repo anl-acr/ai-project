@@ -55,15 +55,15 @@ export const EDIT_GUIDES_PART2 = {
       },
       {
         level: 3,
-        tabTitle: "Alt Pencere 2.3: Masa Telefonu İnceleme — Sekme 2/4: BLF & Programlanabilir DSS Tuşları (1–24) ve Softkeys (F1–F4)",
-        badge: "Masa Telefonu İncele 2/4",
-        screenshot: { src: "/screenshots/tabs/deep/deskphone-inspect-blf.jpg", caption: "Masa Telefonu — Cihaz İnceleme → Sekme 2: 24 Programlanabilir DSS/BLF Tuşu, Rehberden Otomatik BLF Doldur ve Ekran Altı Softkeys (F1–F4)", routeHint: "Kullanıcılar → Düzenle → SIP → Masa Telefonu (Büyüteç) → BLF & Tuş Tanımları" },
-        description: "Fiziksel IP masa telefonunun yan ekran tuşlarını (1–24) ve ekran altı esnek tuşlarını (F1–F4) tek tek veya rehberden otomatik programlayan 2. sekmedir.",
+        tabTitle: "Alt Pencere 2.3: Masa Telefonu İnceleme — Sekme 2/4: Gerçek Cihaz Fotoğraflı Canlı BLF & DSS Tuş Tasarımcısı",
+        badge: "Masa Telefonu İncele 2/4 • Canlı Görsel",
+        screenshot: { src: "/screenshots/tabs/deep/deskphone-inspect-blf.jpg", caption: "Masa Telefonu — Cihaz İnceleme → Sekme 2: Gerçek cihaz ön cephe fotoğrafı üzerinde canlı LCD ekran, tıklanabilir ışıklı DSS/BLF tuşları, F1–F4 Softkeys ve Rehberden Otomatik BLF Doldur", routeHint: "Kullanıcılar → Düzenle → SIP → Masa Telefonu (Büyüteç) → BLF & Tuş Tanımları" },
+        description: "Kullanıcının 'Masa Telefonum' ekranıyla birebir aynı gerçek cihaz fotoğraflı canlı tasarım stüdyosunu yönetici penceresine getirir. Oto provizyondaki tüm 56 modelde gerçek ön cephe fotoğrafı üzerinde tuşlara tıklayarak BLF/DSS ve F1–F4 softkey ataması yapılabilir.",
         fields: [
-          { name: "Rehberden Otomatik BLF Doldur & Yeni Tuş Ekle (+)", type: "Tek Tık Otomatik Doldurma + Satır Ekle", defaultVal: "1–24 Tuş", required: false, effect: "'Rehberden Otomatik BLF Doldur' sistemdeki diğer aktif dahilileri isimleriyle birlikte boş DSS tuşlarına sırayla yerleştirir." },
-          { name: "Tuş No (1–24) & Tuş Tipi (DSS Key Type)", type: "Hat (Line) / BLF (Meşguliyet & Çağrı Çekme) / Hızlı Arama (Speed Dial) / Sesli Posta (*97) / Rahatsız Etme (DND) / Aktar (Transfer) / Çağrı Çek (*8)", defaultVal: "BLF", required: true, effect: "BLF seçili tuşlar karşı dahili konuşurken kırmızı yanar, çalarken yanıp söner ve tek basışta o çağrıyı çekmenizi (Directed Pickup) sağlar." },
-          { name: "Dahili / Hedef Değeri & Ekran Etiketi", type: "Kullanıcı Seçici / Serbest Kod + Etiket", defaultVal: "Otomatik İsim", required: true, effect: "BLF tipinde sistem kullanıcıları açılır listeden seçilir; ekran etiketi masa telefonunun LCD ekranında görünecek kısa addır." },
-          { name: "Ekran Altı Esnek Tuşlar (Softkeys F1–F4)", type: "Geçmiş / Rehber / Yönlendirme / DND / Menü / Tekrar Ara / Aktar / Çağrı Çek", defaultVal: "F1–F4", required: false, effect: "Telefon boştayken LCD ekranın hemen altındaki 4 fiziksel tuşun işlevini marka bağımsız olarak autoprovision dosyasına basar." }
+          { name: "Gerçek Cihaz Fotoğrafı + Canlı LCD & Gerçek/Şematik Geçişi", type: "56 Model (Yealink, Grandstream, Fanvil, Cisco)", defaultVal: "Gerçek Görünüm Varsayılan", required: false, effect: "Cihazın gerçek fotoğrafı üzerindeki fiziksel yan tuşlara, LCD satırlarına veya alt özet kartlarına tıklanarak tuş seçilir; yazılan etiket anında LCD ekranda önizlenir." },
+          { name: "Rehberden Otomatik BLF Doldur & Çoklu Sayfa / Sidecar Desteği", type: "Tek Tık Otomatik Doldurma + Sayfa Geçişi", defaultVal: "Model Kapasitesine Göre", required: false, effect: "'Rehberden Otomatik BLF Doldur' sistemdeki diğer aktif dahilileri isimleriyle birlikte boş DSS tuşlarına sırayla yerleştirir; değişiklikler kullanıcının 'Masa Telefonum' ekranıyla çift yönlü senkronize olur." },
+          { name: "Tuş İşlevi (DSS Key Type), Hedef & Otomatik/Manuel Etiket", type: "Hat (Line) / BLF (Meşguliyet & Çağrı Çekme) / Hızlı Arama / Aktar / Intercom / Park / Çağrı Çek (*8) / Yönlendir / DND / Sesli Posta (*97)", defaultVal: "BLF", required: true, effect: "BLF seçili tuşlar karşı dahili konuşurken kırmızı yanar, çalarken yanıp söner ve tek basışta çağrıyı çekmenizi (Directed Pickup) sağlar. T1 ana hat tuşu yanlışlıkla silinmeye karşı kilitlidir." },
+          { name: "Ekran Altı Esnek Tuşlar (Softkeys F1–F4)", type: "Geçmiş / Rehber / Yönlendirme / DND / Menü / Tekrar Ara / Aktar / Çağrı Çek", defaultVal: "F1–F4", required: false, effect: "Telefon fotoğrafındaki LCD alt tuşlarına tıklayarak 4 fiziksel softkey işlevini marka bağımsız şekilde autoprovision dosyasına basar." }
         ]
       },
       {
@@ -380,10 +380,10 @@ export const EDIT_GUIDES_PART2 = {
       {
         tabTitle: "Yeni IP Telefon Ekle / Düzenle, LAN-WAN Modu & Canlı Provizyon İzleme",
         badge: "Cihaz Ekle / Düzenle",
-        screenshot: { src: "/screenshots/tabs/modals/autoprovision-edit.jpg", caption: "Oto Provizyon → IP Telefon Ekle / Düzenle — MAC, Marka/Model, Dahili ve Ağ Modu (LAN/WAN)", routeHint: "Oto Provizyon → Ekle / Düzenle" },
-        description: "Fiziksel masa telefonlarını MAC adresi üzerinden dahili aboneye bağlama ve LAN/WAN şablon seçimi.",
+        screenshot: { src: "/screenshots/tabs/modals/autoprovision-edit.jpg", caption: "Oto Provizyon → IP Telefon Ekle / Düzenle — MAC, Marka/Model canlı donanım fotoğraf önizlemesi, Dahili ve Ağ Modu (LAN/WAN)", routeHint: "Oto Provizyon → Ekle / Düzenle" },
+        description: "Fiziksel masa telefonlarını MAC adresi üzerinden dahili aboneye bağlama, 56 model için canlı cihaz görseli & DSS kapasitesi önizleme ve LAN/WAN şablon seçimi.",
         fields: [
-          { name: "Marka, Model, MAC Adresi & Bağlanacak SIP Cihazı (Dahili)", type: "Yealink / Fanvil / Grandstream / Cisco / Snom / Poly", defaultVal: "Zorunlu", required: true, effect: "Telefon açılışta /api/prov/<mac>.cfg dosyasını çekerek tüm SIP ve BLF tuşlarını otomatik yükler." },
+          { name: "Marka, Model (56 Model Gerçek Fotoğraflı), MAC Adresi & Bağlanacak SIP Cihazı", type: "Yealink / Grandstream / Fanvil / Cisco", defaultVal: "Zorunlu", required: true, effect: "Model seçildiğinde gerçek cihaz fotoğrafı, DSS tuş/sayfa sayısı ve Sidecar desteği önizlenir; telefon açılışta /api/prov/<mac>.cfg dosyasını çekerek tüm SIP ve BLF tuşlarını otomatik yükler." },
           { name: "Bağlantı Lokasyonu (Ağ Modu)", type: "Aynı Ofis (LAN) / Uzak Şube (WAN) / Otomatik", defaultVal: "Otomatik", required: true, effect: "WAN seçildiğinde Nornia Connect FQDN ve SIP Edge adresini cihaza basar." }
         ]
       },

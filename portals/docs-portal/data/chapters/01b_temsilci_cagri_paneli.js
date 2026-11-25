@@ -659,22 +659,23 @@ export const CHAPTERS_TEMSILCI_PANELI = [
     menuPath: "Temsilci Çağrı Paneli → Masa Telefonum",
     pbxRoute: "/?tab=cagri-merkezi",
     permissions: ["call_panel:tab_deskphone"],
-    badge: "Temsilci Rehberi 11/11 • Görsel LCD • Check-Sync",
+    badge: "Temsilci Rehberi 11/11 • Gerçek Cihaz Fotoğrafı • Canlı LCD • Check-Sync",
     readMinutes: 10,
     summary:
-      "Masasında fiziksel Yealink, Fanvil, Grandstream, Cisco veya Snom IP telefon bulunan kullanıcıların BT ekibine ihtiyaç duymadan kendi telefonlarının birebir görsel kasa ve LCD simülatörü üzerinde BLF/Hızlı Arama tuşlarını, genişleme modüllerini (Sidecar), zil sesini ve ekran ayarlarını tasarlayıp tek tıkla telefona gönderdiği kişisel tasarım stüdyosudur.",
+      "Masasında fiziksel Yealink, Grandstream, Fanvil veya Cisco IP telefon bulunan kullanıcıların BT ekibine ihtiyaç duymadan, oto provizyondaki 56 modelin tamamını kapsayan gerçek ön cephe cihaz fotoğrafı ve canlı LCD ekran simülatörü üzerinde BLF/Hızlı Arama tuşlarını, genişleme modüllerini (Sidecar), zil sesini ve ekran ayarlarını tasarlayıp tek tıkla telefona gönderdiği kişisel tasarım stüdyosudur.",
     screenshots: [
       {
         src: "/screenshots/tabs/call-panel/deep/deskphone-visual-simulator.jpg",
-        caption: "Masa Telefonum — Canlı Görsel Tasarımcı (Yealink T42S LCD Simülatörü, T1–T6 Tuşları, Rehberden Tek Tıkla BLF ve Üst Aksiyon Çubuğu)",
+        caption: "Masa Telefonum — Gerçek Cihaz Fotoğraflı Canlı Görsel Tasarımcı (Yealink T42S ön cephe fotoğrafı üzerinde canlı LCD ekran, tıklanabilir ışıklı DSS/BLF tuşları, alt tuş özet şeridi ve Gerçek/Şematik geçiş anahtarı)",
         routeHint: "Temsilci Çağrı Paneli → Masa Telefonum → Tuşlar"
       }
     ],
     fieldTable: [
       { field: "Üst Aksiyon Çubuğu (Sıfırla • Kod Önizle • Kaydet • Hızlı Uygula • Telefona Gönder & Yeniden Başlat)", type: "5 Uzaktan Kontrol Butonu", defaultVal: "SIP NOTIFY", required: false, description: "'Hızlı Uygula' telefonu kapatmadan Check-Sync göndererek tuşları saniyeler içinde günceller; 'Telefona Gönder & Yeniden Başlat' tam provizyon uygular." },
-      { field: "Canlı Görsel LCD Telefon Simülatörü & Kilitli Ana Hat (T1)", type: "Marka/Model Gerçek Kasası", defaultVal: "Otomatik Model Eşleşmeli", required: false, description: "Telefon üzerindeki her tuşa tıkladığınızda sağ panelde o tuşun işlevi açılır ve yazdığınız etiket LCD ekranda canlı görünür." },
+      { field: "Gerçek Cihaz Fotoğrafı + Canlı LCD & Gerçek/Şematik Geçişi", type: "56 Model / 4 Marka (Yealink, Grandstream, Fanvil, Cisco)", defaultVal: "Gerçek Görünüm Varsayılan", required: false, description: "Telefonunuzun gerçek ön cephe fotoğrafı üzerinde canlı monokrom/renkli/dokunmatik LCD ekran ve ışıklı fiziksel tuşlar yer alır. Fotoğraf üzerindeki tuşlara veya alttaki özet kartlara tıklayarak işlev atayabilir; dilerseniz sağ üstten 'Şematik' görünüme geçebilirsiniz." },
       { field: "Rehberden Tek Tıkla Ata & Otomatik BLF Doldur", type: "BLF / Speed Dial / Voicemail / DND / Transfer / Pickup", defaultVal: "Otomatik İsimli", required: false, description: "Sağdaki dahili listesinden tek tıkla arkadaşınızı seçtiğinizde BLF meşguliyet izleme ve tek tuşla çağrı çekme otomatik tanımlanır." },
-      { field: "Meşguliyet Genişleme Modülleri (Sidecar / EXP40 vb.)", type: "Model Destekliyse", defaultVal: "Dinamik", required: false, description: "Sekreterya telefonlarına takılan 20–40 tuşlu yan genişleme modüllerini de aynı görsel ekrandan programlar." }
+      { field: "Meşguliyet Genişleme Modülleri (Sidecar / EXP43 / EXP50 / GBX20)", type: "Model Destekliyse", defaultVal: "Dinamik", required: false, description: "Sekreterya telefonlarına takılan 20–60 tuşlu yan genişleme modüllerini de aynı görsel ekrandan programlar." },
+      { field: "Çift Yönlü Anlık DND & Çağrı Yönlendirme Senkronizasyonu", type: "Yealink • Grandstream • Fanvil", defaultVal: "Yeniden Başlatmasız", required: false, description: "Masa telefonundan veya Nornia panelinden yapılan DND ve Her Zaman / Meşgul / Cevapsız çağrı yönlendirme değişiklikleri cihaz yeniden başlamadan iki yönlü anlık senkronize edilir." }
     ],
     editFormSections: [
       {

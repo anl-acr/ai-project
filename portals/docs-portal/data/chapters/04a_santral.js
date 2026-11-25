@@ -32,7 +32,7 @@ export const CHAPTERS_SANTRAL_A = [
       { field: "Hot-Desking (*75 / *76)", type: "Boolean + PIN + Gece Sıfırlama", defaultVal: "auto_logout_midnight: true", required: false, description: "Ortak masadaki IP telefona PIN ile giriş; gece yarısı otomatik çıkış seçeneği." },
       { field: "Sesli Posta (Voicemail *97)", type: "Aktif + PIN + E-Posta", defaultVal: "Kapalı", required: false, description: "Cevapsız aramaları sesli mesaja alır ve ses kaydını kullanıcının e-posta adresine WAV ekiyle yollar." },
       { field: "Kodek Önceliği", type: "alaw, ulaw, g722, opus, g729", defaultVal: "g722, alaw, ulaw", required: false, description: "HD ses (G.722/Opus) veya düşük bant genişliği (G.729) tercihi." },
-      { field: "Masa Telefonu BLF & Softkey Tuşları", type: "BLF / Line / Speed Dial / DND / Pickup", defaultVal: "Oto Provizyon uyumlu", required: false, description: "Kullanıcının IP telefonundaki fiziksel yan tuşların fonksiyonlarını belirler; Oto Provizyon kaydedildiğinde telefona otomatik itilir." },
+      { field: "Masa Telefonu BLF & Softkey Tuşları", type: "Gerçek Cihaz Fotoğraflı Canlı Görsel Tasarımcı (56 Model)", defaultVal: "Oto Provizyon & Masa Telefonum Senkron", required: false, description: "Kullanıcının IP telefonunun gerçek ön cephe fotoğrafı ve canlı LCD ekranı üzerinde fiziksel DSS/BLF yan tuşlarını ve F1–F4 alt tuşlarını görsel olarak programlar; Masa Telefonum sekmesiyle çift yönlü senkron çalışır." },
       { field: "2FA & Oturum Zaman Aşımı", type: "TOTP / E-Posta / WhatsApp + 1-3 Saat", defaultVal: "Opsiyonel", required: false, description: "İki faktörlü doğrulama ve hareketsizlikte otomatik çıkış (1/2/3 saat) güvenlik politikaları." }
     ],
     sections: [
@@ -167,24 +167,24 @@ Operatöre bağlanmak için lütfen bekleyiniz.`
     menuPath: "Santral → Oto Provizyon",
     pbxRoute: "/?tab=otomatik-kurulum",
     permissions: ["autoprovision:read", "autoprovision:write", "autoprovision:delete"],
-    badge: "Yealink • Fanvil • Grandstream • Cisco • Snom",
+    badge: "Yealink • Grandstream • Fanvil • Cisco (56 Model) • Canlı Görsel",
     readMinutes: 12,
     summary:
-      "Ofis içi (LAN) ve uzak şube/evden çalışan (WAN — Nornia Connect FQDN) fiziksel IP masa telefonlarını MAC adresi üzerinden sıfır manuel ayar ile saniyeler içinde yapılandıran, uzaktan yeniden başlatma (SIP NOTIFY check-sync) ve BLF/Rehber senkronizasyonu yapan merkezi cihaz yönetim modülüdür.",
+      "Ofis içi (LAN) ve uzak şube/evden çalışan (WAN — Nornia Connect FQDN) 56 farklı fiziksel IP masa telefonu modelini (Yealink, Grandstream, Fanvil, Cisco) gerçek cihaz görselleriyle eşleştiren, MAC adresi üzerinden sıfır manuel ayar ile saniyeler içinde yapılandıran, uzaktan yeniden başlatma (SIP NOTIFY check-sync), çift yönlü DND/Yönlendirme ve BLF/Rehber senkronizasyonu yapan merkezi cihaz yönetim modülüdür.",
     screenshots: [
       {
         src: "/screenshots/14-autoprovision.jpg",
-        caption: "Oto Provizyon — Kayıtlı IP telefonlar, MAC eşleştirmeleri, LAN/WAN modu ve tek tıkla uzaktan yeniden yapılandırma",
+        caption: "Oto Provizyon — Gerçek cihaz görselleriyle kayıtlı IP telefonlar, MAC eşleştirmeleri, LAN/WAN modu ve tek tıkla uzaktan yeniden yapılandırma",
         routeHint: "Santral → Oto Provizyon"
       }
     ],
     fieldTable: [
       { field: "MAC Adresi", type: "12 Hane HEX (aa:bb:cc:dd:ee:ff)", defaultVal: "Zorunlu", required: true, description: "Telefonun alt etiketindeki benzersiz donanım adresi. Cihaz açılışta /api/prov/<mac>.cfg dosyasını bu adresle çeker." },
-      { field: "Marka & Model", type: "Yealink / Fanvil / Grandstream / Cisco / Snom / Poly", defaultVal: "Model Şablonu", required: true, description: "Seçilen markaya özel XML/CFG şablonunu (Oto Provizyon Şablonları'ndan) derler." },
-      { field: "Atanan Dahili Abone", type: "Kullanıcı Seçimi", defaultVal: "Zorunlu", required: true, description: "Kullanıcının SIP kimliği, 24 haneli şifresi, Ad Soyad ekran yazısı ve BLF tuşları otomatik şablona basılır." },
+      { field: "Marka & Model (56 Model Gerçek Cihaz Kataloğu)", type: "Yealink (25) / Grandstream (14) / Fanvil (11) / Cisco (6)", defaultVal: "Gerçek Fotoğraflı Model Şablonu", required: true, description: "Seçilen modelin gerçek donanım fotoğrafı, DSS tuş kapasitesi, ekran tipi (monokrom/renkli/dokunmatik) ve Sidecar desteği anında önizlenir; uygun XML/CFG şablonu otomatik derlenir." },
+      { field: "Atanan Dahili Abone", type: "Kullanıcı Seçimi", defaultVal: "Zorunlu", required: true, description: "Kullanıcının SIP kimliği, 24 haneli şifresi, Ad Soyad ekran yazısı ve görsel BLF tuşları otomatik şablona basılır." },
       { field: "Ağ Modu (LAN / WAN / Otomatik)", type: "lan / wan / auto", defaultVal: "auto", required: true, description: "LAN: Santral yerel IP adresini yazar. WAN: Santralin https://<alt-alan>.nornia.com.tr FQDN ve SIP Edge adresini yazar." },
       { field: "Provizyon URL'si", type: "HTTPS/HTTP Link", defaultVal: "https://<fqdn>/api/prov/", required: false, description: "Telefonun web arayüzündeki Auto Provision Server URL alanına veya DHCP Option 66'ya yazılacak adres." },
-      { field: "Uzaktan Yeniden Yükle (Reprovision)", type: "SIP NOTIFY check-sync", defaultVal: "Tek Tık", required: false, description: "Telefona dokunmadan BLF, rehber veya SIP değişikliğinin anında telefona inmesini sağlar." }
+      { field: "Uzaktan Yeniden Yükle (Reprovision) & Çift Yönlü DND/Yönlendirme", type: "SIP NOTIFY check-sync + Action URL", defaultVal: "Yeniden Başlatmasız", required: false, description: "Telefona dokunmadan BLF, rehber, DND veya yönlendirme değişikliklerinin Yealink, Grandstream ve Fanvil cihazlara anında (reboot gerektirmeden) inmesini sağlar." }
     ],
     sections: [
       {
