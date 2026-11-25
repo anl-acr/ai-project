@@ -125,7 +125,7 @@ export function HeroPanoramicStage() {
             </div>
 
             {/* Overlapping Left Floating AI / Omnichannel Chat Bubble */}
-            <div className="hidden md:flex absolute -left-8 lg:-left-16 top-[22%] z-20 max-w-[270px] items-start gap-2.5 rounded-2xl border border-white/95 bg-white/95 p-3.5 shadow-floating backdrop-blur-md">
+            <div className="hidden md:flex absolute -left-8 lg:-left-16 top-[10%] z-20 max-w-[265px] items-start gap-2.5 rounded-2xl border border-white/95 bg-white/95 p-3.5 shadow-floating backdrop-blur-md">
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-sm">
                 <Sparkles className="h-4 w-4" aria-hidden="true" />
               </span>
@@ -142,16 +142,35 @@ export function HeroPanoramicStage() {
               </div>
             </div>
 
-            {/* Overlapping Bottom-Left Real Runa Mobil Frame */}
-            <div className="hidden md:block absolute -left-10 lg:-left-14 -bottom-6 z-20 w-[132px] lg:w-[152px] overflow-hidden rounded-[1.5rem] border-[4px] border-slate-900 bg-slate-900 shadow-floating">
-              <div className="mx-auto my-1 h-1 w-10 rounded-full bg-slate-700" aria-hidden="true" />
-              <div className="overflow-hidden rounded-[1.1rem] bg-white max-h-[215px]">
+            {/* Overlapping Bottom-Left Real Runa Mobil Frame (FULL uncropped dialpad + Çağrı Başlat button) */}
+            <div className="hidden md:block absolute -left-10 lg:-left-14 -bottom-6 z-20 w-[130px] lg:w-[144px] overflow-hidden rounded-[1.6rem] border-[4px] border-slate-900 bg-white shadow-floating">
+              {/* Mini Dynamic Island + App Header */}
+              <div className="flex items-center justify-between bg-white px-2.5 pt-1.5 pb-1">
+                <span className="text-[7px] font-bold text-slate-700">09:41</span>
+                <span className="h-2.5 w-10 rounded-full bg-slate-900" aria-hidden="true" />
+                <span className="text-[7px] font-bold text-slate-600">5G</span>
+              </div>
+              <div className="flex items-center gap-1.5 border-b border-slate-100 bg-white px-2 py-1">
+                <img
+                  src="/runa-logo.png"
+                  alt=""
+                  aria-hidden="true"
+                  width={14}
+                  height={14}
+                  className="h-3.5 w-3.5 rounded shrink-0"
+                />
+                <span className="text-[8px] font-extrabold text-slate-900 truncate">
+                  Runa Mobil
+                </span>
+                <span className="ml-auto h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
+              </div>
+              <div className="bg-white px-1 py-1">
                 <img
                   src="/screenshots/runa-mobile-real.jpg"
-                  alt="Runa Mobil iOS ve Android kurumsal softphone ekranı"
+                  alt="Runa Mobil iOS ve Android kurumsal softphone tam tuş takımı ve Çağrı Başlat ekranı"
                   width={375}
                   height={1030}
-                  className="block w-full h-auto object-cover object-top"
+                  className="block w-full h-[230px] lg:h-[258px] object-contain bg-white"
                 />
               </div>
             </div>
@@ -231,16 +250,19 @@ export function HeroIsometricShowcase() {
                   />
                 </div>
 
-                {/* Front-Left Angled Runa Mobil Phone */}
-                <div className="nornia-iso-mobile absolute left-0 top-6 z-10 w-[29%] overflow-hidden rounded-2xl border-2 border-white bg-white shadow-floating">
-                  <div className="max-h-[210px] overflow-hidden">
+                {/* Front-Left Angled Runa Mobil Phone (full uncropped screen) */}
+                <div className="nornia-iso-mobile absolute left-0 top-3 z-10 w-[26%] overflow-hidden rounded-2xl border-[3px] border-slate-900 bg-white shadow-floating">
+                  <div className="flex items-center justify-center bg-white pt-1.5 pb-0.5">
+                    <span className="h-2 w-8 rounded-full bg-slate-900" aria-hidden="true" />
+                  </div>
+                  <div className="bg-white px-1 pb-1.5">
                     <img
                       src="/screenshots/runa-mobile-real.jpg"
                       alt="Runa Mobil dahili telefon ekranı"
                       width={375}
                       height={1030}
                       loading="lazy"
-                      className="block w-full h-auto object-cover object-top"
+                      className="block w-full h-[215px] sm:h-[245px] object-contain bg-white"
                     />
                   </div>
                 </div>
