@@ -10261,14 +10261,20 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                       <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${isOnlineNow ? "bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300" : "bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400"}`}>
                         {isOnlineNow ? "ÇEVRİMİÇİ" : "ÇEVRİMDIŞI"}
                       </span>
-                      {!isWebInspect && (liveDev?.current_fw_version || inspectDraft?.current_fw_version) && (
-                        <span
-                          className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700"
-                          title={`Canlı Firmware Sürümü${liveDev?.target_fw_version ? ` • Hedef: v${liveDev.target_fw_version}` : ""}`}
-                        >
-                          FW: v{liveDev?.current_fw_version || inspectDraft?.current_fw_version}
-                        </span>
-                      )}
+                      {!isWebInspect && (() => {
+                        const uaStr = String(inspectLiveInfo?.user_agent || inspectDraft?.user_agent || "");
+                        const uaMatch = uaStr.match(/\bSW\s+([0-9]+(?:\.[0-9]+){1,4})\b/i) || uaStr.match(/\b([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}(?:\.[0-9]{1,4})?)\b/);
+                        const curFw = inspectDraft?.current_fw_version || (uaMatch ? uaMatch[1] : "");
+                        if (!curFw) return null;
+                        return (
+                          <span
+                            className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700"
+                            title={`Canlı Firmware Sürümü${inspectDraft?.target_fw_version ? ` • Hedef: v${inspectDraft.target_fw_version}` : ""}`}
+                          >
+                            FW: v{curFw}
+                          </span>
+                        );
+                      })()}
                     </div>
                     <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono truncate">
                       Dahili: {extension || "-"} • SIP Endpoint: {inspectDraft.sip_username} {liveIp ? `• IP: ${liveIp}${livePort ? `:${livePort}` : ""}` : ""}
