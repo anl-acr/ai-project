@@ -16392,6 +16392,15 @@ async def autoprovision_wan_root_info(token: str, request: Request):
     return {"status": "ready", "mode": "wan", "message": "Nornia WAN Oto-Provizyon sunucusu aktif. Telefonlar otomatik olarak /<mac>.cfg veya /cfg<mac>.xml çeker."}
 
 
+@app.get("/api/autoprovision/dfks/status")
+async def get_dfks_status_endpoint(user_info: dict = Depends(get_user_info)):
+    """Aktif BroadWorks DFKS (`as-feature-event`) masa telefonu aboneliklerini döner."""
+    from backend.services.sip_dfks_server import get_dfks_server
+    srv = get_dfks_server()
+    dialogs = srv.get_active_dialogs_summary()
+    return {"status": "ok", "port": srv.port, "active_subscriptions": len(dialogs), "dialogs": dialogs}
+
+
 @app.get("/api/prov/{token}/phone-sync")
 async def deskphone_action_url_sync_endpoint(
     token: str,
@@ -39695,6 +39704,150 @@ async def startup_event():
         print("[Startup] AudioSocket TCP Sunucusu (Port 9092) başarıyla arka planda başlatıldı.")
     except Exception as e_audio:
         print(f"[Startup Error] AudioSocket TCP sunucusu başlatılamadı: {e_audio}")
+
+    try:
+        from backend.services.sip_dfks_server import get_dfks_server
+        from backend.services.deskphone_sync_service import (
+            extract_user_live_phone_sync_state as _dfks_extract_state,
+            record_phone_origin_change as _dfks_record_origin,
+            push_live_state_to_user_deskphones as _dfks_push_peers,
+        )
+
+        async def _dfks_resolve_sip_user(sip_user: str):
+            su_low = str(sip_user or "").strip().lower()
+            if not su_low:
+                return None
+            # 1. Check settings_db users & nested sip_devices
+            for u in settings_db.get("users", []) or []:
+                if not isinstance(u, dict):
+                    continue
+                u_ext = str(u.get("extension") or "").strip()
+                if not u_ext:
+                    continue
+                if str(u.get("sip_username") or "").strip().lower() == su_low or u_ext.lower() == su_low:
+                    return {"extension": u_ext, "sip_username": sip_user}
+                for d in u.get("sip_devices", []) or []:
+                    if isinstance(d, dict) and str(d.get("sip_username") or "").strip().lower() == su_low:
+                        return {"extension": u_ext, "sip_username": sip_user}
+            # 2. Check settings_db autoprovision table
+            for ap in settings_db.get("autoprovision", []) or []:
+                if isinstance(ap, dict) and str(ap.get("sip_username") or "").strip().lower() == su_low:
+                    ap_ext = str(ap.get("assigned_user") or ap.get("extension") or "").strip()
+                    if ap_ext:
+                        return {"extension": ap_ext, "sip_username": sip_user}
+            # 3. Fallback PostgreSQL SystemUser lookup
+            try:
+                async with AsyncSessionLocal() as db_sess:
+                    res_u = await db_sess.execute(select(SystemUser))
+                    for su_row in res_u.scalars().all():
+                        r_ext = str(su_row.extension or "").strip()
+                        if not r_ext:
+                            continue
+                        if str(su_row.sip_username or "").strip().lower() == su_low or r_ext.lower() == su_low:
+                            return {"extension": r_ext, "sip_username": sip_user}
+                        raw_devs = su_row.sip_devices
+                        if isinstance(raw_devs, str) and raw_devs.strip().startswith("["):
+                            try:
+                                raw_devs = json.loads(raw_devs)
+                            except Exception:
+                                raw_devs = []
+                        for d in (raw_devs or []):
+                            if isinstance(d, dict) and str(d.get("sip_username") or "").strip().lower() == su_low:
+                                return {"extension": r_ext, "sip_username": sip_user}
+            except Exception:
+                pass
+            return None
+
+        async def _dfks_get_live_state(ext_s: str):
+            async with AsyncSessionLocal() as db_sess:
+                u_obj = await _load_merged_user_by_ext(ext_s, db=db_sess)
+                if not u_obj:
+                    return None
+                return _dfks_extract_state(u_obj)
+
+        async def _dfks_apply_phone_change(ext_s: str, sip_user: str, cmd: dict):
+            now_tr = (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
+            async with AsyncSessionLocal() as db_sess:
+                if cmd.get("action") == "dnd":
+                    dnd_on = bool(cmd.get("enabled", False))
+                    await _apply_deskphone_dnd_state(
+                        ext_s,
+                        dnd_enabled=dnd_on,
+                        db=db_sess,
+                        source_label="Masa Telefonu (DFKS)",
+                        origin_sip_username=sip_user,
+                        event_name=("dnd_on" if dnd_on else "dnd_off"),
+                    )
+                    u_fresh = await _load_merged_user_by_ext(ext_s, db=db_sess)
+                    return _dfks_extract_state(u_fresh) if u_fresh else None
+
+                if cmd.get("action") == "forwarding":
+                    rule_key = str(cmd.get("rule") or "always").strip().lower()
+                    rule_map = {
+                        "always": ("forwarding_always", "Her Zaman Yönlendirme", False),
+                        "busy": ("forwarding_busy", "Meşgulde Yönlendirme", False),
+                        "no_answer": ("forwarding_no_answer", "Zaman Aşımında Yönlendirme", True),
+                    }
+                    col_name, rule_lbl, is_na = rule_map.get(rule_key, rule_map["always"])
+                    u_cur = await _load_merged_user_by_ext(ext_s, db=db_sess)
+                    existing_timeout = 30
+                    if u_cur and isinstance(u_cur.get("forwarding_no_answer"), dict) and u_cur["forwarding_no_answer"].get("timeout"):
+                        try:
+                            existing_timeout = int(u_cur["forwarding_no_answer"]["timeout"])
+                        except Exception:
+                            pass
+                    eff_timeout = int(cmd["timeout"]) if (is_na and cmd.get("timeout")) else existing_timeout
+
+                    enabled = bool(cmd.get("enabled", False))
+                    clean_target = re.sub(r"[^\d+]", "", str(cmd.get("target") or "").strip())
+
+                    if enabled and len(clean_target) >= 2 and clean_target != ext_s:
+                        st_chk, _, loop_chain_str = _evaluate_forwarding_chain_and_detect_loop(
+                            ext_str=ext_s,
+                            candidate_target=clean_target,
+                        )
+                        if st_chk == "LOOP":
+                            add_system_log("CALL_FORWARD_LOOP", "WARNING", f"Masa telefonundan döngüsel yönlendirme engellendi ({loop_chain_str})")
+                            return _dfks_extract_state(u_cur) if u_cur else None
+
+                        target_type = "internal" if (len(clean_target) < 6 and clean_target.isdigit()) else "external"
+                        rule_obj = {"active": True, "type": target_type, "target": clean_target}
+                        if is_na:
+                            rule_obj["timeout"] = eff_timeout
+                        _dfks_record_origin(ext_s, sip_user)
+                        await _sync_user_forwarding_state(ext_s, {col_name: rule_obj}, db_sess, source_label="Masa Telefonu (DFKS)")
+                        await _stamp_deskphone_sync_meta(ext_s, db=db_sess, source_label="Masa Telefonu (DFKS)", event_name=f"fwd_{rule_key}_on", synced_at=now_tr)
+                        add_system_log("CALL_FORWARD", "INFO", f"Dahili {ext_s} masa telefonundan (DFKS) {rule_lbl} kuralını '{clean_target}' hedefine açtı.")
+                    else:
+                        deact_obj = {"active": False, "type": "internal", "target": ""}
+                        if is_na:
+                            deact_obj["timeout"] = eff_timeout
+                        _dfks_record_origin(ext_s, sip_user)
+                        await _sync_user_forwarding_state(ext_s, {col_name: deact_obj}, db_sess, source_label="Masa Telefonu (DFKS)")
+                        await _stamp_deskphone_sync_meta(ext_s, db=db_sess, source_label="Masa Telefonu (DFKS)", event_name=f"fwd_{rule_key}_off", synced_at=now_tr)
+                        add_system_log("CALL_FORWARD", "INFO", f"Dahili {ext_s} masa telefonundan (DFKS) {rule_lbl} kuralını kapattı.")
+
+                    u_fresh = await _load_merged_user_by_ext(ext_s, db=db_sess)
+                    if u_fresh:
+                        _dfks_push_peers(
+                            u_fresh,
+                            settings_db,
+                            exclude_sip_username=sip_user,
+                            reason_log=f"Masa Telefonu DFKS ({rule_key})",
+                            respect_echo_guard=True,
+                        )
+                        return _dfks_extract_state(u_fresh)
+            return None
+
+        dfks_srv = get_dfks_server()
+        dfks_srv.configure_callbacks(
+            resolve_sip_username_fn=_dfks_resolve_sip_user,
+            get_live_state_fn=_dfks_get_live_state,
+            apply_phone_change_fn=_dfks_apply_phone_change,
+        )
+        await dfks_srv.start()
+    except Exception as e_dfks:
+        print(f"[Startup Error] SIP DFKS (as-feature-event) sunucusu başlatılamadı: {e_dfks}")
 
     try:
         from backend.services.notification_service import monitor_system_health_and_notify, trigger_notification_bg

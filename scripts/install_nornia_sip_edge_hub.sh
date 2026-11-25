@@ -456,6 +456,11 @@ request_route {
         }
     }
 
+    # BroadWorks DFKS (as-feature-event) -> Customer PBX Nornia DFKS Engine (UDP 5068)
+    if (is_method("SUBSCRIBE") && \$hdr(Event) =~ "as-feature-event") {
+        \$var(target_pbx) = \$(var(target_pbx){s.replace,:5060,:5068});
+    }
+
     # 4. Forward Valid External Request to Customer PBX over WireGuard
     force_rport();
     remove_hf("X-Real-IP");

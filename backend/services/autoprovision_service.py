@@ -1851,7 +1851,10 @@ def generate_provisioning_config(
                 k_idx0 = max(0, int(k.get("key_index") or (i0 + 1)) - 1)
                 kt = str(k.get("type") or "none").strip().lower()
                 mc = gs_m.get(kt, "0")
-                kl = html.escape(str(k.get("label") or ""))
+                raw_kl = str(k.get("label") or "").strip()
+                if k_idx0 == 0 and kt == "line" and gs_live_label and (not raw_kl or raw_kl == line_label or raw_kl == ext_s):
+                    raw_kl = gs_live_label
+                kl = html.escape(raw_kl)
                 kv = html.escape(
                     str(
                         k.get("value")
@@ -2095,7 +2098,10 @@ def generate_provisioning_config(
             k_idx0 = max(0, int(k.get("key_index") or (idx_zero + 1)) - 1)
             ktype = str(k.get("type") or "none").strip().lower()
             mode_code = gs_mode_map.get(ktype, "0")
-            klbl = html.escape(str(k.get("label") or ""))
+            raw_klbl = str(k.get("label") or "").strip()
+            if k_idx0 == 0 and ktype == "line" and gs_live_label and (not raw_klbl or raw_klbl == line_label or raw_klbl == ext_s):
+                raw_klbl = gs_live_label
+            klbl = html.escape(raw_klbl)
             kval = html.escape(
                 str(
                     k.get("value")

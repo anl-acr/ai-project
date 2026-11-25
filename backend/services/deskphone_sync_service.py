@@ -327,14 +327,12 @@ def build_grandstream_sync_xml_lines(
 ) -> List[str]:
     """
     Builds Grandstream GRP260x / GRP26xx / GXP21xx XML (<config version="1">) P-code lines for
-    bi-directional DND & 3-level Call Forwarding sync (verified against official Grandstream
-    `grp260x_config_1.0.7.74.txt` and live GRP2602P device config export):
+    native bi-directional DND & 3-level Call Forwarding sync (BroadWorks DFKS `as-feature-event`
+    + Zero-Reboot Check-Sync fallback):
+      - BroadSoft Feature Key Synchronization (`P2325=1`) + Local Call Features (`P191=1`)
+        so Grandstream natively syncs DND & Always/Busy/NoAnswer Call Forwarding icons & menus
+        with Nornia's DFKS SIP Engine (UDP 5068) in <50ms without rebooting or dialing `*21*`!
       - Zero-reboot SIP NOTIFY check-sync (`P95030=0`, `P22421=0`, `P240=0`, `P4428=1`)
-      - Server-side Feature Code mode (`P191=0`): Grandstream GRP260x does NOT expose active
-        local Call Forward/DND toggles via XML provisioning P-values; keeping `P191=0` prevents
-        split-brain local-only forwarding and routes phone DND/Forward triggers directly to
-        Asterisk (`*78`/`*79`, `*21*<target>`/`*21`, `*67*`/`*61*`) so Nornia PBX + peer phones
-        (e.g. Yealink) + Grandstream's live LCD label (`<P270>`) stay 100% synchronized.
       - Official Account 1 Call Forward Targets (`P29092` Always, `P29093` Busy, `P29094` No Answer, `P139` Timeout)
       - Outbound Notification (`P32062=1`) + Authenticated Action URLs (`P8316`..`P8319` + `P22164`..`P22169`)
     """
@@ -358,10 +356,11 @@ def build_grandstream_sync_xml_lines(
     noa_target = str(f_noa.get("target") or "").strip() if (f_noa.get("active") and f_noa.get("target")) else ""
 
     lines = [
-        "    <!-- Nornia Cift Yonlu DND & Cagri Yonlendirme Senkronizasyonu (Grandstream <-> Santral) -->",
+        "    <!-- Nornia Cift Yonlu DND & Cagri Yonlendirme Senkronizasyonu (Grandstream DFKS <-> Santral) -->",
+        "    <P2325>1</P2325>",
         "    <P95030>0</P95030>",
         "    <P22421>0</P22421>",
-        "    <P191>0</P191>",
+        "    <P191>1</P191>",
         "    <P8446>1</P8446>",
         "    <P32062>1</P32062>",
         f"    <P139>{noa_timeout}</P139>",
@@ -606,17 +605,33 @@ def push_live_state_to_user_deskphones(
     if not respect_echo_guard:
         clear_phone_origin_change(ext_s)
 
+    # 1. Instant BroadWorks DFKS (`as-feature-event`) push for any subscribed phones (<50ms, native LCD icons!)
+    dfks_pushed: set = set()
+    try:
+        from backend.services.sip_dfks_server import get_dfks_server
+        live_st = extract_user_live_phone_sync_state(user_dict)
+        dfks_pushed = get_dfks_server().push_live_state_sync(
+            ext_s,
+            live_st,
+            exclude_sip_username=exclude_sip_username,
+        )
+    except Exception as exc_dfks:
+        print(f"[DeskPhone DFKS Push Warning] {exc_dfks}")
+
+    dfks_pushed_low = {s.lower() for s in dfks_pushed}
     excl = str(exclude_sip_username or "").strip().lower()
     devices = collect_user_physical_deskphones(user_dict, settings_db)
     targets = []
     delayed_origin_targets = []
     for d in devices:
         su = d["sip_username"]
+        su_low = su.lower()
         b_low = str(d.get("brand") or "").strip().lower()
-        if excl and su.lower() == excl:
-            # Grandstream runs in server feature-code mode (P191=0) and does NOT update its own
-            # LCD label locally when dialing *21*/*78/*79; refresh its <P270> label via zero-reboot
-            # check-sync shortly after the feature-code call completes (zero echo-loop risk).
+        # Skip redundant check-sync for phones already updated natively via DFKS as-feature-event
+        if su_low in dfks_pushed_low:
+            continue
+        if excl and su_low == excl:
+            # Fallback LCD refresh for non-DFKS Grandstream phones
             if "grandstream" in b_low:
                 delayed_origin_targets.append(d)
             continue
@@ -627,9 +642,9 @@ def push_live_state_to_user_deskphones(
         targets.append(d)
 
     if not targets and not delayed_origin_targets:
-        if not excl:
+        if not excl and not dfks_pushed:
             print(f"[DeskPhone Live Sync] Dahili {ext_s} için bildirilecek fiziksel masa telefonu bulunamadı ({reason_log}).")
-        return 0
+        return len(dfks_pushed)
 
     def _worker():
         try:
