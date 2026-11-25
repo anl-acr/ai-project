@@ -329,50 +329,6 @@ export default function NorniaHomePage() {
         </a>
 
         {/* ============================================================
-            TOP UTILITY BAR (Yeastar Enterprise Style)
-           ============================================================ */}
-        <div className="hidden lg:block border-b border-slate-200/80 bg-slate-950 text-slate-300">
-          <div className="mx-auto flex max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8 h-9 text-xs">
-            <div className="flex items-center gap-3">
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-500/20 px-2.5 py-0.5 text-[11px] font-semibold text-indigo-300 ring-1 ring-inset ring-indigo-400/30">
-                <Sparkles className="h-3 w-3" aria-hidden="true" />
-                Nornia v3.11
-              </span>
-              <span className="text-slate-300">
-                Tam İzole Bulut (Multi-Tenant) &amp; On-Premise Kurumsal AI Santral
-              </span>
-            </div>
-            <div className="flex items-center gap-5">
-              <a
-                href={SITE_CONFIG.apiUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 hover:text-white transition"
-              >
-                REST API
-                <ExternalLink className="h-3 w-3 opacity-60" aria-hidden="true" />
-              </a>
-              <a
-                href={SITE_CONFIG.catalogUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 hover:text-white transition"
-              >
-                <FileDown className="h-3.5 w-3.5 text-indigo-300" aria-hidden="true" />
-                Tanıtım Kataloğu (PDF)
-              </a>
-              <a
-                href={SITE_CONFIG.phoneHref}
-                className="inline-flex items-center gap-1.5 font-semibold text-white hover:text-indigo-200 transition"
-              >
-                <Phone className="h-3 w-3 text-emerald-400" aria-hidden="true" />
-                {SITE_CONFIG.phoneDisplay}
-              </a>
-            </div>
-          </div>
-        </div>
-
-        {/* ============================================================
             STICKY SINGLE-<nav> CORPORATE HEADER (modern-web-guidance: navbar)
            ============================================================ */}
         <header
