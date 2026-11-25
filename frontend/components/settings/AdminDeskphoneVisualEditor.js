@@ -7,6 +7,11 @@ import {
   Wand2,
   Sliders,
   RotateCcw,
+  Zap,
+  Power,
+  CheckCircle,
+  AlertTriangle,
+  RefreshCw,
 } from "lucide-react";
 import { useTheme } from "../../utils/theme";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
@@ -149,13 +154,15 @@ export default function AdminDeskphoneVisualEditor({
   inspectDraft,
   setInspectDraft,
   extension = "",
+  userId = null,
   fullName = "",
   users = [],
   departments = [],
   safeFetch,
   isOnline = false,
+  onSyncedDraft,
 }) {
-  const { bg, text, border, lightBg, borderLight } = useTheme();
+  const { bg, hover, text, border, lightBg, borderLight } = useTheme();
 
   const rawBrand = String(inspectDraft?.brand || "").trim();
   const rawModel = String(inspectDraft?.model || "").trim();
@@ -174,6 +181,9 @@ export default function AdminDeskphoneVisualEditor({
   const [deleteModConfirmIdx, setDeleteModConfirmIdx] = useState(null);
   const [autoFillModalModIdx, setAutoFillModalModIdx] = useState(null);
   const [autoFillDept, setAutoFillDept] = useState("__ALL__");
+  const [pushingMode, setPushingMode] = useState("");
+  const [pushBanner, setPushBanner] = useState(null);
+  const [activeCallPrompt, setActiveCallPrompt] = useState(null);
 
   // Fetch exact hardware model & expansion catalog from backend
   useEffect(() => {
@@ -553,6 +563,74 @@ export default function AdminDeskphoneVisualEditor({
     setAutoFillModalModIdx(null);
   };
 
+  const handlePushToPhone = async (applyMode = "check_sync", forceOnCall = false) => {
+    if (!safeFetch || !extension) {
+      setPushBanner({ ok: false, message: "Dahili numara tanımlı olmadığı için cihaza gönderilemedi." });
+      return;
+    }
+    setPushingMode(applyMode);
+    setPushBanner(null);
+    setActiveCallPrompt(null);
+    try {
+      const cleanExpModules = expansionModules.map((m) => ({
+        module_index: m.module_index,
+        model: m.model,
+        keys: (m.keys || []).filter((k) => k.type !== "none"),
+      }));
+      const res = await safeFetch(`/api/agent/deskphone/${encodeURIComponent(String(extension).trim())}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          extension: String(extension).trim(),
+          user_id: userId,
+          device_id: inspectDraft?.id,
+          sip_username: sipUsername,
+          brand: rawBrand,
+          model: rawModel,
+          dss_keys: dssKeys,
+          soft_keys: softKeys,
+          expansion_modules: cleanExpModules,
+          phone_prefs: inspectDraft?.phone_prefs || {},
+          apply_mode: applyMode,
+          force_reboot_on_call: forceOnCall,
+        }),
+      });
+      const rawText = await res.text();
+      let data = {};
+      try {
+        data = rawText ? JSON.parse(rawText) : {};
+      } catch {
+        throw new Error(res.ok ? "Sunucudan geçersiz yanıt alındı." : `HTTP ${res.status}`);
+      }
+      if (!res.ok) throw new Error(data.detail || "Ayarlar cihaza gönderilemedi.");
+
+      if (data.status === "active_call_warning") {
+        setActiveCallPrompt({ applyMode, message: data.message });
+        return;
+      }
+
+      const updatedDraft = {
+        ...inspectDraft,
+        brand: rawBrand,
+        model: rawModel,
+        dss_keys: dssKeys,
+        soft_keys: softKeys,
+        expansion_modules: expansionModules,
+      };
+      if (typeof onSyncedDraft === "function") {
+        onSyncedDraft(updatedDraft);
+      }
+      setPushBanner({
+        ok: data.notified !== false,
+        message: data.message || "BLF tuşları kaydedildi ve telefona gönderildi.",
+      });
+    } catch (err) {
+      setPushBanner({ ok: false, message: err?.message || "Telefona gönderilirken hata oluştu." });
+    } finally {
+      setPushingMode("");
+    }
+  };
+
   return (
     <div className="space-y-4">
       {!hasPhoneModel ? (
@@ -582,31 +660,100 @@ export default function AdminDeskphoneVisualEditor({
             • {activeModelSpec.max_dss} DSS Tuşu
             {activeModelSpec.max_expansions > 0 ? ` • ${activeModelSpec.expansion_model} (×${activeModelSpec.max_expansions})` : ""}
           </span>
-          <span className="text-[11px] text-slate-400 dark:text-slate-500 hidden md:inline">
-            — Telefon üzerindeki herhangi bir tuşa tıklayıp sağ panelden işlev atayın.
-          </span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
           <button
             type="button"
+            disabled={Boolean(pushingMode)}
             onClick={handleClearAllMainBlf}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-bold border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-bold border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer disabled:opacity-50"
             title="Ana telefonun T2..Tson tuşlarını temizle (T1 kilitli kalır)"
           >
             <RotateCcw size={12} />
-            <span>Tuşları Temizle</span>
+            <span>Temizle</span>
           </button>
           <button
             type="button"
+            disabled={Boolean(pushingMode)}
             onClick={handleAutoFillMainPhoneBlf}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-extrabold border ${borderLight} ${lightBg} ${text} hover:opacity-90 transition cursor-pointer`}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-bold border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer disabled:opacity-50"
+            title="Sistemdeki dahilileri sırayla otomatik BLF olarak doldur"
           >
             <Wand2 size={12} />
-            <span>Rehberden Otomatik BLF Doldur</span>
+            <span>Otomatik BLF</span>
+          </button>
+          <button
+            type="button"
+            disabled={Boolean(pushingMode)}
+            onClick={() => handlePushToPhone("check_sync", false)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-extrabold border border-emerald-300 dark:border-emerald-700/70 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition cursor-pointer disabled:opacity-50"
+            title="BLF tuşlarını kaydet ve telefonu yeniden başlatmadan anında gönder (SIP Check-Sync)"
+          >
+            {pushingMode === "check_sync" ? <RefreshCw size={12} className="animate-spin" /> : <Zap size={12} />}
+            <span>{pushingMode === "check_sync" ? "Gönderiliyor..." : "Hızlı Uygula"}</span>
+          </button>
+          <button
+            type="button"
+            disabled={Boolean(pushingMode)}
+            onClick={() => handlePushToPhone("reboot", false)}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-extrabold text-white ${bg} ${hover} shadow-sm transition cursor-pointer disabled:opacity-50`}
+            title="BLF tuşlarını kaydet, telefona gönder ve cihazı yeniden başlat (SIP Reboot)"
+          >
+            {pushingMode === "reboot" ? <RefreshCw size={12} className="animate-spin" /> : <Power size={12} />}
+            <span>{pushingMode === "reboot" ? "Gönderiliyor..." : "Telefona Gönder & Yeniden Başlat"}</span>
           </button>
         </div>
       </div>
+
+      {/* Push Delivery Status Banner */}
+      {pushBanner && (
+        <div
+          className={`flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl border text-xs font-bold ${
+            pushBanner.ok
+              ? "bg-emerald-50 dark:bg-emerald-950/35 border-emerald-200 dark:border-emerald-800/70 text-emerald-800 dark:text-emerald-200"
+              : "bg-amber-50 dark:bg-amber-950/35 border-amber-200 dark:border-amber-800/70 text-amber-800 dark:text-amber-200"
+          }`}
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            {pushBanner.ok ? <CheckCircle size={14} className="shrink-0 text-emerald-500" /> : <AlertTriangle size={14} className="shrink-0 text-amber-500" />}
+            <span className="leading-snug">{pushBanner.message}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setPushBanner(null)}
+            className="text-[11px] opacity-70 hover:opacity-100 shrink-0 cursor-pointer"
+          >
+            Kapat
+          </button>
+        </div>
+      )}
+
+      {/* Active Call Confirmation Banner before Reboot */}
+      {activeCallPrompt && (
+        <div className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 text-xs font-bold text-amber-900 dark:text-amber-200">
+          <div className="flex items-center gap-2 min-w-0">
+            <AlertTriangle size={14} className="shrink-0 text-amber-500" />
+            <span>{activeCallPrompt.message}</span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setActiveCallPrompt(null)}
+              className="px-2.5 py-1 rounded-lg border border-amber-300 dark:border-amber-700 text-[11px] font-bold hover:bg-amber-100 dark:hover:bg-amber-900/40 cursor-pointer"
+            >
+              Vazgeç
+            </button>
+            <button
+              type="button"
+              onClick={() => handlePushToPhone(activeCallPrompt.applyMode, true)}
+              className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-[11px] font-extrabold cursor-pointer"
+            >
+              Yine de Yeniden Başlat
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Main Visual Phone Designer + Key Inspector */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">

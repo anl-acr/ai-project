@@ -15087,27 +15087,35 @@ def _resolve_agent_physical_deskphones(ext_clean: str, uid_clean: Optional[str] 
     if matched_user.get("id") is not None:
         match_targets.add(str(matched_user.get("id")).strip())
 
-    bound_ap = None
+    # Match each autoprovision record bound to this user to its specific physical device (by sip_username or mac)
     for d in ap_devices:
         if not isinstance(d, dict):
             continue
         assigned = str(d.get("assigned_user") or d.get("extension") or "").strip()
-        if assigned and assigned in match_targets:
-            bound_ap = d
-            break
-
-    if bound_ap and physical_devs:
-        first = physical_devs[0]
-        if not first.get("mac") and bound_ap.get("mac"):
-            first["mac"], _ = normalize_mac_address(bound_ap.get("mac"))
-        if not first.get("ip") and bound_ap.get("ip"):
-            first["ip"] = str(bound_ap.get("ip") or "")
-        if bound_ap.get("brand"):
-            first["brand"] = str(bound_ap.get("brand"))
-        if bound_ap.get("model"):
-            first["model"] = str(bound_ap.get("model"))
-        if bound_ap.get("connection_mode"):
-            first["connection_mode"] = str(bound_ap.get("connection_mode"))
+        if not (assigned and assigned in match_targets):
+            continue
+        ap_su = str(d.get("sip_username") or "").strip()
+        ap_mac, _ = normalize_mac_address(d.get("mac") or "")
+        target_p = None
+        for pd in physical_devs:
+            pd_su = str(pd.get("sip_username") or "").strip()
+            pd_mac, _ = normalize_mac_address(pd.get("mac") or "")
+            if (ap_su and pd_su and ap_su == pd_su) or (ap_mac and pd_mac and ap_mac == pd_mac):
+                target_p = pd
+                break
+        if target_p is None and len(physical_devs) == 1:
+            target_p = physical_devs[0]
+        if target_p is not None:
+            if not target_p.get("mac") and ap_mac:
+                target_p["mac"] = ap_mac
+            if not target_p.get("ip") and d.get("ip"):
+                target_p["ip"] = str(d.get("ip") or "")
+            if d.get("brand"):
+                target_p["brand"] = str(d.get("brand"))
+            if d.get("model"):
+                target_p["model"] = str(d.get("model"))
+            if d.get("connection_mode"):
+                target_p["connection_mode"] = str(d.get("connection_mode"))
 
     # Overlay saved user_deskphone_configs per device key (`{ext}::{sip_username}` or legacy `{ext}`)
     for dev in physical_devs:
@@ -15552,14 +15560,23 @@ async def save_agent_deskphone_config(
         except Exception:
             pass
 
-    # 4. Also sync into legacy autoprovision list if MAC or user matches
+    # 4. Also sync into autoprovision list strictly matching this device's MAC or sip_username (never clobbering another phone on same ext!)
     mac_val = str(target_dev.get("mac") or "").strip().lower()
     for d in settings_db.get("autoprovision", []) or []:
         if not isinstance(d, dict):
             continue
         d_mac = str(d.get("mac") or "").strip().lower()
+        d_su = str(d.get("sip_username") or "").strip()
         d_ass = str(d.get("assigned_user") or d.get("extension") or "").strip()
-        if (mac_val and d_mac == mac_val) or (d_ass and d_ass in {ext_clean, str(matched_user.get("id") or "")}):
+        matched_exact = (mac_val and d_mac == mac_val) or (target_su and d_su and d_su == target_su)
+        matched_legacy_single = (
+            not mac_val
+            and not d_su
+            and len(physical_devs) == 1
+            and d_ass
+            and d_ass in {ext_clean, str(matched_user.get("id") or "")}
+        )
+        if matched_exact or matched_legacy_single:
             d["brand"] = new_brand
             d["model"] = new_model
             d["dss_keys"] = new_dss

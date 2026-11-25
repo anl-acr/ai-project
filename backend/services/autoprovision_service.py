@@ -236,10 +236,11 @@ def build_system_default_templates() -> List[Dict[str, Any]]:
 <gs_provision version="1">
   <mac>{{MAC}}</mac>
   <config version="1">
-    <P212>1</P212>
+    <P212>{{PROVISION_PROTO_CODE}}</P212>
     <P237>{{PROVISION_URL_NO_SCHEME}}</P237>
     <P194>1</P194>
-    <P240>1</P240>
+    <P240>0</P240>
+    <P95030>0</P95030>
     <P271>1</P271>
     <P270>{{LABEL}}</P270>
     <P47>{{SIP_SERVER}}:{{SIP_PORT}}</P47>
@@ -1422,7 +1423,7 @@ Event=>check-sync;reboot=true
 Event=>check-sync;reboot=false
 
 [grandstream-reboot]
-Event=>sys-control
+Event=>check-sync;reboot=true
 
 [fanvil-check-sync]
 Event=>check-sync;reboot=false
@@ -1467,6 +1468,32 @@ def trigger_phone_sip_notify(sip_username: str, brand: str = "Yealink", reboot: 
         notify_type = "cisco-reboot" if reboot else "cisco-check-sync"
     else:
         notify_type = "yealink-reboot" if reboot else "default-yealink"
+
+    # Auto-heal /etc/asterisk/pjsip_notify.conf if stale (e.g. legacy sys-control or missing notify section)
+    try:
+        ast_notify_path = "/etc/asterisk/pjsip_notify.conf"
+        needs_reload = False
+        if os.path.exists("/etc/asterisk"):
+            cur_txt = ""
+            if os.path.isfile(ast_notify_path):
+                try:
+                    with open(ast_notify_path, "r", encoding="utf-8") as _nf:
+                        cur_txt = _nf.read()
+                except Exception:
+                    cur_txt = ""
+            if (f"[{notify_type}]" not in cur_txt) or ("Event=>sys-control" in cur_txt):
+                ensure_pjsip_notify_conf(os.path.join(os.path.dirname(os.path.dirname(__file__)), "asterisk_config"))
+                needs_reload = True
+        if needs_reload:
+            subprocess.run(
+                ["asterisk", "-rx", "module reload res_pjsip_notify.so"],
+                capture_output=True,
+                text=True,
+                timeout=2.5,
+                check=False,
+            )
+    except Exception:
+        pass
 
     try:
         proc = subprocess.run(
@@ -1792,31 +1819,70 @@ def generate_provisioning_config(
         exp_block_lines: List[str] = []
         soft_block_lines: List[str] = []
         if "grandstream" in tpl_b_low:
-            gs_m = {"line": "0", "speed_dial": "1", "blf": "2", "transfer": "9", "park": "10", "intercom": "13", "dnd": "20", "voicemail": "1"}
+            # Grandstream GRP/GXP VPK Mode (Firmware 1.0.9+): -1=None, 0=Line, 10=SpeedDial, 11=BLF, 15=DTMF, 16=Voicemail, 18=Transfer, 19=CallPark, 20=Intercom
+            gs_m = {
+                "none": "-1",
+                "line": "0",
+                "speed_dial": "10",
+                "blf": "11",
+                "dtmf": "15",
+                "voicemail": "16",
+                "transfer": "18",
+                "park": "19",
+                "intercom": "20",
+                "pickup": "10",
+                "forward": "10",
+                "dnd": "10",
+                "hold": "10",
+                "conference": "10",
+            }
             for i0, k in enumerate(dss_list[:48]):
-                kt = str(k.get("type") or "none")
-                if kt == "none":
-                    continue
-                mc = gs_m.get(kt, "1")
+                k_idx0 = max(0, int(k.get("key_index") or (i0 + 1)) - 1)
+                kt = str(k.get("type") or "none").strip().lower()
+                mc = gs_m.get(kt, "10")
                 kl = html.escape(str(k.get("label") or ""))
-                kv = html.escape(str(k.get("value") or ("*97" if kt == "voicemail" else "")))
-                if i0 < 12:
-                    dss_block_lines.extend([
-                        f"    <P{1363 + i0 * 2}>{mc}</P{1363 + i0 * 2}>",
-                        f"    <P{1364 + i0 * 2}>0</P{1364 + i0 * 2}>",
-                        f"    <P{1465 + i0 * 2}>{kl}</P{1465 + i0 * 2}>",
-                        f"    <P{1466 + i0 * 2}>{kv}</P{1466 + i0 * 2}>",
-                    ])
+                kv = html.escape(
+                    str(
+                        k.get("value")
+                        or ("*97" if kt == "voicemail" else (pickup_group if kt == "pickup" else ("*78" if kt == "dnd" else "")))
+                    )
+                )
+                if k_idx0 < 12:
+                    if kt == "none":
+                        dss_block_lines.extend([
+                            f"    <P{1363 + k_idx0 * 2}>-1</P{1363 + k_idx0 * 2}>",
+                            f"    <P{1465 + k_idx0 * 2}></P{1465 + k_idx0 * 2}>",
+                            f"    <P{1466 + k_idx0 * 2}></P{1466 + k_idx0 * 2}>",
+                        ])
+                    else:
+                        dss_block_lines.extend([
+                            f"    <P{1363 + k_idx0 * 2}>{mc}</P{1363 + k_idx0 * 2}>",
+                            f"    <P{1364 + k_idx0 * 2}>0</P{1364 + k_idx0 * 2}>",
+                            f"    <P{1465 + k_idx0 * 2}>{kl}</P{1465 + k_idx0 * 2}>",
+                            f"    <P{1466 + k_idx0 * 2}>{kv}</P{1466 + k_idx0 * 2}>",
+                        ])
+                else:
+                    off = k_idx0 - 12
+                    base_p = 23000 + (off * 4)
+                    if kt == "none":
+                        dss_block_lines.append(f"    <P{base_p}>-1</P{base_p}>")
+                    else:
+                        dss_block_lines.extend([
+                            f"    <P{base_p}>{mc}</P{base_p}>",
+                            f"    <P{base_p + 1}>0</P{base_p + 1}>",
+                            f"    <P{base_p + 2}>{kl}</P{base_p + 2}>",
+                            f"    <P{base_p + 3}>{kv}</P{base_p + 3}>",
+                        ])
             for mod in exp_list[:4]:
                 mi = int(mod.get("module_index") or 1)
                 mb = 23000 + ((mi - 1) * 400)
                 for ek in (mod.get("keys") or [])[:40]:
-                    et = str(ek.get("type") or "none")
+                    et = str(ek.get("type") or "none").strip().lower()
                     if et == "none":
                         continue
                     pb = mb + ((max(1, int(ek.get("key_index") or 1)) - 1) * 4)
                     exp_block_lines.extend([
-                        f"    <P{pb}>{gs_m.get(et, '2')}</P{pb}>",
+                        f"    <P{pb}>{gs_m.get(et, '11')}</P{pb}>",
                         f"    <P{pb + 1}>0</P{pb + 1}>",
                         f"    <P{pb + 2}>{html.escape(str(ek.get('label') or ''))}</P{pb + 2}>",
                         f"    <P{pb + 3}>{html.escape(str(ek.get('value') or ''))}</P{pb + 3}>",
@@ -1928,6 +1994,7 @@ def generate_provisioning_config(
             "{PICKUP_DIRECTED}": pickup_directed,
             "{PROVISION_URL}": provision_server_url,
             "{PROVISION_URL_NO_SCHEME}": provision_server_url.replace("http://", "").replace("https://", ""),
+            "{PROVISION_PROTO_CODE}": "2" if str(provision_server_url or "").lower().startswith("https://") else "1",
             "{PHONEBOOK_URL}": pb_full_url,
             "{PHONEBOOK_URL_NO_SCHEME}": pb_full_url.replace("http://", "").replace("https://", ""),
             "{RINGTONE}": prefs["ringtone"],
@@ -1980,47 +2047,60 @@ def generate_provisioning_config(
     if "grandstream" in b_low:
         gs_tr = "2" if tr_up == "TLS" else ("1" if tr_up == "TCP" else "0")
         gs_mpk_lines: List[str] = []
-        # Grandstream Mode: 0=Line, 1=SpeedDial, 2=BLF, 7=Park, 9=Transfer, 10=CallPark, 13=Intercom, 20=DND
+        # Grandstream GRP/GXP VPK Mode (Firmware 1.0.9+): -1=None, 0=Line, 10=SpeedDial, 11=BLF, 15=DTMF, 16=Voicemail, 18=Transfer, 19=CallPark, 20=Intercom
         gs_mode_map = {
+            "none": "-1",
             "line": "0",
-            "speed_dial": "1",
-            "blf": "2",
-            "transfer": "9",
-            "park": "10",
-            "intercom": "13",
-            "pickup": "1",
-            "forward": "1",
-            "dnd": "20",
-            "voicemail": "1",
-            "hold": "1",
-            "conference": "1",
-            "dtmf": "1",
+            "speed_dial": "10",
+            "blf": "11",
+            "dtmf": "15",
+            "voicemail": "16",
+            "transfer": "18",
+            "park": "19",
+            "intercom": "20",
+            "pickup": "10",
+            "forward": "10",
+            "dnd": "10",
+            "hold": "10",
+            "conference": "10",
         }
         for idx_zero, k in enumerate(dss_list[:48]):
-            ktype = str(k.get("type") or "none")
-            if ktype == "none":
-                continue
-            mode_code = gs_mode_map.get(ktype, "1")
+            k_idx0 = max(0, int(k.get("key_index") or (idx_zero + 1)) - 1)
+            ktype = str(k.get("type") or "none").strip().lower()
+            mode_code = gs_mode_map.get(ktype, "10")
             klbl = html.escape(str(k.get("label") or ""))
-            kval = html.escape(str(k.get("value") or ("*97" if ktype == "voicemail" else (pickup_group if ktype == "pickup" else ""))))
-            if idx_zero < 12:
+            kval = html.escape(
+                str(
+                    k.get("value")
+                    or ("*97" if ktype == "voicemail" else (pickup_group if ktype == "pickup" else ("*78" if ktype == "dnd" else "")))
+                )
+            )
+            if k_idx0 < 12:
                 # Standard VPK / MPK 1..12
-                p_mode = 1363 + (idx_zero * 2)
-                p_acct = 1364 + (idx_zero * 2)
-                p_desc = 1465 + (idx_zero * 2)
-                p_val = 1466 + (idx_zero * 2)
-                gs_mpk_lines.append(f"    <P{p_mode}>{mode_code}</P{p_mode}>")
-                gs_mpk_lines.append(f"    <P{p_acct}>0</P{p_acct}>")
-                gs_mpk_lines.append(f"    <P{p_desc}>{klbl}</P{p_desc}>")
-                gs_mpk_lines.append(f"    <P{p_val}>{kval}</P{p_val}>")
+                p_mode = 1363 + (k_idx0 * 2)
+                p_acct = 1364 + (k_idx0 * 2)
+                p_desc = 1465 + (k_idx0 * 2)
+                p_val = 1466 + (k_idx0 * 2)
+                if ktype == "none":
+                    gs_mpk_lines.append(f"    <P{p_mode}>-1</P{p_mode}>")
+                    gs_mpk_lines.append(f"    <P{p_desc}></P{p_desc}>")
+                    gs_mpk_lines.append(f"    <P{p_val}></P{p_val}>")
+                else:
+                    gs_mpk_lines.append(f"    <P{p_mode}>{mode_code}</P{p_mode}>")
+                    gs_mpk_lines.append(f"    <P{p_acct}>0</P{p_acct}>")
+                    gs_mpk_lines.append(f"    <P{p_desc}>{klbl}</P{p_desc}>")
+                    gs_mpk_lines.append(f"    <P{p_val}>{kval}</P{p_val}>")
             else:
                 # Extended VPK 13..48 (P23000+ series)
-                off = idx_zero - 12
+                off = k_idx0 - 12
                 base_p = 23000 + (off * 4)
-                gs_mpk_lines.append(f"    <P{base_p}>{mode_code}</P{base_p}>")
-                gs_mpk_lines.append(f"    <P{base_p + 1}>0</P{base_p + 1}>")
-                gs_mpk_lines.append(f"    <P{base_p + 2}>{klbl}</P{base_p + 2}>")
-                gs_mpk_lines.append(f"    <P{base_p + 3}>{kval}</P{base_p + 3}>")
+                if ktype == "none":
+                    gs_mpk_lines.append(f"    <P{base_p}>-1</P{base_p}>")
+                else:
+                    gs_mpk_lines.append(f"    <P{base_p}>{mode_code}</P{base_p}>")
+                    gs_mpk_lines.append(f"    <P{base_p + 1}>0</P{base_p + 1}>")
+                    gs_mpk_lines.append(f"    <P{base_p + 2}>{klbl}</P{base_p + 2}>")
+                    gs_mpk_lines.append(f"    <P{base_p + 3}>{kval}</P{base_p + 3}>")
 
         # Daisy-chained Grandstream GBX20 / GXP2200EXT Expansion Modules (1..4, 40 keys each)
         # Module 1: P23000 block -> standard Grandstream EXT bases: Board 1=23000, Board 2=23400, Board 3=23800, Board 4=24200
@@ -2054,9 +2134,9 @@ def generate_provisioning_config(
         gs_bl_idle = str(max(0, min(100, prefs["backlight_inactive"] * 10)))
         gs_lang_code = "tr" if eff_language.lower().startswith("turk") else ("de" if eff_language.lower().startswith("ger") or eff_language.lower().startswith("deut") else "en")
         gs_prov_lines = (
-            f"    <P212>{gs_prov_proto}</P212>\n    <P237>{gs_prov_url}</P237>\n    <P194>1</P194>\n    <P240>1</P240>\n"
+            f"    <P212>{gs_prov_proto}</P212>\n    <P237>{gs_prov_url}</P237>\n    <P194>1</P194>\n    <P240>0</P240>\n    <P95030>0</P95030>\n"
             if gs_prov_url
-            else "    <P194>1</P194>\n"
+            else "    <P194>1</P194>\n    <P240>0</P240>\n    <P95030>0</P95030>\n"
         )
         xml_out = f"""<?xml version="1.0" encoding="UTF-8" ?>
 <!-- AIDA PBX Grandstream Auto-Provisioning ({html.escape(model)}) | Ext: {html.escape(ext_s)} | SIP Endpoint: {html.escape(sip_u)} -->

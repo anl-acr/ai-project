@@ -10432,11 +10432,23 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                       inspectDraft={inspectDraft}
                       setInspectDraft={setInspectDraft}
                       extension={extension}
+                      userId={editingUser?.id ?? null}
                       fullName={fullName}
                       users={users}
                       departments={departments}
                       safeFetch={safeFetch}
                       isOnline={isOnlineNow}
+                      onSyncedDraft={(synced) => {
+                        if (!synced) return;
+                        setInspectDraft((prev) => (prev ? { ...prev, ...synced } : prev));
+                        setSipDevices((prev) =>
+                          prev.map((d) =>
+                            d.id === synced.id || (synced.sip_username && d.sip_username === synced.sip_username)
+                              ? { ...d, ...synced }
+                              : d
+                          )
+                        );
+                      }}
                     />
                   </div>
                 )}
