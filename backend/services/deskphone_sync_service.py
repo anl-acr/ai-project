@@ -328,7 +328,7 @@ def build_grandstream_sync_xml_lines(
     """
     Builds Grandstream GXP21xx / GRP26xx XML (<config version="1">) P-code lines for
     bi-directional DND & 3-level Call Forwarding sync:
-      - Zero-reboot SIP NOTIFY check-sync (`P194=1`, `P240=1`) + Local Call Features (`P191=1`)
+      - Zero-reboot SIP NOTIFY check-sync (`P194=1`, `P240=0`, `P4428=1`) + Local Call Features (`P191=1`)
       - Account 1 Feature Access Codes (`P2344`/`P2345` DND, `P26013`/`P26014` Always,
         `P26009`/`P26010` Busy, `P26011`/`P26012` No Answer, `P139` timeout)
       - Authenticated Action URLs (`P8316`..`P8319` + `P22164`..`P22169`)

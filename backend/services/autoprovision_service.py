@@ -2028,8 +2028,20 @@ def generate_provisioning_config(
         if "yealink" in tpl_b_low and "{SYNC_FEATURE_BLOCK}" not in raw_tpl:
             rendered = rendered.replace("sip.notify_reboot_enable = 1", "sip.notify_reboot_enable = 0")
             rendered = rendered.rstrip() + "\n" + yealink_sync_block + "\n"
-        elif "grandstream" in tpl_b_low and "{SYNC_FEATURE_BLOCK}" not in raw_tpl and "</config>" in rendered:
-            rendered = rendered.replace("</config>", grandstream_sync_block + "\n  </config>", 1)
+        elif "grandstream" in tpl_b_low:
+            # Always enforce Authenticate Conf File = No (P240=0) & Disable SIP NOTIFY Auth = Yes (P4428=1)
+            # even on user-copied/custom Grandstream templates so XML updates & remote Check-Sync/Reboot never lock out.
+            rendered = re.sub(r"<P240>\s*1\s*</P240>", "<P240>0</P240>", rendered)
+            if "</config>" in rendered:
+                inject_gs = []
+                if "<P240>" not in rendered:
+                    inject_gs.append("    <P240>0</P240>")
+                if "<P4428>" not in rendered:
+                    inject_gs.append("    <P4428>1</P4428>")
+                if "{SYNC_FEATURE_BLOCK}" not in raw_tpl:
+                    inject_gs.append(grandstream_sync_block)
+                if inject_gs:
+                    rendered = rendered.replace("</config>", "\n".join(inject_gs) + "\n  </config>", 1)
         elif "fanvil" in tpl_b_low:
             if "{FANVIL_SIP_SYNC_BLOCK}" not in raw_tpl and "<SIP CONFIG MODULE>" in rendered:
                 if "<PHONE CONFIG MODULE>" in rendered:
