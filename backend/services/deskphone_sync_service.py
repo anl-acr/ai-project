@@ -326,15 +326,15 @@ def build_grandstream_sync_xml_lines(
     fwd_codes: Optional[Dict[str, str]] = None,
 ) -> List[str]:
     """
-    Builds Grandstream GXP21xx / GRP26xx XML (<config version="1">) P-code lines for
-    bi-directional DND & 3-level Call Forwarding sync:
-      - Zero-reboot SIP NOTIFY check-sync (`P194=1`, `P240=0`, `P4428=1`)
-      - Server-side Feature Code mode (`P191=0`) so enabling/disabling DND or Forwarding
-        on the Grandstream phone dials `*78`/`*79` and `*21*<target>`/`*21` to Asterisk
-        with the real destination number!
-      - Live Account 1 Forwarding Targets (`Pforward_0`, `PbusyForward_0`, `PdelayedForward_0`, `P139`)
-        so changes from Nornia Web UI genuinely enable/disable forwarding on the phone itself
-      - Authenticated Action URLs (`P8316`..`P8319` + `P22164`..`P22169`)
+    Builds Grandstream GRP260x / GRP26xx / GXP21xx XML (<config version="1">) P-code lines for
+    bi-directional DND & 3-level Call Forwarding sync (verified against official Grandstream
+    `grp260x_config_1.0.7.74.txt` and `grp26xx_config_1.0.15.23.txt` templates):
+      - Zero-reboot SIP NOTIFY check-sync (`P95030=0`, `P22421=0`, `P240=0`, `P4428=1`)
+      - Local Call Features enabled (`P191=1`, `P8446=1`) so the phone natively evaluates
+        Call Forward Targets and displays the active Call Forward status icon on the LCD
+      - Official Account 1 Call Forward Targets (`P29092` Always, `P29093` Busy, `P29094` No Answer, `P139` Timeout)
+      - Feature Codes (`P2344`/`P2345` DND, `P26013`/`P26014` Always, `P26009`/`P26010` Busy, `P26011`/`P26012` No Answer)
+      - Outbound Notification (`P32062=1`) + Authenticated Action URLs (`P8316`..`P8319` + `P22164`..`P22169`)
     """
     st = live_state if isinstance(live_state, dict) else extract_user_live_phone_sync_state(None)
     codes = fwd_codes if isinstance(fwd_codes, dict) else {}
@@ -357,19 +357,23 @@ def build_grandstream_sync_xml_lines(
 
     lines = [
         "    <!-- Nornia Cift Yonlu DND & Cagri Yonlendirme Senkronizasyonu (Grandstream <-> Santral) -->",
-        "    <P191>0</P191>",
+        "    <P95030>0</P95030>",
+        "    <P22421>0</P22421>",
+        "    <P191>1</P191>",
+        "    <P8446>1</P8446>",
+        "    <P32062>1</P32062>",
         f"    <P139>{noa_timeout}</P139>",
         "    <P2344>*78</P2344>",
         "    <P2345>*79</P2345>",
         f"    <P26013>{html.escape(p_always)}</P26013>",
         f"    <P26014>{html.escape(p_always_off)}</P26014>",
-        f"    <Pforward_0>{html.escape(alw_target)}</Pforward_0>",
+        f"    <P29092>{html.escape(alw_target)}</P29092>",
         f"    <P26009>{html.escape(p_busy)}</P26009>",
         f"    <P26010>{html.escape(p_busy_off)}</P26010>",
-        f"    <PbusyForward_0>{html.escape(bsy_target)}</PbusyForward_0>",
+        f"    <P29093>{html.escape(bsy_target)}</P29093>",
         f"    <P26011>{html.escape(p_noans)}</P26011>",
         f"    <P26012>{html.escape(p_noans_off)}</P26012>",
-        f"    <PdelayedForward_0>{html.escape(noa_target)}</PdelayedForward_0>",
+        f"    <P29094>{html.escape(noa_target)}</P29094>",
     ]
 
     clean_base = str(sync_base_url or "").strip().rstrip("/")
@@ -379,7 +383,7 @@ def build_grandstream_sync_xml_lines(
         base_ep = f"{clean_base}?{qs_common}"
 
         def _gs_url(ev: str) -> str:
-            return html.escape(f"{base_ep}&event={ev}&mac=$mac&ip=$phone_ip", quote=False)
+            return html.escape(f"{base_ep}&event={ev}&brand=grandstream&target=$remote&mac=$mac&ip=$phone_ip", quote=False)
 
         lines.extend([
             "    <!-- Anlik Action URL Senkronizasyonu (Grandstream -> Nornia Santral) -->",

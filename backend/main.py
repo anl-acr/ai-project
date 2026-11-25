@@ -16401,12 +16401,13 @@ async def deskphone_action_url_sync_endpoint(
     sig: str = "",
     event: str = "",
     target: str = "",
+    brand: str = "",
     mac: str = "",
     ip: str = "",
     db: AsyncSession = Depends(get_db),
 ):
     """
-    HMAC-SHA256 imzalı Yealink Action URL webhook alıcısı.
+    HMAC-SHA256 imzalı IP Telefon (Yealink / Grandstream / Fanvil) Action URL webhook alıcısı.
     Masa telefonunun yerel menüsünden/tuşlarından DND veya Çağrı Yönlendirme değiştiğinde
     santral durumunu anlık günceller ve kullanıcının diğer masa telefonlarına yeniden başlatmasız
     (check-sync;reboot=false) senkronize eder.
@@ -16428,11 +16429,14 @@ async def deskphone_action_url_sync_endpoint(
     if not ext_clean or not su_clean or not verify_phone_sync_token(ext_clean, su_clean, sig):
         raise HTTPException(status_code=403, detail="Geçersiz cihaz senkronizasyon imzası.")
 
+    brand_clean = str(brand or "").strip()
+    src_label = f"Masa Telefonu ({brand_clean.capitalize()})" if brand_clean else "Masa Telefonu"
+
     # Mark originating device immediately so concurrent updates never echo check-sync back to it
     record_phone_origin_change(ext_clean, su_clean)
     client_ip = extract_client_ip(request)
     now_tr = (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[DeskPhone ActionURL] ext={ext_clean}, su={su_clean}, event={ev_clean}, target={target or '-'}, mac={mac or '-'}, ip={ip or client_ip}")
+    print(f"[DeskPhone ActionURL] ext={ext_clean}, su={su_clean}, brand={brand_clean or '-'}, event={ev_clean}, target={target or '-'}, mac={mac or '-'}, ip={ip or client_ip}")
 
     if ev_clean in ("dnd_on", "dnd_off"):
         dnd_flag = ev_clean == "dnd_on"
@@ -16440,7 +16444,7 @@ async def deskphone_action_url_sync_endpoint(
             ext_clean,
             dnd_enabled=dnd_flag,
             db=db,
-            source_label="Masa Telefonu (Yealink)",
+            source_label=src_label,
             origin_sip_username=su_clean,
             event_name=ev_clean,
         )
@@ -16484,8 +16488,8 @@ async def deskphone_action_url_sync_endpoint(
         deact_obj = {"active": False, "type": "internal", "target": ""}
         if is_na:
             deact_obj["timeout"] = existing_timeout
-        await _sync_user_forwarding_state(ext_clean, {col_name: deact_obj}, db, source_label="Masa Telefonu (Yealink)")
-        await _stamp_deskphone_sync_meta(ext_clean, db=db, source_label="Masa Telefonu", event_name=ev_clean, synced_at=now_tr)
+        await _sync_user_forwarding_state(ext_clean, {col_name: deact_obj}, db, source_label=src_label)
+        await _stamp_deskphone_sync_meta(ext_clean, db=db, source_label=src_label, event_name=ev_clean, synced_at=now_tr)
         add_system_log("CALL_FORWARD", "INFO", f"Dahili {ext_clean} masa telefonu ekranından {rule_lbl} kuralını kapattı (Action URL).")
         u_fresh = await _load_merged_user_by_ext(ext_clean, db=db)
         if u_fresh:
@@ -16509,12 +16513,12 @@ async def deskphone_action_url_sync_endpoint(
                 rule_obj = {"active": True, "type": target_type, "target": clean_target}
                 if is_na:
                     rule_obj["timeout"] = 30
-                await _sync_user_forwarding_state(ext_clean, {col_name: rule_obj}, db, source_label="Masa Telefonu (Yealink)")
+                await _sync_user_forwarding_state(ext_clean, {col_name: rule_obj}, db, source_label=src_label)
                 add_system_log("CALL_FORWARD", "INFO", f"Dahili {ext_clean} masa telefonu ekranından {rule_lbl} kuralını '{clean_target}' hedefine açtı (Action URL).")
                 u_fresh = await _load_merged_user_by_ext(ext_clean, db=db)
                 if u_fresh:
                     push_live_state_to_user_deskphones(u_fresh, settings_db, exclude_sip_username=su_clean, reason_log=f"Masa Telefonu {ev_clean}", respect_echo_guard=True)
-        await _stamp_deskphone_sync_meta(ext_clean, db=db, source_label="Masa Telefonu", event_name=ev_clean, synced_at=now_tr)
+        await _stamp_deskphone_sync_meta(ext_clean, db=db, source_label=src_label, event_name=ev_clean, synced_at=now_tr)
         return {"status": "ok", "ext": ext_clean, "event": ev_clean}
 
     return {"status": "ignored", "ext": ext_clean, "event": ev_clean}

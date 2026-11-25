@@ -242,6 +242,7 @@ def build_system_default_templates() -> List[Dict[str, Any]]:
     <P240>0</P240>
     <P4428>1</P4428>
     <P95030>0</P95030>
+    <P22421>0</P22421>
     <P6752>1</P6752>
     <P271>1</P271>
     <P270>{{LABEL}}</P270>
@@ -1410,34 +1411,36 @@ def resolve_pbx_sip_server_host(
 
 
 def ensure_pjsip_notify_conf(asterisk_config_dir: str) -> None:
-    """Writes pjsip_notify.conf so Asterisk CLI `pjsip send notify <type> endpoint <sip_username>` works across IP phone brands."""
+    """Writes pjsip_notify.conf so Asterisk CLI `pjsip send notify <type> endpoint <sip_username>` works across IP phone brands.
+    NOTE: Asterisk config parser treats unescaped `;` as a comment delimiter, so `;reboot=false/true` MUST be escaped as `\\;`.
+    """
     notify_content = """; ==========================================
 ; AIDA Otoprovizyon SIP NOTIFY (check-sync) Tanımları
 ; ==========================================
 
 [default-yealink]
-Event=>check-sync;reboot=false
+Event=>check-sync\\;reboot=false
 
 [yealink-reboot]
-Event=>check-sync;reboot=true
+Event=>check-sync\\;reboot=true
 
 [grandstream-check-sync]
-Event=>check-sync;reboot=false
+Event=>check-sync\\;reboot=false
 
 [grandstream-reboot]
-Event=>check-sync;reboot=true
+Event=>check-sync\\;reboot=true
 
 [fanvil-check-sync]
-Event=>check-sync;reboot=false
+Event=>check-sync\\;reboot=false
 
 [fanvil-reboot]
-Event=>check-sync;reboot=true
+Event=>check-sync\\;reboot=true
 
 [cisco-check-sync]
-Event=>check-sync;reboot=false
+Event=>check-sync\\;reboot=false
 
 [cisco-reboot]
-Event=>check-sync;reboot=true
+Event=>check-sync\\;reboot=true
 """
     try:
         os.makedirs(asterisk_config_dir, exist_ok=True)
@@ -1483,7 +1486,11 @@ def trigger_phone_sip_notify(sip_username: str, brand: str = "Yealink", reboot: 
                         cur_txt = _nf.read()
                 except Exception:
                     cur_txt = ""
-            if (f"[{notify_type}]" not in cur_txt) or ("Event=>sys-control" in cur_txt):
+            if (
+                (f"[{notify_type}]" not in cur_txt)
+                or ("Event=>sys-control" in cur_txt)
+                or ("Event=>check-sync;reboot=" in cur_txt)
+            ):
                 ensure_pjsip_notify_conf(os.path.join(os.path.dirname(os.path.dirname(__file__)), "asterisk_config"))
                 needs_reload = True
         if needs_reload:
@@ -2154,9 +2161,9 @@ def generate_provisioning_config(
         gs_bl_idle = str(max(0, min(100, prefs["backlight_inactive"] * 10)))
         gs_lang_code = "tr" if eff_language.lower().startswith("turk") else ("de" if eff_language.lower().startswith("ger") or eff_language.lower().startswith("deut") else "en")
         gs_prov_lines = (
-            f"    <P212>{gs_prov_proto}</P212>\n    <P237>{gs_prov_url}</P237>\n    <P194>1</P194>\n    <P240>0</P240>\n    <P4428>1</P4428>\n    <P95030>0</P95030>\n    <P6752>1</P6752>\n"
+            f"    <P212>{gs_prov_proto}</P212>\n    <P237>{gs_prov_url}</P237>\n    <P194>1</P194>\n    <P240>0</P240>\n    <P4428>1</P4428>\n    <P95030>0</P95030>\n    <P22421>0</P22421>\n    <P6752>1</P6752>\n"
             if gs_prov_url
-            else "    <P194>1</P194>\n    <P240>0</P240>\n    <P4428>1</P4428>\n    <P95030>0</P95030>\n    <P6752>1</P6752>\n"
+            else "    <P194>1</P194>\n    <P240>0</P240>\n    <P4428>1</P4428>\n    <P95030>0</P95030>\n    <P22421>0</P22421>\n    <P6752>1</P6752>\n"
         )
         xml_out = f"""<?xml version="1.0" encoding="UTF-8" ?>
 <!-- AIDA PBX Grandstream Auto-Provisioning ({html.escape(model)}) | Ext: {html.escape(ext_s)} | SIP Endpoint: {html.escape(sip_u)} -->
