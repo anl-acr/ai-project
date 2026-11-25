@@ -3980,20 +3980,31 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
               </div>
               <div className="flex items-center gap-2">
                 {editingUser && (
-                  <button
-                    type="button"
-                    disabled={welcomeEmailSending || !(email || editingUser.email)}
-                    onClick={() => handleSendWelcomeEmail(editingUser.id ?? editingUser.extension, email || editingUser.email)}
-                    title={
-                      email || editingUser.email
-                        ? `${email || editingUser.email} adresine şifre oluşturma ve kurulum rehberi maili gönder`
-                        : "Önce geçerli bir e-posta adresi giriniz"
-                    }
-                    className={`px-3 py-1.5 rounded-xl border ${borderLight} ${lightBg} ${text} hover:opacity-90 text-[11px] font-extrabold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-45`}
-                  >
-                    <Mail size={13} />
-                    <span>{welcomeEmailSending ? "Gönderiliyor..." : "Hoş Geldiniz Maili Gönder"}</span>
-                  </button>
+                  <div className="relative group">
+                    <button
+                      type="button"
+                      disabled={welcomeEmailSending || !(email || editingUser.email)}
+                      onClick={() => handleSendWelcomeEmail(editingUser.id ?? editingUser.extension, email || editingUser.email)}
+                      aria-label="Hoş Geldiniz Maili Gönder"
+                      title={
+                        welcomeEmailSending
+                          ? "Hoş Geldiniz Maili Gönderiliyor..."
+                          : email || editingUser.email
+                          ? `Hoş Geldiniz Maili Gönder (${email || editingUser.email})`
+                          : "Önce geçerli bir e-posta adresi giriniz"
+                      }
+                      className={`h-8 w-8 rounded-xl border ${borderLight} ${lightBg} ${text} hover:opacity-90 flex items-center justify-center shrink-0 transition cursor-pointer disabled:opacity-45`}
+                    >
+                      <Mail size={15} className={welcomeEmailSending ? "animate-pulse" : ""} />
+                    </button>
+                    <div className="pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150 absolute right-0 top-full mt-1.5 z-50 whitespace-nowrap px-2.5 py-1.5 rounded-lg bg-slate-900 dark:bg-slate-800 text-white text-[11px] font-semibold shadow-lg border border-slate-700/60">
+                      {welcomeEmailSending
+                        ? "Hoş Geldiniz Maili Gönderiliyor..."
+                        : email || editingUser.email
+                        ? `Hoş Geldiniz Maili Gönder (${email || editingUser.email})`
+                        : "Önce geçerli bir e-posta adresi giriniz"}
+                    </div>
+                  </div>
                 )}
                 <button
                   onClick={() => {
