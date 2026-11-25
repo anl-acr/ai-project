@@ -16118,6 +16118,8 @@ async def _render_autoprovision_file_for_phone(
         or fn_low.endswith("-contact.xml")
         or fn_low.endswith("-security.enc")
         or fn_low.endswith((".enc", ".rom", ".bin", ".wav", ".png", ".jpg", ".jpeg", ".tar", ".gz", ".zip", ".rfs"))
+        or re.match(r"^cfg[0-9a-f]{12}$", fn_low)
+        or re.match(r"^dev[0-9a-f]{12}\.cfg$", fn_low)
     ):
         _log_autoprovision_hit(
             tenant_id, fn_clean, client_ip, user_agent, 404,

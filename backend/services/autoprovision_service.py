@@ -240,7 +240,9 @@ def build_system_default_templates() -> List[Dict[str, Any]]:
     <P237>{{PROVISION_URL_NO_SCHEME}}</P237>
     <P194>1</P194>
     <P240>0</P240>
+    <P4428>1</P4428>
     <P95030>0</P95030>
+    <P6752>1</P6752>
     <P271>1</P271>
     <P270>{{LABEL}}</P270>
     <P47>{{SIP_SERVER}}:{{SIP_PORT}}</P47>
@@ -1819,27 +1821,29 @@ def generate_provisioning_config(
         exp_block_lines: List[str] = []
         soft_block_lines: List[str] = []
         if "grandstream" in tpl_b_low:
-            # Grandstream GRP/GXP VPK Mode (Firmware 1.0.9+): -1=None, 0=Line, 10=SpeedDial, 11=BLF, 15=DTMF, 16=Voicemail, 18=Transfer, 19=CallPark, 20=Intercom
+            # Grandstream GRP26xx / GXP21xx Official Fixed VPK Mode (verified from grp26xx template):
+            # -1=None, 0=SpeedDial, 1=BLF, 5=DialDTMF, 6=VoiceMail, 8=Transfer, 9=CallPark,
+            # 10=Intercom, 12=Conference, 21=Forward, 22=DND, 31=Default/Line, 32=SharedLine
             gs_m = {
                 "none": "-1",
-                "line": "0",
-                "speed_dial": "10",
-                "blf": "11",
-                "dtmf": "15",
-                "voicemail": "16",
-                "transfer": "18",
-                "park": "19",
-                "intercom": "20",
-                "pickup": "10",
-                "forward": "10",
-                "dnd": "10",
-                "hold": "10",
-                "conference": "10",
+                "line": "31",
+                "speed_dial": "0",
+                "blf": "1",
+                "dtmf": "5",
+                "voicemail": "6",
+                "transfer": "8",
+                "park": "9",
+                "intercom": "10",
+                "conference": "12",
+                "forward": "21",
+                "dnd": "22",
+                "pickup": "0",
+                "hold": "0",
             }
             for i0, k in enumerate(dss_list[:48]):
                 k_idx0 = max(0, int(k.get("key_index") or (i0 + 1)) - 1)
                 kt = str(k.get("type") or "none").strip().lower()
-                mc = gs_m.get(kt, "10")
+                mc = gs_m.get(kt, "0")
                 kl = html.escape(str(k.get("label") or ""))
                 kv = html.escape(
                     str(
@@ -1847,7 +1851,8 @@ def generate_provisioning_config(
                         or ("*97" if kt == "voicemail" else (pickup_group if kt == "pickup" else ("*78" if kt == "dnd" else "")))
                     )
                 )
-                if k_idx0 < 12:
+                if k_idx0 < 6:
+                    # Fixed VPK 1..6: Mode=P1363+2i, Account=P1364+2i, Desc=P1465+2i, Val=P1466+2i
                     if kt == "none":
                         dss_block_lines.extend([
                             f"    <P{1363 + k_idx0 * 2}>-1</P{1363 + k_idx0 * 2}>",
@@ -1862,8 +1867,9 @@ def generate_provisioning_config(
                             f"    <P{1466 + k_idx0 * 2}>{kv}</P{1466 + k_idx0 * 2}>",
                         ])
                 else:
-                    off = k_idx0 - 12
-                    base_p = 23000 + (off * 4)
+                    # VPK 7..48: sequential starting at P23800 in groups of 4 (Mode, Account, Desc, Val)
+                    off = k_idx0 - 6
+                    base_p = 23800 + (off * 4)
                     if kt == "none":
                         dss_block_lines.append(f"    <P{base_p}>-1</P{base_p}>")
                     else:
@@ -1882,7 +1888,7 @@ def generate_provisioning_config(
                         continue
                     pb = mb + ((max(1, int(ek.get("key_index") or 1)) - 1) * 4)
                     exp_block_lines.extend([
-                        f"    <P{pb}>{gs_m.get(et, '11')}</P{pb}>",
+                        f"    <P{pb}>{gs_m.get(et, '1')}</P{pb}>",
                         f"    <P{pb + 1}>0</P{pb + 1}>",
                         f"    <P{pb + 2}>{html.escape(str(ek.get('label') or ''))}</P{pb + 2}>",
                         f"    <P{pb + 3}>{html.escape(str(ek.get('value') or ''))}</P{pb + 3}>",
@@ -2047,27 +2053,29 @@ def generate_provisioning_config(
     if "grandstream" in b_low:
         gs_tr = "2" if tr_up == "TLS" else ("1" if tr_up == "TCP" else "0")
         gs_mpk_lines: List[str] = []
-        # Grandstream GRP/GXP VPK Mode (Firmware 1.0.9+): -1=None, 0=Line, 10=SpeedDial, 11=BLF, 15=DTMF, 16=Voicemail, 18=Transfer, 19=CallPark, 20=Intercom
+        # Grandstream GRP26xx / GXP21xx Official Fixed VPK Mode (verified from grp26xx template):
+        # -1=None, 0=SpeedDial, 1=BLF, 5=DialDTMF, 6=VoiceMail, 8=Transfer, 9=CallPark,
+        # 10=Intercom, 12=Conference, 21=Forward, 22=DND, 31=Default/Line, 32=SharedLine
         gs_mode_map = {
             "none": "-1",
-            "line": "0",
-            "speed_dial": "10",
-            "blf": "11",
-            "dtmf": "15",
-            "voicemail": "16",
-            "transfer": "18",
-            "park": "19",
-            "intercom": "20",
-            "pickup": "10",
-            "forward": "10",
-            "dnd": "10",
-            "hold": "10",
-            "conference": "10",
+            "line": "31",
+            "speed_dial": "0",
+            "blf": "1",
+            "dtmf": "5",
+            "voicemail": "6",
+            "transfer": "8",
+            "park": "9",
+            "intercom": "10",
+            "conference": "12",
+            "forward": "21",
+            "dnd": "22",
+            "pickup": "0",
+            "hold": "0",
         }
         for idx_zero, k in enumerate(dss_list[:48]):
             k_idx0 = max(0, int(k.get("key_index") or (idx_zero + 1)) - 1)
             ktype = str(k.get("type") or "none").strip().lower()
-            mode_code = gs_mode_map.get(ktype, "10")
+            mode_code = gs_mode_map.get(ktype, "0")
             klbl = html.escape(str(k.get("label") or ""))
             kval = html.escape(
                 str(
@@ -2075,8 +2083,8 @@ def generate_provisioning_config(
                     or ("*97" if ktype == "voicemail" else (pickup_group if ktype == "pickup" else ("*78" if ktype == "dnd" else "")))
                 )
             )
-            if k_idx0 < 12:
-                # Standard VPK / MPK 1..12
+            if k_idx0 < 6:
+                # Fixed VPK 1..6
                 p_mode = 1363 + (k_idx0 * 2)
                 p_acct = 1364 + (k_idx0 * 2)
                 p_desc = 1465 + (k_idx0 * 2)
@@ -2091,9 +2099,9 @@ def generate_provisioning_config(
                     gs_mpk_lines.append(f"    <P{p_desc}>{klbl}</P{p_desc}>")
                     gs_mpk_lines.append(f"    <P{p_val}>{kval}</P{p_val}>")
             else:
-                # Extended VPK 13..48 (P23000+ series)
-                off = k_idx0 - 12
-                base_p = 23000 + (off * 4)
+                # Extended VPK 7..48 (P23800+ series)
+                off = k_idx0 - 6
+                base_p = 23800 + (off * 4)
                 if ktype == "none":
                     gs_mpk_lines.append(f"    <P{base_p}>-1</P{base_p}>")
                 else:
@@ -2134,9 +2142,9 @@ def generate_provisioning_config(
         gs_bl_idle = str(max(0, min(100, prefs["backlight_inactive"] * 10)))
         gs_lang_code = "tr" if eff_language.lower().startswith("turk") else ("de" if eff_language.lower().startswith("ger") or eff_language.lower().startswith("deut") else "en")
         gs_prov_lines = (
-            f"    <P212>{gs_prov_proto}</P212>\n    <P237>{gs_prov_url}</P237>\n    <P194>1</P194>\n    <P240>0</P240>\n    <P95030>0</P95030>\n"
+            f"    <P212>{gs_prov_proto}</P212>\n    <P237>{gs_prov_url}</P237>\n    <P194>1</P194>\n    <P240>0</P240>\n    <P4428>1</P4428>\n    <P95030>0</P95030>\n    <P6752>1</P6752>\n"
             if gs_prov_url
-            else "    <P194>1</P194>\n    <P240>0</P240>\n    <P95030>0</P95030>\n"
+            else "    <P194>1</P194>\n    <P240>0</P240>\n    <P4428>1</P4428>\n    <P95030>0</P95030>\n    <P6752>1</P6752>\n"
         )
         xml_out = f"""<?xml version="1.0" encoding="UTF-8" ?>
 <!-- AIDA PBX Grandstream Auto-Provisioning ({html.escape(model)}) | Ext: {html.escape(ext_s)} | SIP Endpoint: {html.escape(sip_u)} -->
