@@ -18745,6 +18745,7 @@ async def _stamp_deskphone_sync_meta(
     synced_at: Optional[str] = None,
     dnd_active: Optional[bool] = None,
     previous_profile: Optional[str] = None,
+    dnd_origin_sip: Optional[str] = None,
 ) -> None:
     """Persists call_panel_prefs.deskphoneSync metadata in both PostgreSQL SystemUser and settings_db['users']."""
     from sqlalchemy.orm.attributes import flag_modified
@@ -18765,6 +18766,10 @@ async def _stamp_deskphone_sync_meta(
         dp = dict(p.get("deskphoneSync")) if isinstance(p.get("deskphoneSync"), dict) else {}
         if dnd_active is not None:
             dp["dnd_active"] = bool(dnd_active)
+            if not dnd_active:
+                dp["dnd_origin_sip"] = ""
+        if dnd_origin_sip is not None:
+            dp["dnd_origin_sip"] = str(dnd_origin_sip or "").strip()
         if previous_profile is not None:
             dp["previous_profile"] = str(previous_profile)
         dp["last_sync_source"] = source_label
@@ -18823,6 +18828,7 @@ async def _apply_deskphone_dnd_state(
     source_label: str = "Masa Telefonu",
     origin_sip_username: str = "",
     event_name: str = "",
+    is_admin_override: bool = False,
 ) -> bool:
     """
     Idempotently applies DND On/Off originated from a physical desk phone (*78/*79 or Action URL):
@@ -18840,7 +18846,8 @@ async def _apply_deskphone_dnd_state(
     if not ext_clean:
         return False
 
-    record_phone_origin_change(ext_clean, origin_sip_username)
+    if not is_admin_override:
+        record_phone_origin_change(ext_clean, origin_sip_username)
     user_dict = await _load_merged_user_by_ext(ext_clean, db=db)
     if not user_dict:
         return False
@@ -18861,16 +18868,17 @@ async def _apply_deskphone_dnd_state(
     now_tr = (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
 
     # Idempotency guard: if Action URL and *78/*79 both arrive within milliseconds, avoid duplicate logs/profile churn
-    if dnd_enabled and cur_dnd and cur_prof in ("meeting", "dnd"):
-        await _stamp_deskphone_sync_meta(
-            ext_clean, db=db, source_label=source_label, event_name=event_name or "dnd_on", synced_at=now_tr, dnd_active=True
-        )
-        return True
-    if (not dnd_enabled) and (not cur_dnd) and cur_prof not in ("meeting", "dnd"):
-        await _stamp_deskphone_sync_meta(
-            ext_clean, db=db, source_label=source_label, event_name=event_name or "dnd_off", synced_at=now_tr, dnd_active=False
-        )
-        return True
+    if not is_admin_override:
+        if dnd_enabled and cur_dnd and cur_prof in ("meeting", "dnd"):
+            await _stamp_deskphone_sync_meta(
+                ext_clean, db=db, source_label=source_label, event_name=event_name or "dnd_on", synced_at=now_tr, dnd_active=True, dnd_origin_sip=origin_sip_username or None
+            )
+            return True
+        if (not dnd_enabled) and (not cur_dnd) and cur_prof not in ("meeting", "dnd"):
+            await _stamp_deskphone_sync_meta(
+                ext_clean, db=db, source_label=source_label, event_name=event_name or "dnd_off", synced_at=now_tr, dnd_active=False, dnd_origin_sip=""
+            )
+            return True
 
     if dnd_enabled:
         prev_to_save = cur_prof if cur_prof not in ("meeting", "dnd") else saved_prev
@@ -18884,8 +18892,9 @@ async def _apply_deskphone_dnd_state(
             synced_at=now_tr,
             dnd_active=True,
             previous_profile=prev_to_save,
+            dnd_origin_sip=origin_sip_username or "",
         )
-        prof_log_label = "Toplantı (DND - Masa Telefonu)"
+        prof_log_label = "Toplantı (DND - Santral)" if is_admin_override else "Toplantı (DND - Masa Telefonu)"
     else:
         new_prof = saved_prev or "available"
         await _sync_user_forwarding_state(ext_clean, {"active_profile": new_prof}, db, source_label=source_label)
@@ -18896,8 +18905,9 @@ async def _apply_deskphone_dnd_state(
             event_name=event_name or "dnd_off",
             synced_at=now_tr,
             dnd_active=False,
+            dnd_origin_sip="",
         )
-        prof_log_label = "Müsait (DND Kapalı - Masa Telefonu)" if new_prof == "available" else new_prof
+        prof_log_label = "Müsait (DND Kapalı - Santral)" if is_admin_override else ("Müsait (DND Kapalı - Masa Telefonu)" if new_prof == "available" else new_prof)
 
     # Audit log + agent presence + Asterisk queue pause
     try:
@@ -18940,7 +18950,7 @@ async def _apply_deskphone_dnd_state(
     add_system_log(
         "DESKPHONE_DND",
         "INFO",
-        f"Dahili {ext_clean} masa telefonundan ({source_label}) Rahatsız Etmeyin (DND) modunu {'AKTİF' if dnd_enabled else 'KAPALI'} yaptı (Profil: {new_prof}).",
+        f"Dahili {ext_clean} {'yönetici panelinden' if is_admin_override else 'masa telefonundan'} ({source_label}) Rahatsız Etmeyin (DND) modunu {'AKTİF' if dnd_enabled else 'KAPALI'} yaptı (Profil: {new_prof}).",
     )
 
     u_fresh = await _load_merged_user_by_ext(ext_clean, db=db)
@@ -18948,9 +18958,9 @@ async def _apply_deskphone_dnd_state(
         push_live_state_to_user_deskphones(
             u_fresh,
             settings_db,
-            exclude_sip_username=origin_sip_username or None,
-            reason_log=f"Masa Telefonu DND {'Açık' if dnd_enabled else 'Kapalı'}",
-            respect_echo_guard=True,
+            exclude_sip_username=None if is_admin_override else (origin_sip_username or None),
+            reason_log=f"{'Santral Paneli' if is_admin_override else 'Masa Telefonu'} DND {'Açık' if dnd_enabled else 'Kapalı'}",
+            respect_echo_guard=not is_admin_override,
         )
     return True
 
@@ -40582,6 +40592,26 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
                         "brand_model": d_brand_model,
                         "env": d_brand_model or d_su,
                     })
+        from backend.services.deskphone_sync_service import extract_user_live_phone_sync_state as _ext_dnd_state
+        _u_live_dnd = _ext_dnd_state(u)
+        _u_dp_sync = (u.get("call_panel_prefs") or {}).get("deskphoneSync") if isinstance(u.get("call_panel_prefs"), dict) else {}
+        if not isinstance(_u_dp_sync, dict):
+            _u_dp_sync = {}
+        _u_dnd_on = bool(_u_live_dnd.get("dnd_enabled", False))
+        _u_dnd_origin = str(_u_dp_sync.get("dnd_origin_sip") or "").strip() if _u_dnd_on else ""
+        u["dnd_active"] = _u_dnd_on
+        u["dnd_source"] = str(_u_dp_sync.get("last_sync_source") or "").strip() if _u_dnd_on else ""
+        u["dnd_origin_sip"] = _u_dnd_origin
+        u["dnd_synced_at"] = str(_u_dp_sync.get("last_sync_at") or "").strip() if _u_dnd_on else ""
+        for _nd_item in norm_devs:
+            _nd_t = str(_nd_item.get("device_type") or "desk_phone").strip().lower()
+            _nd_su = str(_nd_item.get("sip_username") or "").strip()
+            if _nd_t not in ("web_phone", "virtual_subscriber"):
+                _nd_item["dnd_active"] = _u_dnd_on
+                _nd_item["dnd_origin"] = bool(_u_dnd_on and _u_dnd_origin and _nd_su.lower() == _u_dnd_origin.lower())
+            else:
+                _nd_item["dnd_active"] = False
+                _nd_item["dnd_origin"] = False
         u["sip_devices"] = norm_devs
         if norm_devs and not u.get("sip_username"):
             first_real_g = next(
@@ -40786,6 +40816,78 @@ async def get_user_connection_history_endpoint(
         "device_lock_enabled": dev_lock_en,
         "trusted_devices": dev_trusted_list,
         "history": history_list,
+    }
+
+
+@app.post("/api/settings/users/{user_key}/dnd")
+@app.post("/settings/users/{user_key}/dnd")
+async def toggle_user_deskphone_dnd_endpoint(
+    user_key: str,
+    payload: dict,
+    request: Request,
+    user_info: dict = Depends(get_user_info),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Yönetici/Kullanıcı Yönetimi penceresinden (Büyüteç / Cihaz İnceleme modalı) ilgili dahili için
+    Rahatsız Etme (DND) durumunu anlık açar veya kapatır ve tüm fiziksel masa telefonlarına
+    (Grandstream DFKS + Yealink Check-Sync) yeniden başlatmasız gönderir.
+    """
+    perms = user_info.get("permissions")
+    role_val = str(user_info.get("role") or "").strip().lower()
+    if role_val != "admin" and isinstance(perms, list) and "users:write" not in perms:
+        raise HTTPException(status_code=403, detail="Bu işlem için 'users:write' yetkisi gereklidir.")
+
+    lookup = str(user_key or "").strip()
+    if not lookup:
+        raise HTTPException(status_code=400, detail="Geçersiz kullanıcı/dahili anahtarı.")
+
+    enabled = bool(payload.get("enabled", False))
+    target_ext = ""
+    for u in (settings_db.get("users") or []):
+        if not isinstance(u, dict):
+            continue
+        if str(u.get("extension") or "").strip() == lookup or str(u.get("id") or "").strip() == lookup:
+            target_ext = str(u.get("extension") or "").strip()
+            break
+    if not target_ext:
+        try:
+            res_u = await db.execute(select(SystemUser))
+            for su_row in res_u.scalars().all():
+                if str(su_row.extension or "").strip() == lookup or str(su_row.id or "").strip() == lookup:
+                    target_ext = str(su_row.extension or "").strip()
+                    break
+        except Exception:
+            pass
+    if not target_ext:
+        raise HTTPException(status_code=404, detail="Kullanıcı veya dahili numarası bulunamadı.")
+
+    ok = await _apply_deskphone_dnd_state(
+        target_ext,
+        dnd_enabled=enabled,
+        db=db,
+        source_label="Santral Yönetici Paneli",
+        origin_sip_username="",
+        event_name=("dnd_on" if enabled else "dnd_off"),
+        is_admin_override=True,
+    )
+    if not ok:
+        raise HTTPException(status_code=404, detail="Dahili için DND durumu güncellenemedi.")
+
+    u_after = await _load_merged_user_by_ext(target_ext, db=db)
+    now_tr = (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
+    return {
+        "status": "ok",
+        "extension": target_ext,
+        "dnd_active": enabled,
+        "active_profile": str((u_after or {}).get("active_profile") or ("meeting" if enabled else "available")),
+        "dnd_source": "Santral Yönetici Paneli" if enabled else "",
+        "dnd_synced_at": now_tr if enabled else "",
+        "message": (
+            f"Dahili {target_ext} için DND (Rahatsız Etme) AÇILDI ve tüm masa telefonlarına anında iletildi."
+            if enabled
+            else f"Dahili {target_ext} için DND (Rahatsız Etme) KAPATILDI ve tüm masa telefonlarına anında iletildi."
+        ),
     }
 
 
@@ -44450,18 +44552,36 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.10.11",
+        "version": "v3.10.12",
         "commit_hash": live_commit,
-        "release_date": "23 Kasım 2026",
+        "release_date": "25 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.10.11",
+                "version": "v3.10.12",
                 "commit_hash": live_commit,
-                "release_date": "23 Kasım 2026",
+                "release_date": "25 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Masa Telefonu DND Canlı Göstergeleri, Büyüteç'ten DND ON/OFF Kontrolü & Grandstream DFKS Tam Senkron",
+                "summary": "Kullanıcı Yönetimi listesi, SIP Cihazları kartları ve Büyüteç (Cihaz İnceleme) penceresine canlı Rahatsız Etmeyin (DND) bildirimleri ve anlık DND Aç/Kapat kontrolü eklendi; Grandstream GRP260x ve Yealink T42S için çift yönlü BroadWorks DFKS (as-feature-event) yönlendirme/DND senkronu, Türkçe varsayılan ekran dili ve 4 alt tuş (Geçmiş / Rehber / Yönlendir / Menü) hizalaması tamamlandı.",
+                "features": [
+                    "Kullanıcı Listesinde DND Göstergesi: Bir dahiliye bağlı masa telefonlarından herhangi birinde DND açıldığında Kullanıcı Yönetimi tablosunda anlık 'DND AÇIK' rozeti görünür.",
+                    "SIP Cihazları Kartında DND Bildirimi: Kullanıcı düzenleme penceresindeki SIP Cihazları kartlarında ilgili telefon için 'DND AÇIK' (ve tetikleyen cihazda 'Bu Telefon') bildirimi gösterilir.",
+                    "Büyüteç (Cihaz İnceleme) Penceresinden Anlık DND Kontrolü: POST /api/settings/users/{ext}/dnd uç noktası ve Büyüteç üst barındaki 'DND: AÇIK / KAPALI' butonuyla yöneticiler DND durumunu doğrudan açıp kapatabilir; değişiklik Grandstream DFKS ve Yealink Check-Sync ile tüm masa telefonlarına yeniden başlatmasız iletilir.",
+                    "Grandstream BroadWorks DFKS & Türkçe / Alt Tuş Senkronu: UDP 5068 as-feature-event SIP sunucusu, Kamailio Edge Hub yönlendirmesi, Türkçe ekran dili (P1362=tr) ve GRP260x 4'lü alt menü tuşları (P2939/P8348) tam entegre edildi."
+                ],
+                "fixes": [
+                    "Asterisk pjsip_notify.conf içindeki noktalı virgül kaçış hatası (check-sync\\;reboot=false) giderilerek senkronizasyon sırasında masa telefonlarının gereksiz yeniden başlaması engellendi."
+                ]
+            },
+            {
+                "version": "v3.10.11",
+                "commit_hash": "794c9bc",
+                "release_date": "23 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "İlk Kurulumda Zorunlu Lisans Doğrulama Kilidi",
                 "summary": "İlk kurulum sihirbazının (/setup) 2. adımında geçerli ve donanıma bağlı bir lisans anahtarı (AIDA-...) girilip doğrulanmadan 3-6. adımlara geçilmesi ve kurulumun tamamlanması hem arayüzde hem API tarafında engellendi.",
                 "features": [

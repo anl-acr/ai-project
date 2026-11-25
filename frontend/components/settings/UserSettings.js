@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { Plus, Trash2, Edit2, X, User, Mail, Phone, Shield, Check, CheckCircle, ToggleLeft, ToggleRight, Search, Copy, RefreshCw, KeyRound, PhoneCall, Settings, Image as ImageIcon, Monitor, Smartphone, AlertTriangle, PhoneOutgoing, Users, Forward, Mic, MicOff, Download, Upload, Building2, Eye, EyeOff, Cable, ExternalLink, Database, Play, LayoutGrid, ChevronRight, Lock, Unlock, Terminal, Wifi, Cpu, ArrowUp, ArrowDown, Power, Sparkles, Layers, Sliders, Palette, Sun, Moon, Clock, Volume2, Square, BellRing, GripVertical, RotateCcw, List, PanelTop, Keyboard, Pin } from "lucide-react";
+import { Plus, Trash2, Edit2, X, User, Mail, Phone, Shield, Check, CheckCircle, ToggleLeft, ToggleRight, Search, Copy, RefreshCw, KeyRound, PhoneCall, Settings, Image as ImageIcon, Monitor, Smartphone, AlertTriangle, PhoneOutgoing, Users, Forward, Mic, MicOff, Download, Upload, Building2, Eye, EyeOff, Cable, ExternalLink, Database, Play, LayoutGrid, ChevronRight, Lock, Unlock, Terminal, Wifi, Cpu, ArrowUp, ArrowDown, Power, Sparkles, Layers, Sliders, Palette, Sun, Moon, Clock, Volume2, Square, BellRing, BellOff, GripVertical, RotateCcw, List, PanelTop, Keyboard, Pin } from "lucide-react";
 import * as XLSX from "../../utils/excelHelper";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import {
@@ -155,8 +155,125 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   const [tenants, setTenants] = useState(DEFAULT_TENANT_LIST);
   const [userTenantId, setUserTenantId] = useState("tenant-default");
   const [loading, setLoading] = useState(false);
+  const [dndToggleBusy, setDndToggleBusy] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState(null);
+
+  const getUserDndInfo = (uObj) => {
+    if (!uObj || typeof uObj !== "object") {
+      return { active: false, source: "", originSip: "", syncedAt: "" };
+    }
+    const rawPrefs = uObj.call_panel_prefs;
+    let prefsObj = rawPrefs;
+    if (typeof rawPrefs === "string" && rawPrefs.trim().startsWith("{")) {
+      try { prefsObj = JSON.parse(rawPrefs); } catch { prefsObj = {}; }
+    }
+    const dpSync = prefsObj && typeof prefsObj === "object" && typeof prefsObj.deskphoneSync === "object" ? prefsObj.deskphoneSync : {};
+    const prof = String(uObj.active_profile || "").trim().toLowerCase();
+    const active = Boolean(
+      uObj.dnd_active === true ||
+      dpSync?.dnd_active === true ||
+      prof === "dnd" ||
+      prof === "meeting"
+    );
+    return {
+      active,
+      source: active ? String(uObj.dnd_source || dpSync?.last_sync_source || "Masa Telefonu") : "",
+      originSip: active ? String(uObj.dnd_origin_sip || dpSync?.dnd_origin_sip || "") : "",
+      syncedAt: active ? String(uObj.dnd_synced_at || dpSync?.last_sync_at || "") : "",
+    };
+  };
+
+  const handleToggleUserDnd = async (targetExt, nextEnabled) => {
+    const extKey = String(targetExt || editingUser?.extension || extension || "").trim();
+    if (!extKey || dndToggleBusy || !canWrite) return;
+    setDndToggleBusy(true);
+    setInspectActionMsg(null);
+    try {
+      const res = await safeFetch(`/api/settings/users/${encodeURIComponent(extKey)}/dnd`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: Boolean(nextEnabled) }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.detail || "DND durumu güncellenemedi.");
+      }
+      const nextProf = data.active_profile || (nextEnabled ? "meeting" : "available");
+      const dndPatch = {
+        dnd_active: Boolean(nextEnabled),
+        active_profile: nextProf,
+        dnd_source: data.dnd_source || (nextEnabled ? "Santral Yönetici Paneli" : ""),
+        dnd_origin_sip: "",
+        dnd_synced_at: data.dnd_synced_at || "",
+      };
+      setEditingUser((prev) => {
+        if (!prev) return prev;
+        const prevPrefs = prev.call_panel_prefs && typeof prev.call_panel_prefs === "object" ? prev.call_panel_prefs : {};
+        return {
+          ...prev,
+          ...dndPatch,
+          call_panel_prefs: {
+            ...prevPrefs,
+            deskphoneSync: {
+              ...(prevPrefs.deskphoneSync || {}),
+              dnd_active: Boolean(nextEnabled),
+              dnd_origin_sip: "",
+              last_sync_source: dndPatch.dnd_source,
+              last_sync_at: dndPatch.dnd_synced_at,
+            },
+          },
+        };
+      });
+      setUsers((prev) =>
+        Array.isArray(prev)
+          ? prev.map((u) => {
+              if (String(u.extension || "").trim() !== extKey) return u;
+              const prevPrefs = u.call_panel_prefs && typeof u.call_panel_prefs === "object" ? u.call_panel_prefs : {};
+              return {
+                ...u,
+                ...dndPatch,
+                call_panel_prefs: {
+                  ...prevPrefs,
+                  deskphoneSync: {
+                    ...(prevPrefs.deskphoneSync || {}),
+                    dnd_active: Boolean(nextEnabled),
+                    dnd_origin_sip: "",
+                    last_sync_source: dndPatch.dnd_source,
+                    last_sync_at: dndPatch.dnd_synced_at,
+                  },
+                },
+                sip_devices: Array.isArray(u.sip_devices)
+                  ? u.sip_devices.map((d) =>
+                      d?.device_type === "web_phone" || d?.device_type === "virtual_subscriber"
+                        ? d
+                        : { ...d, dnd_active: Boolean(nextEnabled), dnd_origin: false }
+                    )
+                  : u.sip_devices,
+              };
+            })
+          : prev
+      );
+      setSipDevices((prev) =>
+        prev.map((d) =>
+          d?.device_type === "web_phone" || d?.device_type === "virtual_subscriber"
+            ? d
+            : { ...d, dnd_active: Boolean(nextEnabled), dnd_origin: false }
+        )
+      );
+      setInspectActionMsg({
+        type: "success",
+        text: data.message || (nextEnabled ? `Dahili ${extKey} için DND açıldı.` : `Dahili ${extKey} için DND kapatıldı.`),
+      });
+    } catch (err) {
+      setInspectActionMsg({
+        type: "error",
+        text: err?.message || "DND durumu değiştirilirken hata oluştu.",
+      });
+    } finally {
+      setDndToggleBusy(false);
+    }
+  };
 
   useEffect(() => {
     if (error) {
@@ -1298,11 +1415,34 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     );
   };
 
-  // Sync live online/IP badges on SIP Cihazları while the User Edit modal is open
+  // Sync live online/IP/DND badges on SIP Cihazları while the User Edit or Inspect modal is open
   useEffect(() => {
     if (!showModal || !editingUser) return;
     const fresh = users.find((u) => u.id === editingUser.id || String(u.extension) === String(editingUser.extension));
-    if (!fresh || !Array.isArray(fresh.sip_devices)) return;
+    if (!fresh) return;
+    const prevDnd = getUserDndInfo(editingUser);
+    const nextDnd = getUserDndInfo(fresh);
+    if (
+      prevDnd.active !== nextDnd.active ||
+      prevDnd.originSip !== nextDnd.originSip ||
+      prevDnd.source !== nextDnd.source ||
+      (editingUser.active_profile || "") !== (fresh.active_profile || "")
+    ) {
+      setEditingUser((prev) =>
+        prev
+          ? {
+              ...prev,
+              active_profile: fresh.active_profile,
+              dnd_active: Boolean(fresh.dnd_active),
+              dnd_source: fresh.dnd_source || "",
+              dnd_origin_sip: fresh.dnd_origin_sip || "",
+              dnd_synced_at: fresh.dnd_synced_at || "",
+              call_panel_prefs: fresh.call_panel_prefs || prev.call_panel_prefs,
+            }
+          : prev
+      );
+    }
+    if (!Array.isArray(fresh.sip_devices)) return;
     const byId = {};
     const bySu = {};
     fresh.sip_devices.forEach((fd) => {
@@ -1313,8 +1453,21 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       prev.map((d) => {
         const m = (d.id && byId[d.id]) || (d.sip_username && bySu[d.sip_username]);
         if (!m) return d;
-        if (Boolean(d.is_online) === Boolean(m.is_online) && (d.live_ip || "") === (m.live_ip || "")) return d;
-        return { ...d, is_online: Boolean(m.is_online), live_ip: m.live_ip || d.live_ip || "" };
+        if (
+          Boolean(d.is_online) === Boolean(m.is_online) &&
+          (d.live_ip || "") === (m.live_ip || "") &&
+          Boolean(d.dnd_active) === Boolean(m.dnd_active) &&
+          Boolean(d.dnd_origin) === Boolean(m.dnd_origin)
+        ) {
+          return d;
+        }
+        return {
+          ...d,
+          is_online: Boolean(m.is_online),
+          live_ip: m.live_ip || d.live_ip || "",
+          dnd_active: Boolean(m.dnd_active),
+          dnd_origin: Boolean(m.dnd_origin),
+        };
       })
     );
   }, [users, showModal, editingUser]);
@@ -3746,16 +3899,28 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                       </h4>
                       {(() => {
                         const pId = u.active_profile || "available";
+                        const dndInfo = getUserDndInfo(u);
                         const pMeta =
                           pId === "away" ? { label: "Dışarıda", cls: "bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800/50", dot: "bg-amber-500" } :
                           pId === "meeting" ? { label: "Toplantı", cls: "bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-800/50", dot: "bg-rose-500" } :
                           pId === "other" ? { label: "Diğer", cls: "bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800/50", dot: "bg-indigo-500" } :
                           { label: "Müsait", cls: "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/50", dot: "bg-emerald-500" };
                         return (
-                          <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold border w-fit ${pMeta.cls}`}>
-                            <span className={`w-1.5 h-1.5 rounded-full ${pMeta.dot}`}></span>
-                            <span>{pMeta.label}</span>
-                          </span>
+                          <div className="flex flex-wrap items-center gap-1">
+                            <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold border w-fit ${pMeta.cls}`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${pMeta.dot}`}></span>
+                              <span>{pMeta.label}</span>
+                            </span>
+                            {dndInfo.active && (
+                              <span
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-extrabold border bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-800/80 w-fit"
+                                title={`Rahatsız Etme (DND) Açık${dndInfo.source ? ` • ${dndInfo.source}` : ""}${dndInfo.syncedAt ? ` (${dndInfo.syncedAt})` : ""}`}
+                              >
+                                <BellOff size={9} className="shrink-0" />
+                                <span>DND AÇIK</span>
+                              </span>
+                            )}
+                          </div>
                         );
                       })()}
                     </div>
@@ -4819,6 +4984,30 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                                             ÇEVRİMDIŞI
                                                                         </span>
                                                                     )}
+                                                                    {(() => {
+                                                                        if (isWebPhone || isVirtualSub) return null;
+                                                                        const editDnd = getUserDndInfo(editingUser);
+                                                                        const showDevDnd = Boolean(dev.dnd_active || editDnd.active);
+                                                                        if (!showDevDnd) return null;
+                                                                        const isOriginPhone = Boolean(
+                                                                            dev.dnd_origin ||
+                                                                            (editDnd.originSip && dev.sip_username && editDnd.originSip.toLowerCase() === String(dev.sip_username).toLowerCase())
+                                                                        );
+                                                                        return (
+                                                                            <span
+                                                                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800/80"
+                                                                                title={
+                                                                                    isOriginPhone
+                                                                                        ? `Bu telefondan Rahatsız Etme (DND) açıldı${editDnd.syncedAt ? ` (${editDnd.syncedAt})` : ""}`
+                                                                                        : `Rahatsız Etme (DND) Aktif${editDnd.source ? ` • ${editDnd.source}` : ""}${editDnd.syncedAt ? ` (${editDnd.syncedAt})` : ""}`
+                                                                                }
+                                                                            >
+                                                                                <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+                                                                                <BellOff size={9} />
+                                                                                <span>{isOriginPhone ? "DND AÇIK (Bu Telefon)" : "DND AÇIK"}</span>
+                                                                            </span>
+                                                                        );
+                                                                    })()}
                                                                 </div>
                                                                 {isVirtualSub ? (
                                                                     <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
@@ -10076,14 +10265,44 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                     </p>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setIsSipDeviceInspectOpen(false)}
-                  className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg transition-colors"
-                  aria-label="İnceleme Penceresini Kapat"
-                >
-                  <X size={16} />
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  {!isWebInspect && extension && (() => {
+                    const inspDnd = getUserDndInfo(editingUser);
+                    const isOn = Boolean(inspDnd.active);
+                    return (
+                      <button
+                        type="button"
+                        disabled={!canWrite || dndToggleBusy}
+                        onClick={() => handleToggleUserDnd(extension, !isOn)}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-extrabold border transition-all cursor-pointer disabled:opacity-50 ${
+                          isOn
+                            ? "bg-rose-600 hover:bg-rose-500 text-white border-rose-600 shadow-sm shadow-rose-500/20"
+                            : "bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700"
+                        }`}
+                        title={
+                          isOn
+                            ? "Rahatsız Etme (DND) şu an AÇIK — kapatmak ve masa telefonlarından kaldırmak için tıklayın"
+                            : "Rahatsız Etme (DND) şu an KAPALI — açmak ve masa telefonlarına anında göndermek için tıklayın"
+                        }
+                      >
+                        {dndToggleBusy ? (
+                          <RefreshCw size={13} className="animate-spin" />
+                        ) : (
+                          <BellOff size={13} />
+                        )}
+                        <span>{isOn ? "DND: AÇIK" : "DND: KAPALI"}</span>
+                      </button>
+                    );
+                  })()}
+                  <button
+                    type="button"
+                    onClick={() => setIsSipDeviceInspectOpen(false)}
+                    className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg transition-colors"
+                    aria-label="İnceleme Penceresini Kapat"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
               </div>
 
               {/* Accessible WAI-ARIA Tablist */}

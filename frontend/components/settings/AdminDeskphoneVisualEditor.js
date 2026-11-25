@@ -33,6 +33,7 @@ const FALLBACK_MODEL_SPECS = {
   "yealink:t54w": { brand: "Yealink", model: "T54W", screen: "color", layout: "split", dss_per_page: 10, dss_pages: 3, max_dss: 27, soft_keys: 4, expansion_model: "EXP50", max_expansions: 3 },
   "yealink:t57w": { brand: "Yealink", model: "T57W", screen: "touch", layout: "touch_grid", dss_per_page: 10, dss_pages: 3, max_dss: 29, soft_keys: 4, expansion_model: "EXP50", max_expansions: 3 },
   "yealink:t58w": { brand: "Yealink", model: "T58W", screen: "touch", layout: "touch_grid", dss_per_page: 10, dss_pages: 3, max_dss: 27, soft_keys: 4, expansion_model: "EXP50", max_expansions: 3 },
+  "grandstream:grp2602": { brand: "Grandstream", model: "GRP2602", screen: "mono", layout: "left_only", dss_per_page: 2, dss_pages: 1, max_dss: 2, soft_keys: 4, expansion_model: "", max_expansions: 0 },
   "grandstream:grp2612": { brand: "Grandstream", model: "GRP2612", screen: "color", layout: "left_only", dss_per_page: 4, dss_pages: 4, max_dss: 16, soft_keys: 4, expansion_model: "", max_expansions: 0 },
   "grandstream:grp2614": { brand: "Grandstream", model: "GRP2614", screen: "dual_screen", layout: "side_mpk", dss_per_page: 8, dss_pages: 3, max_dss: 24, soft_keys: 4, expansion_model: "", max_expansions: 0 },
   "grandstream:grp2615": { brand: "Grandstream", model: "GRP2615", screen: "color", layout: "split", dss_per_page: 10, dss_pages: 4, max_dss: 40, soft_keys: 4, expansion_model: "GBX20", max_expansions: 4 },
