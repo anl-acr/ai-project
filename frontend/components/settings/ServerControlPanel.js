@@ -75,24 +75,35 @@ export default function ServerControlPanel({ backendHost = "localhost:8000", use
     return hdrs;
   }, []);
 
-  const canWrite = useMemo(() => {
-    if (typeof window !== "undefined") {
-      try {
-        if (sessionStorage.getItem("is_nornia_root") === "true") return true;
-        const raw = localStorage.getItem("aida_user") || sessionStorage.getItem("aida_user");
-        if (raw) {
-          const u = JSON.parse(raw);
-          const r = String(u?.role || "").toLowerCase();
-          if (r === "admin" || r === "superadmin" || r === "nornia_root") return true;
-        }
-      } catch {}
+  const [serverPerms, setServerPerms] = useState(null); // { can_read, can_manage_services, can_power, role_code }
+
+  const canManageServices = useMemo(() => {
+    if (serverPerms && typeof serverPerms.can_manage_services === "boolean") {
+      return serverPerms.can_manage_services;
     }
-    if (!Array.isArray(userPermissions)) return true;
+    if (typeof window !== "undefined" && sessionStorage.getItem("is_nornia_root") === "true") {
+      return true;
+    }
+    if (!Array.isArray(userPermissions)) return false;
     return (
       userPermissions.includes("*") ||
       userPermissions.includes("server_control:write")
     );
-  }, [userPermissions]);
+  }, [serverPerms, userPermissions]);
+
+  const canPower = useMemo(() => {
+    if (serverPerms && typeof serverPerms.can_power === "boolean") {
+      return serverPerms.can_power;
+    }
+    if (typeof window !== "undefined" && sessionStorage.getItem("is_nornia_root") === "true") {
+      return true;
+    }
+    if (!Array.isArray(userPermissions)) return false;
+    return (
+      userPermissions.includes("*") ||
+      userPermissions.includes("server_control:power")
+    );
+  }, [serverPerms, userPermissions]);
 
   const [host, setHost] = useState(null);
   const [services, setServices] = useState([]);
@@ -136,6 +147,9 @@ export default function ServerControlPanel({ backendHost = "localhost:8000", use
         setHost(data.host || null);
         setServices(Array.isArray(data.services) ? data.services : []);
         setAuditLogs(Array.isArray(data.audit_logs) ? data.audit_logs : []);
+        if (data.permissions && typeof data.permissions === "object") {
+          setServerPerms(data.permissions);
+        }
         return true;
       } catch {
         if (!silent) flashBanner(false, "Sunucuya bağlanılamadı.");
@@ -345,7 +359,25 @@ export default function ServerControlPanel({ backendHost = "localhost:8000", use
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0 flex-wrap">
+          <span
+            className={`px-2.5 py-1 rounded-lg border text-[10px] font-extrabold ${
+              canPower && canManageServices
+                ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/60"
+                : canManageServices
+                ? "bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60"
+                : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700"
+            }`}
+            title="Bu ekrandaki müdahale yetkileri Ayarlar → Roller → Sunucu & Servis Yönetimi üzerinden belirlenir."
+          >
+            {canPower && canManageServices
+              ? "Rol: Tam Kontrol"
+              : canManageServices
+              ? "Rol: Servis Müdahalesi"
+              : canPower
+              ? "Rol: Yalnızca Güç (Reboot/Kapat)"
+              : "Rol: Salt-Okunur İzleme"}
+          </span>
           {host && (
             <span className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-[11px] font-mono font-bold text-slate-600 dark:text-slate-300">
               {host.hostname} • {runningCount}/{services.length} Aktif
@@ -514,7 +546,7 @@ export default function ServerControlPanel({ backendHost = "localhost:8000", use
             </p>
           </div>
         </div>
-        {canWrite ? (
+        {canPower ? (
           <div className="flex items-center gap-2.5 flex-wrap shrink-0">
             <button
               type="button"
@@ -536,7 +568,9 @@ export default function ServerControlPanel({ backendHost = "localhost:8000", use
             </button>
           </div>
         ) : (
-          <span className="text-[11px] font-bold text-slate-400">Yalnızca salt-okunur erişim</span>
+          <span className="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-[11px] font-bold text-slate-500 dark:text-slate-400">
+            Reboot / Kapat yetkisi rolünüzde kapalı
+          </span>
         )}
       </div>
 
@@ -604,7 +638,7 @@ export default function ServerControlPanel({ backendHost = "localhost:8000", use
                   </div>
 
                   <div className="flex items-center gap-1.5 flex-wrap shrink-0">
-                    {canWrite && allowed.includes("start") && !isRunning && (
+                    {canManageServices && allowed.includes("start") && !isRunning && (
                       <button
                         type="button"
                         disabled={Boolean(busyKey)}
@@ -617,7 +651,7 @@ export default function ServerControlPanel({ backendHost = "localhost:8000", use
                       </button>
                     )}
 
-                    {canWrite && allowed.includes("reload") && isRunning && (
+                    {canManageServices && allowed.includes("reload") && isRunning && (
                       <button
                         type="button"
                         disabled={Boolean(busyKey)}
@@ -630,7 +664,7 @@ export default function ServerControlPanel({ backendHost = "localhost:8000", use
                       </button>
                     )}
 
-                    {canWrite && allowed.includes("restart") && (
+                    {canManageServices && allowed.includes("restart") && (
                       <button
                         type="button"
                         disabled={Boolean(busyKey)}
@@ -643,7 +677,7 @@ export default function ServerControlPanel({ backendHost = "localhost:8000", use
                       </button>
                     )}
 
-                    {canWrite && allowed.includes("stop") && isRunning && (
+                    {canManageServices && allowed.includes("stop") && isRunning && (
                       <button
                         type="button"
                         disabled={Boolean(busyKey)}

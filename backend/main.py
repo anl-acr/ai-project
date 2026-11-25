@@ -1704,7 +1704,7 @@ DEFAULT_SETTINGS = {
                 "system_status:access", "logs:access", "sip_debugger:access", "troubleshooting:access",
                 "realtime_calls:read", "realtime_calls:write", "realtime_calls:access",
                 "server_network:read", "server_network:write", "server_network:delete",
-                "server_control:read", "server_control:write",
+                "server_control:read", "server_control:write", "server_control:power",
                 "ras_settings:read", "ras_settings:write",
                 "server_ssh:access",
                 "security:read", "security:write", "security:delete",
@@ -1782,7 +1782,6 @@ DEFAULT_SETTINGS = {
                 "storage:access", "logs:access", "sip_debugger:access", "troubleshooting:access",
                 "realtime_calls:read", "realtime_calls:write", "realtime_calls:access",
                 "server_network:read", "server_network:write", "server_network:delete",
-                "server_control:read", "server_control:write",
                 "ras_settings:read", "ras_settings:write",
                 "security:read", "security:write", "security:delete",
                 "email_notifications:read", "email_notifications:write",
@@ -2960,9 +2959,17 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                 if r.get("role_code") == "admin" and "restore_points:delete" not in new_perms:
                     new_perms.append("restore_points:delete")
                 if r.get("role_code") == "admin":
-                    for net_p in ("server_network:read", "server_network:write", "server_network:delete", "server_control:read", "server_control:write", "ras_settings:read", "ras_settings:write", "system_version:read", "system_version:write", "kvkk_consent:read", "kvkk_consent:write", "federation_multisite:read", "federation_multisite:write", "federation_multisite:delete", "datetime_settings:read", "datetime_settings:write", "setup_wizard:access"):
+                    for net_p in ("server_network:read", "server_network:write", "server_network:delete", "ras_settings:read", "ras_settings:write", "system_version:read", "system_version:write", "kvkk_consent:read", "kvkk_consent:write", "federation_multisite:read", "federation_multisite:write", "federation_multisite:delete", "datetime_settings:read", "datetime_settings:write", "setup_wizard:access"):
                         if net_p not in new_perms:
                             new_perms.append(net_p)
+                    # One-time migration for server_control so admin gets initial access,
+                    # while preserving any explicit removals made later in Roller (RoleSettings).
+                    if not r.get("_server_control_migrated"):
+                        for sc_p in ("server_control:read", "server_control:write", "server_control:power"):
+                            if sc_p not in new_perms:
+                                new_perms.append(sc_p)
+                        r["_server_control_migrated"] = True
+                        changed = True
                 for sup_perm in (
                     "work_hours:read",
                     "work_hours:write",
@@ -3314,50 +3321,122 @@ async def get_public_ip():
             return {"status": "error", "message": f"Dış IP adresi tespit edilemedi: {e2}", "ip": None}
 
 
-def _resolve_request_role_and_perms(request: Optional[Request], user_info: dict) -> tuple:
-    """Resolves (is_admin, role_code, perms_list) from request.state.auth_user and settings_db['roles']."""
+async def _resolve_server_control_caps(
+    request: Optional[Request],
+    user_info: dict,
+    db: Optional[AsyncSession] = None,
+) -> Dict[str, Any]:
+    """
+    Strictly resolves server_control granular capabilities from the user's assigned Role
+    (PostgreSQL SystemRole first, settings_db['roles'] fallback):
+      - server_control:read  -> İzleme & Log görüntüleme
+      - server_control:write -> Servis başlat/durdur/yeniden başlat/reload
+      - server_control:power -> Sunucu Reboot / Kapatma (Power Off)
+    """
     auth_u = getattr(request.state, "auth_user", None) if request is not None else None
+    is_root = bool(isinstance(auth_u, dict) and auth_u.get("root"))
     role_code = ""
-    is_root = False
+    raw_uid = ""
     if isinstance(auth_u, dict):
-        is_root = bool(auth_u.get("root"))
         role_code = str(auth_u.get("role") or "").strip().lower()
+        raw_uid = str(auth_u.get("uid") or "").strip()
+    if not raw_uid and isinstance(user_info, dict):
+        raw_uid = str(user_info.get("raw_user_id") or "").strip()
     if not role_code and isinstance(user_info, dict):
         role_code = str(user_info.get("role") or "").strip().lower()
-    if not role_code:
-        raw_uid = str((user_info or {}).get("raw_user_id") or "").strip()
-        if raw_uid.lower() in ("admin", "system", "nornia_root", "root"):
-            is_root = True
-            role_code = "admin"
-        elif raw_uid:
+
+    if raw_uid.lower() in ("nornia_root", "root"):
+        is_root = True
+        role_code = "admin"
+    elif not role_code and raw_uid.lower() in ("admin", "system"):
+        role_code = "admin"
+
+    # Resolve user's latest role_code from PostgreSQL SystemUser or settings_db['users'] if non-root
+    if not is_root and raw_uid and raw_uid.lower() not in ("admin", "system"):
+        if db is not None:
+            try:
+                res_u = await db.execute(select(SystemUser))
+                for u_row in res_u.scalars().all():
+                    if str(u_row.id or "").strip() == raw_uid or str(u_row.extension or "").strip() == raw_uid:
+                        if u_row.role:
+                            role_code = str(u_row.role).strip().lower()
+                        break
+            except Exception:
+                pass
+        if not role_code:
             for u_obj in (settings_db.get("users") or []):
                 if not isinstance(u_obj, dict):
                     continue
                 if str(u_obj.get("id") or "").strip() == raw_uid or str(u_obj.get("extension") or "").strip() == raw_uid:
                     role_code = str(u_obj.get("role") or "").strip().lower()
                     break
+
     if is_root or role_code in ("admin", "superadmin", "nornia_root", "root"):
-        return True, role_code or "admin", ["*"]
-    perms = []
-    if role_code:
+        return {
+            "can_read": True,
+            "can_manage_services": True,
+            "can_power": True,
+            "role_code": role_code or "admin",
+            "is_root": is_root,
+        }
+
+    perms: List[str] = []
+    if role_code and db is not None:
+        try:
+            res_r = await db.execute(select(SystemRole))
+            for r_row in res_r.scalars().all():
+                rc = str(r_row.role_code or "").strip().lower()
+                if rc == role_code:
+                    if isinstance(r_row.permissions, list):
+                        perms = [str(p) for p in r_row.permissions]
+                    break
+        except Exception:
+            pass
+    if not perms and role_code:
         for r_obj in (settings_db.get("roles") or []):
-            if isinstance(r_obj, dict) and str(r_obj.get("role_code") or r_obj.get("id") or "").strip().lower() == role_code:
+            if not isinstance(r_obj, dict):
+                continue
+            rc = str(r_obj.get("role_code") or r_obj.get("id") or "").strip().lower()
+            if rc == role_code:
                 r_perms = r_obj.get("permissions")
                 if isinstance(r_perms, list):
-                    perms = list(r_perms)
+                    perms = [str(p) for p in r_perms]
                 break
-    return False, role_code, perms
+
+    has_wildcard = "*" in perms
+    can_power = has_wildcard or ("server_control:power" in perms)
+    can_manage_services = has_wildcard or ("server_control:write" in perms)
+    can_read = has_wildcard or ("server_control:read" in perms) or can_manage_services or can_power
+    return {
+        "can_read": can_read,
+        "can_manage_services": can_manage_services,
+        "can_power": can_power,
+        "role_code": role_code or "unknown",
+        "is_root": False,
+    }
 
 
-def _check_server_control_perm(request: Optional[Request], user_info: dict, action: str = "read") -> None:
-    is_admin, _, perms = _resolve_request_role_and_perms(request, user_info)
-    if is_admin or "*" in perms:
-        return
-    if f"server_control:{action}" in perms or (action == "read" and "server_control:write" in perms):
-        return
+async def _check_server_control_perm(
+    request: Optional[Request],
+    user_info: dict,
+    action: str = "read",
+    db: Optional[AsyncSession] = None,
+) -> Dict[str, Any]:
+    caps = await _resolve_server_control_caps(request, user_info, db=db)
+    if action == "read" and caps["can_read"]:
+        return caps
+    if action == "write" and caps["can_manage_services"]:
+        return caps
+    if action == "power" and caps["can_power"]:
+        return caps
+    perm_labels = {
+        "read": "Sunucu & Servis Yönetimi — Görüntüleme (server_control:read)",
+        "write": "Sunucu & Servis Yönetimi — Servis Müdahalesi (server_control:write)",
+        "power": "Sunucu & Servis Yönetimi — Reboot / Kapat (server_control:power)",
+    }
     raise HTTPException(
         status_code=403,
-        detail=f"Bu sunucu yönetimi işlemi için 'server_control:{action}' yetkisi gereklidir.",
+        detail=f"Rolünüzde bu işlem için yetki tanımlı değil: {perm_labels.get(action, action)}.",
     )
 
 
@@ -3394,9 +3473,10 @@ def _record_server_control_audit(
 async def get_server_control_overview_endpoint(
     request: Request,
     user_info: dict = Depends(get_user_info),
+    db: AsyncSession = Depends(get_db),
 ):
     """Canlı sunucu kaynak kullanımı, aktif çağrı sayısı, yönetilen servis durumları ve işlem günlüklerini döner."""
-    _check_server_control_perm(request, user_info, "read")
+    caps = await _check_server_control_perm(request, user_info, "read", db=db)
     from backend.services.server_control_service import get_server_control_overview
     active_cnt = 0
     try:
@@ -3405,6 +3485,7 @@ async def get_server_control_overview_endpoint(
     except Exception:
         active_cnt = 0
     data = get_server_control_overview(active_calls_count=active_cnt)
+    data["permissions"] = caps
     data["audit_logs"] = (settings_db.get("server_control_logs") or [])[:50]
     return data
 
@@ -3415,9 +3496,10 @@ async def run_server_service_action_endpoint(
     action: str,
     request: Request,
     user_info: dict = Depends(get_user_info),
+    db: AsyncSession = Depends(get_db),
 ):
     """İzin listeli sistem/PM2 servislerinde start, stop, restart veya reload işlemi çalıştırır."""
-    _check_server_control_perm(request, user_info, "write")
+    await _check_server_control_perm(request, user_info, "write", db=db)
     from backend.services.server_control_service import execute_service_action
 
     actor = str(user_info.get("user_id") or user_info.get("raw_user_id") or "admin")
@@ -3457,9 +3539,10 @@ async def get_server_service_logs_endpoint(
     request: Request,
     lines: int = Query(80, ge=10, le=300),
     user_info: dict = Depends(get_user_info),
+    db: AsyncSession = Depends(get_db),
 ):
     """Seçili servisin son log satırlarını (journalctl / pm2 logs) döner."""
-    _check_server_control_perm(request, user_info, "read")
+    await _check_server_control_perm(request, user_info, "read", db=db)
     from backend.services.server_control_service import get_service_logs
     try:
         return get_service_logs(service_id, lines=lines)
@@ -3472,9 +3555,10 @@ async def server_host_power_action_endpoint(
     request: Request,
     payload: dict = Body(...),
     user_info: dict = Depends(get_user_info),
+    db: AsyncSession = Depends(get_db),
 ):
     """Santral sunucusunu güvenli gecikme (3 sn) ile yeniden başlatır (reboot) veya kapatır (poweroff)."""
-    _check_server_control_perm(request, user_info, "write")
+    await _check_server_control_perm(request, user_info, "power", db=db)
     from backend.services.server_control_service import schedule_host_power_action
 
     act = str(payload.get("action") or "").strip().lower()

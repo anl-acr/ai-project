@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Plus, Trash2, Edit2, X, Shield, Search, Check, CheckCircle, Smartphone, Server, Coffee, User, Users, Terminal, HardDrive, Lock, Unlock, Eye, Edit3, Trash, GitBranch, Bot, MessageSquare, BookOpen, FileText, Cable, Fingerprint, Volume2, ArrowUpRight, PhoneCall, Network, Mail, RotateCcw, Activity, Monitor, Database, Sliders, Calendar, Clock, MapPin, Hash, Shuffle, Languages, Heart, Sparkles, Headphones, Mic, AlertTriangle } from "lucide-react";
+import { Plus, Trash2, Edit2, X, Shield, Search, Check, CheckCircle, Smartphone, Server, Coffee, User, Users, Terminal, HardDrive, Lock, Unlock, Eye, Edit3, Trash, GitBranch, Bot, MessageSquare, BookOpen, FileText, Cable, Fingerprint, Volume2, ArrowUpRight, PhoneCall, Network, Mail, RotateCcw, Activity, Monitor, Database, Sliders, Calendar, Clock, MapPin, Hash, Shuffle, Languages, Heart, Sparkles, Headphones, Mic, AlertTriangle, Power } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
 
@@ -232,7 +232,7 @@ const SYSTEM_FEATURES = [
   // 7. Sistem Ayarları
   { id: "pbx", name: "Santral Entegrasyonu", icon: Server, type: "crud", color: "indigo" },
   { id: "server_network", name: "Sunucu Ağ (Network) & IP/Rota Yönetimi", icon: Network, type: "crud", color: "blue" },
-  { id: "server_control", name: "Sunucu & Servis Yönetimi (Servisler / Reboot / Kapat)", icon: Server, type: "crud_partial", color: "rose" },
+  { id: "server_control", name: "Sunucu & Servis Yönetimi (Servisler / Reboot / Kapat)", icon: Server, type: "server_control", color: "rose" },
   { id: "ras_settings", name: "Nornia Connect (Sıfır-Port Bulut Köprüsü)", icon: Network, type: "crud_partial", color: "indigo" },
   { id: "federation_multisite", name: "Çok-Şubeli Dağıtık Santral (Multi-Site Edge & Failover)", icon: Network, type: "crud", color: "indigo" },
   { id: "server_ssh", name: "Sunucu Web SSH Terminali (SSH Konsol Erişimi)", icon: Terminal, type: "access", color: "emerald" },
@@ -431,11 +431,12 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
   };
 
   const isNorniaRootSession = typeof window !== "undefined" && sessionStorage.getItem("is_nornia_root") === "true";
-  const PROVIDER_INFRA_FEATURE_IDS = ["ras_settings", "server_ssh", "server_network", "nat", "tenants", "sip_debugger"];
+  const PROVIDER_INFRA_FEATURE_IDS = ["ras_settings", "server_ssh", "server_network", "server_control", "nat", "tenants", "sip_debugger"];
 
   const isFeatureAllowedByLicense = (featId) => {
     if (isNorniaRootSession) return true;
     if (hideProviderInfra && PROVIDER_INFRA_FEATURE_IDS.includes(featId)) return false;
+    if (featId === "server_control" || featId === "phone_firmware") return true;
     if (!Array.isArray(licensedFeatures) || licensedFeatures.includes("*")) return true;
     if (featId.startsWith("reports_") && (licensedFeatures.includes("reports_all") || licensedFeatures.includes("reports"))) {
       return true;
@@ -494,6 +495,11 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
         if (perms.includes("call_monitor:listen")) granted += 1;
         if (perms.includes("call_monitor:whisper")) granted += 1;
         if (perms.includes("call_monitor:barge")) granted += 1;
+      } else if (feat.type === "server_control") {
+        total += 3;
+        if (perms.includes("server_control:read")) granted += 1;
+        if (perms.includes("server_control:write")) granted += 1;
+        if (perms.includes("server_control:power")) granted += 1;
       } else {
         total += 1;
         const accessKey = feat.id.includes(":") ? feat.id : `${feat.id}:access`;
@@ -681,6 +687,8 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
         codes.push(`${feat.id}:read`, `${feat.id}:write`);
       } else if (feat.type === "call_monitor") {
         codes.push("call_monitor:listen", "call_monitor:whisper", "call_monitor:barge");
+      } else if (feat.type === "server_control") {
+        codes.push("server_control:read", "server_control:write", "server_control:power");
       } else {
         const accessKey = feat.id.includes(":") ? feat.id : `${feat.id}:access`;
         codes.push(accessKey);
@@ -1472,6 +1480,52 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
                                         >
                                           <PhoneCall size={10} />
                                           <span>Araya Girme</span>
+                                        </button>
+                                      </>
+                                    )}
+
+                                    {feat.type === "server_control" && (
+                                      <>
+                                        {/* Görüntüleme (İzleme & Log) */}
+                                        <button
+                                          type="button"
+                                          onClick={() => togglePermission("server_control:read")}
+                                          className={`px-2.5 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
+                                            selectedPermissions.includes("server_control:read")
+                                              ? "bg-indigo-50 dark:bg-indigo-950/20 text-primary dark:text-indigo-400 border-indigo-200 dark:border-indigo-900/40"
+                                              : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
+                                          }`}
+                                        >
+                                          <Eye size={10} />
+                                          <span>Görüntüleme (İzleme)</span>
+                                        </button>
+
+                                        {/* Servis Müdahalesi */}
+                                        <button
+                                          type="button"
+                                          onClick={() => togglePermission("server_control:write")}
+                                          className={`px-2.5 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
+                                            selectedPermissions.includes("server_control:write")
+                                              ? "bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-900/40"
+                                              : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
+                                          }`}
+                                        >
+                                          <Sliders size={10} />
+                                          <span>Servis Müdahalesi</span>
+                                        </button>
+
+                                        {/* Sunucu Güç (Reboot / Kapat) */}
+                                        <button
+                                          type="button"
+                                          onClick={() => togglePermission("server_control:power")}
+                                          className={`px-2.5 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
+                                            selectedPermissions.includes("server_control:power")
+                                              ? "bg-rose-50 dark:bg-rose-950/20 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-900/40"
+                                              : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
+                                          }`}
+                                        >
+                                          <Power size={10} />
+                                          <span>Reboot / Kapat</span>
                                         </button>
                                       </>
                                     )}

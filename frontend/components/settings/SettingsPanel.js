@@ -277,7 +277,8 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
         setHasServerControlPermission(
           currentRole.permissions.includes("*") ||
             currentRole.permissions.includes("server_control:read") ||
-            currentRole.permissions.includes("server_control:write")
+            currentRole.permissions.includes("server_control:write") ||
+            currentRole.permissions.includes("server_control:power")
         );
         setHasKvkkConsentPermission(
           currentRole.permissions.includes("*") ||
