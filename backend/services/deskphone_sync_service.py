@@ -328,9 +328,12 @@ def build_grandstream_sync_xml_lines(
     """
     Builds Grandstream GXP21xx / GRP26xx XML (<config version="1">) P-code lines for
     bi-directional DND & 3-level Call Forwarding sync:
-      - Zero-reboot SIP NOTIFY check-sync (`P194=1`, `P240=0`, `P4428=1`) + Local Call Features (`P191=1`)
-      - Account 1 Feature Access Codes (`P2344`/`P2345` DND, `P26013`/`P26014` Always,
-        `P26009`/`P26010` Busy, `P26011`/`P26012` No Answer, `P139` timeout)
+      - Zero-reboot SIP NOTIFY check-sync (`P194=1`, `P240=0`, `P4428=1`)
+      - Server-side Feature Code mode (`P191=0`) so enabling/disabling DND or Forwarding
+        on the Grandstream phone dials `*78`/`*79` and `*21*<target>`/`*21` to Asterisk
+        with the real destination number!
+      - Live Account 1 Forwarding Targets (`Pforward_0`, `PbusyForward_0`, `PdelayedForward_0`, `P139`)
+        so changes from Nornia Web UI genuinely enable/disable forwarding on the phone itself
       - Authenticated Action URLs (`P8316`..`P8319` + `P22164`..`P22169`)
     """
     st = live_state if isinstance(live_state, dict) else extract_user_live_phone_sync_state(None)
@@ -343,21 +346,30 @@ def build_grandstream_sync_xml_lines(
     p_busy_off = _derive_rule_cancel_code(p_busy, "*67")
     p_noans_off = _derive_rule_cancel_code(p_noans, "*61")
 
+    f_alw = st.get("fwd_always") or {}
+    f_bsy = st.get("fwd_busy") or {}
     f_noa = st.get("fwd_no_answer") or {}
     noa_timeout = max(5, min(120, int(f_noa.get("timeout") or 30)))
 
+    alw_target = str(f_alw.get("target") or "").strip() if (f_alw.get("active") and f_alw.get("target")) else ""
+    bsy_target = str(f_bsy.get("target") or "").strip() if (f_bsy.get("active") and f_bsy.get("target")) else ""
+    noa_target = str(f_noa.get("target") or "").strip() if (f_noa.get("active") and f_noa.get("target")) else ""
+
     lines = [
         "    <!-- Nornia Cift Yonlu DND & Cagri Yonlendirme Senkronizasyonu (Grandstream <-> Santral) -->",
-        "    <P191>1</P191>",
+        "    <P191>0</P191>",
         f"    <P139>{noa_timeout}</P139>",
         "    <P2344>*78</P2344>",
         "    <P2345>*79</P2345>",
         f"    <P26013>{html.escape(p_always)}</P26013>",
         f"    <P26014>{html.escape(p_always_off)}</P26014>",
+        f"    <Pforward_0>{html.escape(alw_target)}</Pforward_0>",
         f"    <P26009>{html.escape(p_busy)}</P26009>",
         f"    <P26010>{html.escape(p_busy_off)}</P26010>",
+        f"    <PbusyForward_0>{html.escape(bsy_target)}</PbusyForward_0>",
         f"    <P26011>{html.escape(p_noans)}</P26011>",
         f"    <P26012>{html.escape(p_noans_off)}</P26012>",
+        f"    <PdelayedForward_0>{html.escape(noa_target)}</PdelayedForward_0>",
     ]
 
     clean_base = str(sync_base_url or "").strip().rstrip("/")
@@ -374,7 +386,7 @@ def build_grandstream_sync_xml_lines(
             f"    <P8316>{_gs_url('dnd_on')}</P8316>",
             f"    <P8317>{_gs_url('dnd_off')}</P8317>",
             f"    <P8318>{_gs_url('fwd_always_on')}</P8318>",
-            f"    <P8319>{_gs_url('fwd_all_off')}</P8319>",
+            f"    <P8319>{_gs_url('fwd_always_off')}</P8319>",
             f"    <P22164>{_gs_url('fwd_always_on')}</P22164>",
             f"    <P22165>{_gs_url('fwd_always_off')}</P22165>",
             f"    <P22166>{_gs_url('fwd_busy_on')}</P22166>",
