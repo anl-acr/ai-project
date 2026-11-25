@@ -1645,6 +1645,7 @@ DEFAULT_SETTINGS = {
                 "announcements:read", "announcements:write", "announcements:delete",
                 "acd_queues:read", "acd_queues:write", "acd_queues:delete",
                 "autoprovision:read", "autoprovision:write", "autoprovision:delete",
+                "phone_firmware:read", "phone_firmware:write", "phone_firmware:delete",
                 "autoprovision_templates:read", "autoprovision_templates:write", "autoprovision_templates:delete",
                 "outbound_rules:read", "outbound_rules:write", "outbound_rules:delete",
                 "inbound_rules:read", "inbound_rules:write", "inbound_rules:delete",
@@ -2690,6 +2691,8 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                     new_perms.append("announcements:read")
                 if "autoprovision:read" not in new_perms:
                     new_perms.append("autoprovision:read")
+                if "phone_firmware:read" not in new_perms:
+                    new_perms.append("phone_firmware:read")
                 if "autoprovision_templates:read" not in new_perms:
                     new_perms.append("autoprovision_templates:read")
                 if "outbound_rules:read" not in new_perms:
@@ -2717,7 +2720,7 @@ def load_settings(force_reload: bool = False, persist: bool = False):
                     
             if "pbx:write" in new_perms:
                 # Yazma yetkisi varsa Write ve Delete izinlerini de ver
-                for feat in ["announcements", "autoprovision", "autoprovision_templates", "outbound_rules", "speed_dials", "conferences", "acd_queues", "trunks", "inbound_rules", "call_pickup_groups", "subscriber_groups", "work_hours", "active_directory", "crm_integrations"]:
+                for feat in ["announcements", "autoprovision", "phone_firmware", "autoprovision_templates", "outbound_rules", "speed_dials", "conferences", "acd_queues", "trunks", "inbound_rules", "call_pickup_groups", "subscriber_groups", "work_hours", "active_directory", "crm_integrations"]:
                     if f"{feat}:write" not in new_perms:
                         new_perms.append(f"{feat}:write")
                     if f"{feat}:delete" not in new_perms:
@@ -14342,6 +14345,60 @@ def _build_enriched_autoprovision_list(target_tenant: str) -> list:
         entry["rtt_ms"] = str(live.get("rtt_ms") or "")
         entry["user_agent"] = str(live.get("user_agent") or "")
         entry["prov_filename"] = prov_fname
+        try:
+            from backend.services.firmware_service import (
+                ensure_firmware_settings_schema as _ens_fw_sch,
+                parse_firmware_version_from_ua as _parse_fw_ua,
+                resolve_target_firmware_for_device as _res_tgt_fw,
+            )
+            _ens_fw_sch(settings_db)
+            _cur_fw = _parse_fw_ua(entry["user_agent"], brand=str(entry.get("brand") or ""))
+            if not _cur_fw:
+                # Fallback to last recorded firmware version in status map if phone is currently offline
+                _prev_st = (settings_db.get("phone_firmware_status") or {}).get(mh) or {}
+                _cur_fw = str(_prev_st.get("current_version") or "")
+            elif mh:
+                _st_map = settings_db.get("phone_firmware_status") or {}
+                if isinstance(_st_map.get(mh), dict):
+                    _st_map[mh]["current_version"] = _cur_fw
+            _fw_res = _res_tgt_fw(
+                settings_db,
+                brand=str(entry.get("brand") or ""),
+                model=str(entry.get("model") or ""),
+                mac_hex=mh,
+                current_version=_cur_fw,
+            )
+            _st_rec = (settings_db.get("phone_firmware_status") or {}).get(mh) or {}
+            _tgt_fw = _fw_res.get("fw") or {}
+            _cmp = _fw_res.get("comparison") or "unmanaged"
+            _live_fw_st = str(_st_rec.get("status") or "")
+            if _cmp == "equal":
+                _eff_fw_st = "up_to_date"
+            elif _live_fw_st in ("queued_active_call", "notified", "downloading", "rebooting"):
+                _eff_fw_st = _live_fw_st
+            elif _fw_res.get("has_target") and _cmp in ("upgrade", "downgrade", "unknown"):
+                _eff_fw_st = "update_available" if _cmp != "downgrade" else "downgrade_available"
+            elif _live_fw_st == "failed":
+                _eff_fw_st = "failed"
+            else:
+                _eff_fw_st = "unmanaged"
+            entry["current_fw_version"] = _cur_fw
+            entry["target_fw_id"] = str(_tgt_fw.get("id") or "")
+            entry["target_fw_version"] = str(_tgt_fw.get("version") or "")
+            entry["fw_comparison"] = _cmp
+            entry["fw_source"] = str(_fw_res.get("source") or "")
+            entry["fw_status"] = _eff_fw_st
+            entry["fw_status_message"] = str(_st_rec.get("message") or "")
+            entry["fw_status_updated_at"] = str(_st_rec.get("updated_at") or "")
+        except Exception:
+            entry["current_fw_version"] = ""
+            entry["target_fw_id"] = ""
+            entry["target_fw_version"] = ""
+            entry["fw_comparison"] = "unmanaged"
+            entry["fw_source"] = ""
+            entry["fw_status"] = "unmanaged"
+            entry["fw_status_message"] = ""
+            entry["fw_status_updated_at"] = ""
         result_list.append(entry)
 
     result_list.sort(key=lambda x: (x.get("assigned_extension") or "999999", x.get("mac") or ""))
@@ -14831,6 +14888,450 @@ async def notify_autoprovision_device(mac: str, payload: dict = Body(default={})
             else f"Bildirim gönderilemedi ({out}). Cihaz çevrimdışı olabilir."
         ),
     }
+
+
+def _is_deskphone_endpoint_in_active_call(sip_username: str, ext: str = "") -> bool:
+    try:
+        from backend.services.ami_manager import active_channels
+        if not active_channels:
+            return False
+        prefixes = []
+        if sip_username:
+            prefixes.append(f"pjsip/{str(sip_username).strip().lower()}-")
+        if ext and str(ext).strip().lower() != str(sip_username).strip().lower():
+            prefixes.append(f"pjsip/{str(ext).strip().lower()}-")
+        if not prefixes:
+            return False
+        for ch_name in list(active_channels.values()):
+            ch_l = str(ch_name or "").strip().lower()
+            if any(ch_l.startswith(p) for p in prefixes):
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def _check_phone_firmware_perm(user_info: dict, action: str = "read") -> None:
+    role_val = str(user_info.get("role") or "").strip().lower()
+    if role_val == "admin":
+        return
+    perms = user_info.get("permissions")
+    if not isinstance(perms, list):
+        return
+    allowed = {f"phone_firmware:{action}", f"autoprovision:{action}"}
+    if not any(p in perms for p in allowed):
+        raise HTTPException(status_code=403, detail=f"Bu işlem için 'phone_firmware:{action}' yetkisi gereklidir.")
+
+
+@app.get("/api/settings/phone-firmware")
+async def get_phone_firmware_overview(user_info: dict = Depends(get_user_info)):
+    """Yüklenmiş firmware paketleri, model politikaları, canlı cihaz sürüm matrisi ve logları döner."""
+    _check_phone_firmware_perm(user_info, "read")
+    from backend.services.firmware_service import (
+        ensure_firmware_settings_schema,
+        compute_firmware_storage_stats,
+    )
+    from backend.services.autoprovision_service import PHONE_MODEL_CATALOG, SUPPORTED_PHONE_MODELS
+
+    ensure_firmware_settings_schema(settings_db)
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    devices = _build_enriched_autoprovision_list(target_tenant)
+    return {
+        "packages": settings_db.get("phone_firmwares", []),
+        "policies": settings_db.get("phone_firmware_policies", {}),
+        "overrides": settings_db.get("phone_firmware_overrides", {}),
+        "devices": devices,
+        "logs": (settings_db.get("phone_firmware_logs") or [])[:80],
+        "stats": compute_firmware_storage_stats(settings_db),
+        "model_catalog": PHONE_MODEL_CATALOG,
+        "supported_models": SUPPORTED_PHONE_MODELS,
+    }
+
+
+@app.post("/api/settings/phone-firmware/inspect-filename")
+async def inspect_phone_firmware_filename_endpoint(
+    payload: dict = Body(...),
+    user_info: dict = Depends(get_user_info),
+):
+    """Dosya adından marka, sürüm ve uyumlu model önerisi üretir."""
+    _check_phone_firmware_perm(user_info, "read")
+    from backend.services.firmware_service import inspect_uploaded_firmware_filename
+    return inspect_uploaded_firmware_filename(str(payload.get("filename") or ""))
+
+
+@app.post("/api/settings/phone-firmware/upload")
+async def upload_phone_firmware_endpoint(
+    file: UploadFile = File(...),
+    brand: str = Form(...),
+    version: str = Form(...),
+    compatible_models: str = Form("[]"),
+    release_notes: str = Form(""),
+    user_info: dict = Depends(get_user_info),
+):
+    """IP telefon firmware dosyasını (.rom/.bin/.zip/.z/.loads) santral deposuna yükler."""
+    _check_phone_firmware_perm(user_info, "write")
+    from backend.services.firmware_service import save_uploaded_firmware
+
+    try:
+        parsed_models = json.loads(compatible_models) if compatible_models else []
+        if not isinstance(parsed_models, list):
+            parsed_models = [str(parsed_models)]
+    except Exception:
+        parsed_models = [m.strip() for m in str(compatible_models or "").split(",") if m.strip()]
+
+    file_bytes = await file.read()
+    actor = str(user_info.get("username") or user_info.get("full_name") or user_info.get("id") or "admin")
+    tenant_id = user_info.get("tenant_id") or "tenant-default"
+    try:
+        rec = save_uploaded_firmware(
+            settings_db=settings_db,
+            file_bytes=file_bytes,
+            original_filename=file.filename or "firmware.bin",
+            brand=brand,
+            version=version,
+            compatible_models=parsed_models,
+            release_notes=release_notes,
+            uploaded_by=actor,
+            tenant_id=tenant_id,
+        )
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+
+    save_settings(settings_db)
+    return {
+        "status": "success",
+        "package": rec,
+        "message": f"{rec['brand']} v{rec['version']} ({rec['filename']}) başarıyla santral deposuna yüklendi.",
+    }
+
+
+@app.delete("/api/settings/phone-firmware/{fw_id}")
+async def delete_phone_firmware_endpoint(fw_id: str, user_info: dict = Depends(get_user_info)):
+    """Yüklenmiş firmware paketini diskten ve aktif politikalardan güvenli biçimde siler."""
+    _check_phone_firmware_perm(user_info, "delete")
+    from backend.services.firmware_service import delete_firmware_package
+
+    actor = str(user_info.get("username") or user_info.get("full_name") or user_info.get("id") or "admin")
+    removed = delete_firmware_package(settings_db, fw_id, actor=actor)
+    if not removed:
+        raise HTTPException(status_code=404, detail="Firmware paketi bulunamadı.")
+    save_settings(settings_db)
+    return {
+        "status": "success",
+        "message": f"{removed.get('brand')} v{removed.get('version')} paketi silindi.",
+    }
+
+
+@app.post("/api/settings/phone-firmware/policy")
+async def set_phone_firmware_policy_endpoint(
+    payload: dict = Body(...),
+    user_info: dict = Depends(get_user_info),
+):
+    """Belirli bir Marka + Model için varsayılan hedef firmware sürümünü ayarlar veya kaldırır."""
+    _check_phone_firmware_perm(user_info, "write")
+    from backend.services.firmware_service import set_model_firmware_policy
+
+    brand = str(payload.get("brand") or "").strip()
+    model = str(payload.get("model") or "").strip()
+    fw_id = str(payload.get("fw_id") or "").strip() or None
+    auto_apply = bool(payload.get("auto_apply", True))
+    if not brand or not model:
+        raise HTTPException(status_code=400, detail="Marka ve model seçimi zorunludur.")
+
+    actor = str(user_info.get("username") or user_info.get("full_name") or user_info.get("id") or "admin")
+    try:
+        res = set_model_firmware_policy(
+            settings_db=settings_db,
+            brand=brand,
+            model=model,
+            fw_id=fw_id,
+            auto_apply=auto_apply,
+            actor=actor,
+        )
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+
+    save_settings(settings_db)
+    return {
+        "status": "success",
+        "policy": res,
+        "message": (
+            f"{brand} {model} hedef firmware politikası kaldırıldı."
+            if res.get("removed")
+            else f"{brand} {model} hedef sürümü v{res.get('version')} olarak kaydedildi."
+        ),
+    }
+
+
+@app.post("/api/settings/phone-firmware/deploy")
+async def deploy_phone_firmware_endpoint(
+    payload: dict = Body(...),
+    user_info: dict = Depends(get_user_info),
+):
+    """
+    Seçilen bir veya birden fazla masa telefonuna firmware güncellemesi gönderir.
+    Aktif çağrı koruması (wait_for_idle=True): görüşmedeki telefonları çağrı bitinceye kadar kuyruğa alır.
+    """
+    _check_phone_firmware_perm(user_info, "write")
+    from backend.services.autoprovision_service import (
+        normalize_mac_address,
+        ensure_pjsip_notify_conf,
+        trigger_phone_sip_notify,
+    )
+    from backend.services.firmware_service import (
+        ensure_firmware_settings_schema,
+        get_firmware_by_id,
+        model_matches_compatible_list,
+        compare_fw_versions,
+        mark_device_firmware_status,
+        append_firmware_log,
+    )
+
+    ensure_firmware_settings_schema(settings_db)
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    actor = str(user_info.get("username") or user_info.get("full_name") or user_info.get("id") or "admin")
+
+    raw_macs = payload.get("macs") or ([] if not payload.get("mac") else [payload.get("mac")])
+    fw_id = str(payload.get("fw_id") or "").strip()
+    force = bool(payload.get("force", False))
+    allow_downgrade = bool(payload.get("allow_downgrade", False))
+    wait_for_idle = bool(payload.get("wait_for_idle", True))
+
+    if not raw_macs:
+        raise HTTPException(status_code=400, detail="En az bir masa telefonu seçmelisiniz.")
+
+    explicit_fw = get_firmware_by_id(settings_db, fw_id) if fw_id else None
+    if fw_id and not explicit_fw:
+        raise HTTPException(status_code=404, detail="Seçilen firmware paketi bulunamadı.")
+
+    devices = _build_enriched_autoprovision_list(target_tenant)
+    dev_by_mac = {str(d.get("mac_hex") or "").lower(): d for d in devices if d.get("mac_hex")}
+
+    try:
+        ensure_pjsip_notify_conf(os.path.join(os.path.dirname(__file__), "asterisk_config"))
+    except Exception:
+        pass
+
+    results = []
+    sent_count = 0
+    queued_count = 0
+    skipped_count = 0
+
+    for raw_m in raw_macs:
+        _, mh = normalize_mac_address(str(raw_m or ""))
+        dev = dev_by_mac.get(mh)
+        if not dev:
+            skipped_count += 1
+            results.append({"mac": raw_m, "status": "skipped", "reason": "Cihaz bulunamadı"})
+            continue
+
+        dev_brand = str(dev.get("brand") or "")
+        dev_model = str(dev.get("model") or "")
+        dev_su = str(dev.get("sip_username") or dev.get("assigned_extension") or "").strip()
+        dev_ext = str(dev.get("assigned_extension") or "").strip()
+        cur_ver = str(dev.get("current_fw_version") or "")
+
+        fw_to_use = explicit_fw
+        if fw_to_use is None and dev.get("target_fw_id"):
+            fw_to_use = get_firmware_by_id(settings_db, str(dev.get("target_fw_id")))
+        if not fw_to_use:
+            skipped_count += 1
+            results.append({"mac": dev.get("mac"), "status": "skipped", "reason": "Bu model için hedef firmware tanımlı değil"})
+            continue
+
+        if not model_matches_compatible_list(dev_brand, dev_model, fw_to_use):
+            skipped_count += 1
+            results.append({
+                "mac": dev.get("mac"),
+                "status": "skipped",
+                "reason": f"Firmware ({fw_to_use.get('version')}) {dev_brand} {dev_model} ile uyumlu değil",
+            })
+            continue
+
+        cmp_v = compare_fw_versions(cur_ver, str(fw_to_use.get("version") or ""))
+        if cmp_v == "equal" and not force:
+            skipped_count += 1
+            results.append({
+                "mac": dev.get("mac"),
+                "status": "up_to_date",
+                "reason": f"Telefon zaten v{cur_ver} sürümünde",
+            })
+            continue
+        if cmp_v == "downgrade" and not allow_downgrade:
+            skipped_count += 1
+            results.append({
+                "mac": dev.get("mac"),
+                "status": "downgrade_blocked",
+                "reason": f"Mevcut sürüm ({cur_ver}) hedeften ({fw_to_use.get('version')}) daha yeni. Sürüm düşürme izni gerekli.",
+            })
+            continue
+
+        # Save device-specific override so next provisioning fetch injects the exact firmware directive
+        settings_db["phone_firmware_overrides"][mh] = {
+            "mac_hex": mh,
+            "fw_id": fw_to_use["id"],
+            "version": fw_to_use["version"],
+            "force": force,
+            "allow_downgrade": allow_downgrade,
+            "sip_username": dev_su,
+            "extension": dev_ext,
+            "brand": dev_brand,
+            "model": dev_model,
+            "queued_active_call": False,
+            "requested_by": actor,
+            "requested_at": (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S"),
+        }
+
+        # Active Call Guard: never reboot a phone while user is on an active call
+        if wait_for_idle and dev_su and _is_deskphone_endpoint_in_active_call(dev_su, dev_ext):
+            settings_db["phone_firmware_overrides"][mh]["queued_active_call"] = True
+            mark_device_firmware_status(
+                settings_db,
+                mh,
+                status="queued_active_call",
+                fw_id=fw_to_use["id"],
+                target_version=fw_to_use["version"],
+                current_version=cur_ver,
+                message=f"Dahili {dev_ext or dev_su} aktif görüşmede — çağrı bitince otomatik gönderilecek.",
+                sip_username=dev_su,
+            )
+            append_firmware_log(
+                settings_db,
+                event="QUEUED_ACTIVE_CALL",
+                brand=dev_brand,
+                version=fw_to_use["version"],
+                mac_hex=mh,
+                detail=f"{dev.get('mac')} ({dev_su}) görüşmede olduğu için çağrı bitimine ertelendi.",
+                actor=actor,
+            )
+            queued_count += 1
+            results.append({"mac": dev.get("mac"), "status": "queued_active_call", "reason": "Görüşme bitince otomatik uygulanacak"})
+            continue
+
+        if not dev_su:
+            mark_device_firmware_status(
+                settings_db,
+                mh,
+                status="notified",
+                fw_id=fw_to_use["id"],
+                target_version=fw_to_use["version"],
+                current_version=cur_ver,
+                message="Hedef tanımlandı; telefon bir sonraki provizyonda otomatik indirecek.",
+            )
+            queued_count += 1
+            results.append({"mac": dev.get("mac"), "status": "pending_prov", "reason": "Sonraki provizyonda uygulanacak"})
+            continue
+
+        # Send SIP NOTIFY (reboot=True ensures immediate config fetch + firmware flash across Grandstream/Yealink/Fanvil/Cisco)
+        ok_n, out_n = trigger_phone_sip_notify(dev_su, brand=dev_brand or "Yealink", reboot=True)
+        mark_device_firmware_status(
+            settings_db,
+            mh,
+            status="notified" if ok_n else "pending_prov",
+            fw_id=fw_to_use["id"],
+            target_version=fw_to_use["version"],
+            current_version=cur_ver,
+            message=(
+                f"v{fw_to_use['version']} güncelleme komutu gönderildi — telefon yapılandırmayı çekip firmware indirecek."
+                if ok_n
+                else f"Hedef v{fw_to_use['version']} kaydedildi (cihaz şu an çevrimdışı; açıldığında otomatik çekecek)."
+            ),
+            sip_username=dev_su,
+        )
+        append_firmware_log(
+            settings_db,
+            event="DEPLOY",
+            brand=dev_brand,
+            version=fw_to_use["version"],
+            mac_hex=mh,
+            detail=f"{dev.get('mac')} ({dev_su}) → v{fw_to_use['version']} ({'SIP NOTIFY gönderildi' if ok_n else 'Çevrimdışı / açılışta çekecek'})",
+            actor=actor,
+        )
+        if ok_n:
+            sent_count += 1
+        else:
+            queued_count += 1
+        results.append({
+            "mac": dev.get("mac"),
+            "status": "notified" if ok_n else "pending_prov",
+            "notified": ok_n,
+            "reason": "Güncelleme komutu gönderildi" if ok_n else "Cihaz çevrimdışı; açılınca otomatik güncelleyecek",
+        })
+
+    save_settings(settings_db)
+    return {
+        "status": "success",
+        "sent_count": sent_count,
+        "queued_count": queued_count,
+        "skipped_count": skipped_count,
+        "results": results,
+        "message": f"{sent_count} cihaza anında gönderildi, {queued_count} cihaz sıraya alındı, {skipped_count} cihaz atlandı.",
+    }
+
+
+@app.post("/api/settings/phone-firmware/cancel-override")
+async def cancel_phone_firmware_override_endpoint(
+    payload: dict = Body(...),
+    user_info: dict = Depends(get_user_info),
+):
+    """Tek bir cihaz için bekleyen/sıradaki firmware dağıtımını iptal eder."""
+    _check_phone_firmware_perm(user_info, "write")
+    from backend.services.autoprovision_service import normalize_mac_address
+    from backend.services.firmware_service import ensure_firmware_settings_schema, mark_device_firmware_status
+
+    ensure_firmware_settings_schema(settings_db)
+    _, mh = normalize_mac_address(str(payload.get("mac") or ""))
+    if not mh:
+        raise HTTPException(status_code=400, detail="Geçersiz MAC adresi.")
+    settings_db["phone_firmware_overrides"].pop(mh, None)
+    mark_device_firmware_status(settings_db, mh, status="idle", message="Bekleyen firmware güncellemesi iptal edildi.")
+    save_settings(settings_db)
+    return {"status": "success", "message": "Cihaz için bekleyen firmware güncellemesi iptal edildi."}
+
+
+async def _phone_firmware_idle_queue_worker():
+    """Checks every 15s for firmware upgrades deferred by Active Call Guard and dispatches once call ends."""
+    while True:
+        await asyncio.sleep(15)
+        try:
+            ov_map = settings_db.get("phone_firmware_overrides")
+            if not isinstance(ov_map, dict) or not ov_map:
+                continue
+            from backend.services.autoprovision_service import trigger_phone_sip_notify
+            from backend.services.firmware_service import mark_device_firmware_status, append_firmware_log
+            changed = False
+            for mh, ov in list(ov_map.items()):
+                if not isinstance(ov, dict) or not ov.get("queued_active_call"):
+                    continue
+                su = str(ov.get("sip_username") or "").strip()
+                ext = str(ov.get("extension") or "").strip()
+                if su and _is_deskphone_endpoint_in_active_call(su, ext):
+                    continue
+                ov["queued_active_call"] = False
+                ok_n, _ = trigger_phone_sip_notify(su, brand=str(ov.get("brand") or "Yealink"), reboot=True) if su else (False, "no_su")
+                mark_device_firmware_status(
+                    settings_db,
+                    mh,
+                    status="notified" if ok_n else "pending_prov",
+                    fw_id=str(ov.get("fw_id") or ""),
+                    target_version=str(ov.get("version") or ""),
+                    message="Görüşme sona erdi; firmware güncelleme komutu otomatik gönderildi.",
+                    sip_username=su,
+                )
+                append_firmware_log(
+                    settings_db,
+                    event="DEPLOY_AFTER_CALL",
+                    brand=str(ov.get("brand") or ""),
+                    version=str(ov.get("version") or ""),
+                    mac_hex=mh,
+                    detail=f"Görüşme bitti → {mh} ({su}) için firmware bildirimi gönderildi.",
+                    actor="system",
+                )
+                changed = True
+            if changed:
+                save_settings(settings_db)
+        except Exception as e_fw_q:
+            print(f"[Firmware Queue Worker Warning]: {e_fw_q}")
 
 
 @app.get("/api/settings/autoprovision/scan")
@@ -16297,14 +16798,57 @@ async def _render_autoprovision_file_for_phone(
                 _phone_sync_base_url = f"{_raw_prov_base}/phone-sync" if _raw_prov_base else ""
                 _fwd_codes_cfg = ((pbx_cfg.get("numbering_plan") or {}).get("call_forwarding") or {})
 
+                _eff_brand_fw = str(ap_rec.get("brand") or dev.get("brand") or saved_dp.get("brand") or "Yealink")
+                _eff_model_fw = str(ap_rec.get("model") or dev.get("model") or saved_dp.get("model") or "T46U")
+                _eff_ua_fw = str(user_agent or "").strip()
+                if not _eff_ua_fw:
+                    try:
+                        _live_meta_fw = _inspect_deskphone_live_status({"sip_username": dev_su, "ip": client_ip or ""})
+                        _eff_ua_fw = str(_live_meta_fw.get("user_agent") or "").strip()
+                    except Exception:
+                        _eff_ua_fw = ""
+                _fw_directive = None
+                try:
+                    from backend.services.firmware_service import (
+                        build_firmware_provisioning_directive as _build_fw_dir,
+                        parse_firmware_version_from_ua as _pfw_ua,
+                        mark_device_firmware_status as _mark_fw_st,
+                    )
+                    _fw_directive = _build_fw_dir(
+                        settings_db=settings_db,
+                        brand=_eff_brand_fw,
+                        model=_eff_model_fw,
+                        mac_hex=(dev_mac_hex or mac_hex or ""),
+                        provision_server_url=prov_ep["active_prov_url"],
+                        current_user_agent=_eff_ua_fw,
+                    )
+                    _seen_ver_fw = _pfw_ua(_eff_ua_fw, brand=_eff_brand_fw)
+                    if _seen_ver_fw and (dev_mac_hex or mac_hex):
+                        _st_existing = (settings_db.get("phone_firmware_status") or {}).get((dev_mac_hex or mac_hex).lower())
+                        if isinstance(_st_existing, dict):
+                            _st_existing["current_version"] = _seen_ver_fw
+                        elif _fw_directive.get("active"):
+                            _mark_fw_st(
+                                settings_db,
+                                dev_mac_hex or mac_hex,
+                                status="notified",
+                                fw_id=_fw_directive.get("fw_id") or "",
+                                target_version=_fw_directive.get("fw_version") or "",
+                                current_version=_seen_ver_fw,
+                                message=f"Provizyon dosyası ile hedef sürüm ({_fw_directive.get('fw_version')}) gönderildi.",
+                                sip_username=dev_su,
+                            )
+                except Exception as e_fw_dir:
+                    print(f"[Firmware Directive Warning]: {e_fw_dir}")
+
                 content_text, media_type, _ = generate_provisioning_config(
                     ext=ext_s,
                     sip_username=dev_su,
                     sip_password=str(dev.get("sip_password") or ""),
                     full_name=str(u.get("full_name") or f"Dahili {ext_s}"),
                     pbx_host=prov_ep["pbx_host"],
-                    brand=str(ap_rec.get("brand") or dev.get("brand") or saved_dp.get("brand") or "Yealink"),
-                    model=str(ap_rec.get("model") or dev.get("model") or saved_dp.get("model") or "T46U"),
+                    brand=_eff_brand_fw,
+                    model=_eff_model_fw,
                     mac_colon=str(dev.get("mac") or ""),
                     transport=eff_transport,
                     dss_keys=eff_dss,
@@ -16330,6 +16874,7 @@ async def _render_autoprovision_file_for_phone(
                     live_sync_state=_live_sync_state,
                     phone_sync_base_url=_phone_sync_base_url,
                     fwd_codes=_fwd_codes_cfg,
+                    firmware_directive=_fw_directive,
                 )
                 # Stamp live provisioning fetch timestamp so Desk Phone Studio progress bar & Autoprovision panel detect pull!
                 try:
@@ -16531,6 +17076,127 @@ async def deskphone_action_url_sync_endpoint(
         return {"status": "ok", "ext": ext_clean, "event": ev_clean}
 
     return {"status": "ignored", "ext": ext_clean, "event": ev_clean}
+
+
+async def _serve_phone_firmware_binary(
+    token: str,
+    fw_id: str,
+    filename: str,
+    request: Request,
+    mode: str = "auto",
+    is_grandstream_dir: bool = False,
+):
+    from backend.services.autoprovision_service import resolve_tenant_by_provisioning_token
+    from backend.services.firmware_service import (
+        resolve_firmware_file_on_disk,
+        parse_firmware_version_from_ua,
+        compare_fw_versions,
+        mark_device_firmware_status,
+        append_firmware_log,
+    )
+
+    tenant_id = resolve_tenant_by_provisioning_token(settings_db, token)
+    if not tenant_id:
+        raise HTTPException(status_code=403, detail="Geçersiz provizyon anahtarı.")
+
+    ua = str(request.headers.get("user-agent") or "")
+    client_ip = (
+        (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+        or (request.headers.get("x-real-ip") or "").strip()
+        or (request.client.host if request.client else "")
+    )
+    fw, abs_path, served_name = resolve_firmware_file_on_disk(settings_db, fw_id, filename)
+    if not fw or not abs_path or not os.path.isfile(abs_path):
+        raise HTTPException(status_code=404, detail="Firmware dosyası bulunamadı.")
+
+    # Identify requesting device MAC from Grandstream DevId UA or client IP
+    req_mac = ""
+    m_devid = re.search(r"DevId\s+([0-9a-fA-F]{12})", ua, re.IGNORECASE)
+    if m_devid:
+        req_mac = m_devid.group(1).lower()
+    else:
+        # Try Yealink MAC in UA (e.g. "Yealink SIP-T42S 66.86.0.160 80:5e:c0:23:71:7a")
+        m_yl_mac = re.search(r"([0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5})", ua)
+        if m_yl_mac:
+            req_mac = m_yl_mac.group(1).replace(":", "").lower()
+
+    # Anti-loop guard for Grandstream folder requests: if phone already runs exact target version and not forced -> 304
+    cur_ua_ver = parse_firmware_version_from_ua(ua, brand=str(fw.get("brand") or ""))
+    ov = (settings_db.get("phone_firmware_overrides") or {}).get(req_mac) if req_mac else None
+    is_forced = bool(isinstance(ov, dict) and ov.get("force"))
+    if is_grandstream_dir and cur_ua_ver and not is_forced:
+        if compare_fw_versions(cur_ua_ver, str(fw.get("version") or "")) == "equal":
+            if req_mac:
+                mark_device_firmware_status(
+                    settings_db,
+                    req_mac,
+                    status="completed",
+                    fw_id=fw["id"],
+                    target_version=str(fw.get("version") or ""),
+                    current_version=cur_ua_ver,
+                    message=f"Telefon zaten hedef sürümde ({cur_ua_ver}), tekrar indirme atlandı.",
+                )
+            return Response(status_code=304)
+
+    # Update download counters & live device status
+    fw["download_count"] = int(fw.get("download_count") or 0) + 1
+    fw["last_downloaded_at"] = (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
+    if req_mac:
+        mark_device_firmware_status(
+            settings_db,
+            req_mac,
+            status="downloading",
+            fw_id=fw["id"],
+            target_version=str(fw.get("version") or ""),
+            current_version=cur_ua_ver,
+            message=f"{served_name} indiriliyor ({client_ip}) — tamamlanınca telefon yeniden başlayacak.",
+        )
+    append_firmware_log(
+        settings_db,
+        event="DOWNLOAD",
+        brand=str(fw.get("brand") or ""),
+        version=str(fw.get("version") or ""),
+        mac_hex=req_mac,
+        detail=f"Telefon firmware çekti: {served_name} ({mode.upper()} • IP: {client_ip} • UA: {ua[:80]})",
+        actor="phone",
+    )
+    save_settings(settings_db)
+    return FileResponse(
+        abs_path,
+        media_type="application/octet-stream",
+        filename=served_name,
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
+@app.get("/api/prov/{token}/lan/firmware/file/{fw_id}/{filename}")
+async def serve_phone_firmware_file_lan(token: str, fw_id: str, filename: str, request: Request):
+    return await _serve_phone_firmware_binary(token, fw_id, filename, request, mode="lan", is_grandstream_dir=False)
+
+
+@app.get("/api/prov/{token}/wan/firmware/file/{fw_id}/{filename}")
+async def serve_phone_firmware_file_wan(token: str, fw_id: str, filename: str, request: Request):
+    return await _serve_phone_firmware_binary(token, fw_id, filename, request, mode="wan", is_grandstream_dir=False)
+
+
+@app.get("/api/prov/{token}/firmware/file/{fw_id}/{filename}")
+async def serve_phone_firmware_file_auto(token: str, fw_id: str, filename: str, request: Request):
+    return await _serve_phone_firmware_binary(token, fw_id, filename, request, mode="auto", is_grandstream_dir=False)
+
+
+@app.get("/api/prov/{token}/lan/firmware/gs/{fw_id}/{filename:path}")
+async def serve_phone_firmware_gs_lan(token: str, fw_id: str, filename: str, request: Request):
+    return await _serve_phone_firmware_binary(token, fw_id, filename, request, mode="lan", is_grandstream_dir=True)
+
+
+@app.get("/api/prov/{token}/wan/firmware/gs/{fw_id}/{filename:path}")
+async def serve_phone_firmware_gs_wan(token: str, fw_id: str, filename: str, request: Request):
+    return await _serve_phone_firmware_binary(token, fw_id, filename, request, mode="wan", is_grandstream_dir=True)
+
+
+@app.get("/api/prov/{token}/firmware/gs/{fw_id}/{filename:path}")
+async def serve_phone_firmware_gs_auto(token: str, fw_id: str, filename: str, request: Request):
+    return await _serve_phone_firmware_binary(token, fw_id, filename, request, mode="auto", is_grandstream_dir=True)
 
 
 @app.get("/api/prov/{token}/lan/{filename}")
@@ -39860,6 +40526,12 @@ async def startup_event():
         print(f"[Startup Error] SIP DFKS (as-feature-event) sunucusu başlatılamadı: {e_dfks}")
 
     try:
+        asyncio.create_task(_phone_firmware_idle_queue_worker())
+        print("[Startup] IP Telefon Firmware Aktif Çağrı Kuyruğu işçisi başlatıldı.")
+    except Exception as e_fw_w:
+        print(f"[Startup Error] Firmware işçisi başlatılamadı: {e_fw_w}")
+
+    try:
         from backend.services.notification_service import monitor_system_health_and_notify, trigger_notification_bg
         asyncio.create_task(monitor_system_health_and_notify())
         trigger_notification_bg(
@@ -40609,6 +41281,27 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
             if _nd_t not in ("web_phone", "virtual_subscriber"):
                 _nd_item["dnd_active"] = _u_dnd_on
                 _nd_item["dnd_origin"] = bool(_u_dnd_on and _u_dnd_origin and _nd_su.lower() == _u_dnd_origin.lower())
+                try:
+                    from backend.services.firmware_service import (
+                        parse_firmware_version_from_ua as _u_parse_fw_ua,
+                        resolve_target_firmware_for_device as _u_res_tgt_fw,
+                    )
+                    from backend.services.autoprovision_service import normalize_mac_address as _u_norm_mac
+                    _, _nd_mh = _u_norm_mac(str(_nd_item.get("mac") or ""))
+                    _nd_cur_fw = _u_parse_fw_ua(str(_nd_item.get("user_agent") or ""), brand=str(_nd_item.get("brand") or ""))
+                    _nd_fw_res = _u_res_tgt_fw(
+                        settings_db,
+                        brand=str(_nd_item.get("brand") or ""),
+                        model=str(_nd_item.get("model") or ""),
+                        mac_hex=_nd_mh,
+                        current_version=_nd_cur_fw,
+                    )
+                    _nd_item["current_fw_version"] = _nd_cur_fw
+                    _nd_item["target_fw_version"] = str((_nd_fw_res.get("fw") or {}).get("version") or "")
+                    _nd_item["target_fw_id"] = str((_nd_fw_res.get("fw") or {}).get("id") or "")
+                    _nd_item["fw_comparison"] = str(_nd_fw_res.get("comparison") or "unmanaged")
+                except Exception:
+                    pass
             else:
                 _nd_item["dnd_active"] = False
                 _nd_item["dnd_origin"] = False
@@ -44552,18 +45245,34 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v3.10.12",
+        "version": "v3.10.13",
         "commit_hash": live_commit,
         "release_date": "25 Kasım 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v3.10.12",
+                "version": "v3.10.13",
                 "commit_hash": live_commit,
                 "release_date": "25 Kasım 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Oto Provizyon İçinde Merkezi IP Telefon Firmware Yönetimi",
+                "summary": "Oto Provizyon ekranına 'Firmware Yönetimi' sekmesi eklendi. Yealink (.rom), Grandstream (.bin/.zip), Fanvil (.z) ve Cisco (.loads) firmware dosyaları modele göre santrale yüklenebilir, model bazlı hedef sürüm politikası atanabilir ve ihtiyaç halinde tekil/toplu olarak aktif çağrı korumasıyla telefonlara gönderilebilir.",
+                "features": [
+                    "Santral Firmware Deposu: Dosya adından marka/sürüm/model otomatik önerisi, ZIP içerik ayıklama (Grandstream .bin), SHA-256 doğrulama ve disk kullanımı takibi.",
+                    "Markaya Özel Güvenli Dağıtım: Yealink (static.firmware.url), Grandstream (P192/P212/P238 + HTTP 304 döngü koruması), Fanvil ve Cisco MPP için LAN/WAN uyumlu otomatik enjeksiyon.",
+                    "Canlı Sürüm Algılama & Aktif Çağrı Koruması: SIP/HTTP User-Agent'tan mevcut firmware sürümü okunur; görüşmedeki telefonlar çağrı bitince otomatik güncellenir.",
+                    "Yetkilendirme (phone_firmware): Rol yönetiminde granular görüntüleme/yazma/silme izinleri ve Büyüteç cihaz inceleme ekranında canlı FW sürüm rozeti eklendi."
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v3.10.12",
+                "commit_hash": "13ead94d",
+                "release_date": "25 Kasım 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "Masa Telefonu DND Canlı Göstergeleri, Büyüteç'ten DND ON/OFF Kontrolü & Grandstream DFKS Tam Senkron",
                 "summary": "Kullanıcı Yönetimi listesi, SIP Cihazları kartları ve Büyüteç (Cihaz İnceleme) penceresine canlı Rahatsız Etmeyin (DND) bildirimleri ve anlık DND Aç/Kapat kontrolü eklendi; Grandstream GRP260x ve Yealink T42S için çift yönlü BroadWorks DFKS (as-feature-event) yönlendirme/DND senkronu, Türkçe varsayılan ekran dili ve 4 alt tuş (Geçmiş / Rehber / Yönlendir / Menü) hizalaması tamamlandı.",
                 "features": [

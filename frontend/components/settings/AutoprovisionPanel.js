@@ -27,9 +27,11 @@ import {
   Power,
   Wifi,
   ChevronDown,
+  Cpu,
 } from "lucide-react";
 import * as XLSX from "../../utils/excelHelper";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
+import PhoneFirmwareTab from "./PhoneFirmwareTab";
 import { useTheme } from "../../utils/theme";
 import { resolvePhonePhotoSpec } from "../../utils/deskphonePhotoCatalog";
 
@@ -60,6 +62,8 @@ function detectBrandFromMacInput(rawMac) {
 export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
   const { bg, hover, text, border, ring, lightBg, borderLight } = useTheme();
 
+  const [activeTab, setActiveTab] = useState("devices"); // "devices" | "firmware"
+  const [fwSummary, setFwSummary] = useState({ packageCount: 0, pendingCount: 0 });
   const [devices, setDevices] = useState([]);
   const [modelCatalog, setModelCatalog] = useState([]);
   const [userSipDevicesMap, setUserSipDevicesMap] = useState({});
@@ -115,6 +119,24 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
     typeof window !== "undefined"
       ? `${window.location.protocol}//${backendHost}`
       : `http://${backendHost}`;
+
+  const getAuthHeaders = React.useCallback(() => {
+    const hdrs = {};
+    if (typeof window !== "undefined") {
+      try {
+        const rawU = localStorage.getItem("aida_user") || sessionStorage.getItem("aida_user");
+        if (rawU) {
+          const parsed = JSON.parse(rawU);
+          const uid = parsed?.id || parsed?.extension;
+          if (uid) hdrs["X-User-ID"] = String(uid);
+          if (parsed?.tenant_id) hdrs["X-Tenant-ID"] = String(parsed.tenant_id);
+        }
+        const activeTenant = localStorage.getItem("active_tenant_id");
+        if (activeTenant) hdrs["X-Tenant-ID"] = activeTenant;
+      } catch {}
+    }
+    return hdrs;
+  }, []);
 
   const flashBanner = (ok, msg) => {
     setBanner({ ok, text: msg });
@@ -655,68 +677,114 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
           </div>
         </div>
         <div className="flex items-center gap-2.5 flex-wrap">
-          <div className="relative">
-            <input
-              type="text"
-              placeholder="MAC, Dahili, İsim, Model..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className={`w-52 text-xs pl-8 pr-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring} transition-all`}
-            />
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          {/* Tab Switcher: Masa Telefonları / Firmware Yönetimi */}
+          <div className="inline-flex items-center p-1 rounded-xl bg-slate-100 dark:bg-slate-800/90 border border-slate-200/70 dark:border-slate-700/70">
+            <button
+              type="button"
+              onClick={() => setActiveTab("devices")}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-extrabold transition-all cursor-pointer ${
+                activeTab === "devices"
+                  ? `${bg} text-white shadow-sm`
+                  : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
+              }`}
+            >
+              <Smartphone size={13} />
+              <span>Cihazlar ({devices.length})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("firmware")}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-extrabold transition-all cursor-pointer ${
+                activeTab === "firmware"
+                  ? `${bg} text-white shadow-sm`
+                  : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
+              }`}
+            >
+              <Cpu size={13} />
+              <span>Firmware Yönetimi</span>
+              {fwSummary.pendingCount > 0 && (
+                <span className="ml-0.5 px-1.5 py-0.2 rounded-full bg-amber-500 text-white text-[9px] font-black">
+                  {fwSummary.pendingCount}
+                </span>
+              )}
+            </button>
           </div>
 
-          <button
-            type="button"
-            onClick={openScanModal}
-            className="p-2 text-slate-500 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all h-8 w-8 flex items-center justify-center shrink-0 cursor-pointer"
-            title="Ağdaki Yeni Cihazları Tara"
-          >
-            <Wifi size={15} className={scanning ? "animate-pulse" : ""} />
-          </button>
+          {activeTab === "devices" && (
+            <>
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="MAC, Dahili, İsim, Model..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className={`w-52 text-xs pl-8 pr-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring} transition-all`}
+                />
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              </div>
 
-          <button
-            type="button"
-            onClick={openLogsModal}
-            className="relative p-2 text-slate-500 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all h-8 w-8 flex items-center justify-center shrink-0 cursor-pointer"
-            title="Son Provizyon İstekleri (Canlı İzleme)"
-          >
-            <FileCode size={15} />
-            {recentLogs.length > 0 && (
-              <span className={`absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full ${bg}`} />
-            )}
-          </button>
+              <button
+                type="button"
+                onClick={openScanModal}
+                className="p-2 text-slate-500 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all h-8 w-8 flex items-center justify-center shrink-0 cursor-pointer"
+                title="Ağdaki Yeni Cihazları Tara"
+              >
+                <Wifi size={15} className={scanning ? "animate-pulse" : ""} />
+              </button>
 
-          <input type="file" accept=".xlsx, .xls" ref={fileInputRef} className="hidden" onChange={handleImportExcel} />
+              <button
+                type="button"
+                onClick={openLogsModal}
+                className="relative p-2 text-slate-500 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all h-8 w-8 flex items-center justify-center shrink-0 cursor-pointer"
+                title="Son Provizyon İstekleri (Canlı İzleme)"
+              >
+                <FileCode size={15} />
+                {recentLogs.length > 0 && (
+                  <span className={`absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full ${bg}`} />
+                )}
+              </button>
 
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="p-2 text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-xl transition-all h-8 w-8 flex items-center justify-center shrink-0 cursor-pointer"
-            title="Excel'den İçe Aktar (Import)"
-          >
-            <Upload size={16} />
-          </button>
+              <input type="file" accept=".xlsx, .xls" ref={fileInputRef} className="hidden" onChange={handleImportExcel} />
 
-          <button
-            type="button"
-            onClick={handleExportExcel}
-            className="p-2 text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition-all h-8 w-8 flex items-center justify-center shrink-0 cursor-pointer"
-            title="Excel'e Dışa Aktar (Export)"
-          >
-            <Download size={16} />
-          </button>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="p-2 text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-xl transition-all h-8 w-8 flex items-center justify-center shrink-0 cursor-pointer"
+                title="Excel'den İçe Aktar (Import)"
+              >
+                <Upload size={16} />
+              </button>
 
-          <button
-            type="button"
-            onClick={openAddModal}
-            title="Yeni Masa Telefonu Eşleştir"
-            className="bg-rose-600 hover:bg-rose-500 text-white rounded-xl h-8 w-8 flex items-center justify-center shrink-0 transition-all shadow-sm cursor-pointer"
-          >
-            <Plus size={16} />
-          </button>
+              <button
+                type="button"
+                onClick={handleExportExcel}
+                className="p-2 text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition-all h-8 w-8 flex items-center justify-center shrink-0 cursor-pointer"
+                title="Excel'e Dışa Aktar (Export)"
+              >
+                <Download size={16} />
+              </button>
+
+              <button
+                type="button"
+                onClick={openAddModal}
+                title="Yeni Masa Telefonu Eşleştir"
+                className="bg-rose-600 hover:bg-rose-500 text-white rounded-xl h-8 w-8 flex items-center justify-center shrink-0 transition-all shadow-sm cursor-pointer"
+              >
+                <Plus size={16} />
+              </button>
+            </>
+          )}
         </div>
       </div>
+
+      {activeTab === "firmware" ? (
+        <PhoneFirmwareTab
+          backendHost={backendHost}
+          getAuthHeaders={getAuthHeaders}
+          onSummaryChange={setFwSummary}
+        />
+      ) : (
+      <>
 
       {/* LAN / WAN Provisioning Server URL & Local IP Card */}
       {netConfig && (
@@ -998,6 +1066,23 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
                               <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">
                                 {dev.model || "-"}
                               </span>
+                              {dev.current_fw_version && (
+                                <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                                  <span className="text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                                    FW: {dev.current_fw_version}
+                                  </span>
+                                  {dev.fw_status === "update_available" && dev.target_fw_version && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setActiveTab("firmware")}
+                                      title={`Yeni hedef sürüm mevcut: v${dev.target_fw_version} — Firmware Yönetimi sekmesine git`}
+                                      className="text-[9px] font-mono font-extrabold px-1.5 py-0.2 rounded bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-300/70 dark:border-amber-700 cursor-pointer"
+                                    >
+                                      → {dev.target_fw_version}
+                                    </button>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           </div>
                         </td>
@@ -1105,6 +1190,8 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
             </div>
           )}
       </div>
+      </>
+      )}
 
       {/* Network Scanner Popup Modal */}
       {showScanModal && (

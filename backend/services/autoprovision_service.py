@@ -1813,6 +1813,7 @@ def generate_provisioning_config(
     live_sync_state: Optional[Dict[str, Any]] = None,
     phone_sync_base_url: str = "",
     fwd_codes: Optional[Dict[str, str]] = None,
+    firmware_directive: Optional[Dict[str, Any]] = None,
 ) -> Tuple[str, str, str]:
     """
     Generates multi-vendor provisioning content using `sip_username` (Kullanıcı > SIP > Kullanıcı Adı)
@@ -1914,6 +1915,12 @@ def generate_provisioning_config(
         sync_base_url=phone_sync_base_url,
     )
     fanvil_phone_sync_block = "\n".join(fanvil_phone_sync_lines)
+
+    fw_dir = firmware_directive if isinstance(firmware_directive, dict) else {}
+    fw_yealink_lines = list(fw_dir.get("yealink_lines") or [])
+    fw_grandstream_lines = list(fw_dir.get("grandstream_lines") or [])
+    fw_fanvil_lines = list(fw_dir.get("fanvil_lines") or [])
+    fw_cisco_lines = list(fw_dir.get("cisco_lines") or [])
 
     # 1. If a custom/system XML/CFG template is explicitly assigned, interpolate ALL variables + live DSS/Expansion/Softkey blocks
     if isinstance(template_obj, dict) and str(template_obj.get("xml_content") or "").strip():
@@ -2140,13 +2147,20 @@ def generate_provisioning_config(
         rendered = raw_tpl
         for k, v in replacements.items():
             rendered = rendered.replace(k, str(v))
-        if "yealink" in tpl_b_low and "{SYNC_FEATURE_BLOCK}" not in raw_tpl:
-            rendered = rendered.replace("sip.notify_reboot_enable = 1", "sip.notify_reboot_enable = 0")
-            rendered = rendered.rstrip() + "\n" + yealink_sync_block + "\n"
+        if "yealink" in tpl_b_low:
+            if "{SYNC_FEATURE_BLOCK}" not in raw_tpl:
+                rendered = rendered.replace("sip.notify_reboot_enable = 1", "sip.notify_reboot_enable = 0")
+                rendered = rendered.rstrip() + "\n" + yealink_sync_block + "\n"
+            if fw_yealink_lines:
+                rendered = re.sub(r"(?m)^\s*static\.firmware\.url\s*=.*$", "", rendered)
+                rendered = rendered.rstrip() + "\n\n" + "\n".join(fw_yealink_lines) + "\n"
         elif "grandstream" in tpl_b_low:
             # Always enforce Authenticate Conf File = No (P240=0) & Disable SIP NOTIFY Auth = Yes (P4428=1)
             # even on user-copied/custom Grandstream templates so XML updates & remote Check-Sync/Reboot never lock out.
             rendered = re.sub(r"<P240>\s*1\s*</P240>", "<P240>0</P240>", rendered)
+            if fw_grandstream_lines:
+                rendered = re.sub(r"\s*<P192>.*?</P192>", "", rendered)
+                rendered = re.sub(r"\s*<P238>.*?</P238>", "", rendered)
             if "</config>" in rendered:
                 inject_gs = []
                 if "<P240>" not in rendered:
@@ -2159,6 +2173,8 @@ def generate_provisioning_config(
                     inject_gs.append(grandstream_sync_block)
                 if "{SOFTKEYS_BLOCK}" not in raw_tpl and soft_block_lines:
                     inject_gs.append("\n".join(soft_block_lines))
+                if fw_grandstream_lines:
+                    inject_gs.append("\n".join(fw_grandstream_lines))
                 if inject_gs:
                     rendered = rendered.replace("</config>", "\n".join(inject_gs) + "\n  </config>", 1)
         elif "fanvil" in tpl_b_low:
@@ -2168,6 +2184,10 @@ def generate_provisioning_config(
             if "{FANVIL_PHONE_SYNC_BLOCK}" not in raw_tpl and "<PHONE CONFIG MODULE>" in rendered:
                 if "<DSSKEY CONFIG MODULE>" in rendered:
                     rendered = rendered.replace("<DSSKEY CONFIG MODULE>", fanvil_phone_sync_block + "\n\n<DSSKEY CONFIG MODULE>", 1)
+            if fw_fanvil_lines and "<SIP CONFIG MODULE>" in rendered:
+                rendered = rendered.replace("<SIP CONFIG MODULE>", "\n".join(fw_fanvil_lines) + "\n\n<SIP CONFIG MODULE>", 1)
+        elif "cisco" in tpl_b_low and fw_cisco_lines and "</flat-profile>" in rendered:
+            rendered = rendered.replace("</flat-profile>", "\n".join(fw_cisco_lines) + "\n</flat-profile>", 1)
         is_xml = rendered.lstrip().startswith("<")
         ext_suffix = "xml" if is_xml else "cfg"
         fname = f"{mac_hex or ('ext_' + ext_s)}.{ext_suffix}"
@@ -2267,7 +2287,7 @@ def generate_provisioning_config(
                 gs_ext_lines.append(f"    <P{p_b + 3}>{ek_val}</P{p_b + 3}>")
 
         gs_soft_lines = _build_grandstream_softkeys_xml_lines(soft_list, model_name=model, pickup_group=pickup_group)
-        mpk_block = "\n".join(gs_mpk_lines + gs_ext_lines + gs_soft_lines)
+        mpk_block = "\n".join(gs_mpk_lines + gs_ext_lines + gs_soft_lines + fw_grandstream_lines)
         gs_prov_url = html.escape(provision_server_url.replace("http://", "").replace("https://", "")) if provision_server_url else ""
         gs_prov_proto = "2" if provision_server_url.startswith("https://") else "1"
         gs_time_fmt = "1" if prefs["time_format"] == "24" else "0"
@@ -2328,6 +2348,7 @@ def generate_provisioning_config(
             f"Auto Server URL      :{provision_server_url}" if provision_server_url else "Auto Server URL      :",
             "Update Mode          :1",
             "SIP Notify Update    :1",
+            *fw_fanvil_lines,
             "",
             "<SIP CONFIG MODULE>",
             "--SIP Line List--  :",
@@ -2470,7 +2491,7 @@ def generate_provisioning_config(
                 elif ek_type in ("speed_dial", "park", "intercom", "forward") and ek_val:
                     cs_lines.append(f'  <Unit_{m_idx}_Key_{ek_idx} ua="na">fnc=sd;ext={ek_val}@$PROXY;nme={ek_lbl}</Unit_{m_idx}_Key_{ek_idx}>')
 
-        cs_block = "\n".join(cs_lines)
+        cs_block = "\n".join(cs_lines + fw_cisco_lines)
         cs_prof = html.escape(provision_server_url) if provision_server_url else ""
         cs_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!-- AIDA PBX Cisco MPP Auto-Provisioning ({html.escape(model)}) | Ext: {html.escape(ext_s)} | SIP Endpoint: {html.escape(sip_u)} -->
@@ -2620,6 +2641,7 @@ def generate_provisioning_config(
         "local_time.summer_time = 0",
         f"features.direct_ip_call_enable = {0 if direct_ip_call_block else 1}",
         *yealink_sync_lines,
+        *fw_yealink_lines,
         "",
         "# --- Programlanabilir Yan Tuslar / BLF / Hizli Arama (DSS Keys) ---",
     ]
