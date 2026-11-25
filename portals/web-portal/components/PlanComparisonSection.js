@@ -60,7 +60,7 @@ function renderPlanCell(val, tierId) {
   );
 }
 
-export default function PlanComparisonSection({ onSelectPlan }) {
+export default function PlanComparisonSection({ onSelectPlan, onOpenSizingModal }) {
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [onlyDifferences, setOnlyDifferences] = useState(false);
   const [collapsedCategories, setCollapsedCategories] = useState({});
@@ -523,15 +523,14 @@ export default function PlanComparisonSection({ onSelectPlan }) {
               </p>
             </div>
           </div>
-          <a
-            href={SITE_CONFIG.sizingCalcUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-5 py-3 text-sm font-semibold text-indigo-950 hover:bg-indigo-100 transition min-h-[48px]"
+          <button
+            type="button"
+            onClick={() => onOpenSizingModal?.()}
+            className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-5 py-3 text-sm font-semibold text-indigo-950 hover:bg-indigo-100 transition min-h-[48px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
           >
+            <Calculator className="h-4 w-4 text-indigo-700" aria-hidden="true" />
             Kapasite Hesaplayıcıyı Aç
-            <ExternalLink className="h-4 w-4" aria-hidden="true" />
-          </a>
+          </button>
         </div>
       </div>
     </section>

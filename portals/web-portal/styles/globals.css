@@ -514,3 +514,17 @@ input[type="checkbox"] {
     color: #6d28d9;
   }
 }
+
+/* ==========================================================================
+   MODERN WEB GUIDANCE: NATIVE <dialog> MODAL SCROLL CONTAINMENT & BACKDROP
+   ========================================================================== */
+dialog.nornia-sizing-dialog:modal {
+  overscroll-behavior: contain;
+}
+
+dialog.nornia-sizing-dialog::backdrop {
+  background-color: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(4px);
+  overflow: hidden;
+  overscroll-behavior: contain;
+}

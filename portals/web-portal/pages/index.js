@@ -33,6 +33,7 @@ import HeroProductPreview from "../components/HeroProductPreview";
 import LiveTranslateShowcase from "../components/LiveTranslateShowcase";
 import { RunaMobileVisual, RunaDesktopVisual } from "../components/RunaAppVisuals";
 import PlanComparisonSection from "../components/PlanComparisonSection";
+import ServerSizingModal from "../components/ServerSizingModal";
 import DemoRequestForm from "../components/DemoRequestForm";
 import {
   SITE_CONFIG,
@@ -93,6 +94,7 @@ export default function NorniaHomePage() {
   const [activeSectorId, setActiveSectorId] = useState(SECTOR_SOLUTIONS[0].id);
   const [selectedDeployment, setSelectedDeployment] = useState("cloud");
   const [selectedPlanLabel, setSelectedPlanLabel] = useState("");
+  const [sizingModalOpen, setSizingModalOpen] = useState(false);
   const [fallbackMenuOpen, setFallbackMenuOpen] = useState(false);
 
   const headerRef = useRef(null);
@@ -1131,7 +1133,10 @@ export default function NorniaHomePage() {
           {/* ============================================================
               SECTION 8 — YEASTAR-STYLE PLAN OVERVIEW & FEATURE COMPARISON MATRIX
              ============================================================ */}
-          <PlanComparisonSection onSelectPlan={handlePlanSelect} />
+          <PlanComparisonSection
+            onSelectPlan={handlePlanSelect}
+            onOpenSizingModal={() => setSizingModalOpen(true)}
+          />
 
           {/* ============================================================
               SECTION 9 — NATIVE ACCESSIBLE FAQ ACCORDION
@@ -1363,15 +1368,13 @@ export default function NorniaHomePage() {
                     </a>
                   </li>
                   <li>
-                    <a
-                      href={SITE_CONFIG.sizingCalcUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 hover:text-indigo-700"
+                    <button
+                      type="button"
+                      onClick={() => setSizingModalOpen(true)}
+                      className="inline-flex items-center gap-1 hover:text-indigo-700 text-left"
                     >
                       Sunucu Kapasite Hesaplayıcı
-                      <ExternalLink className="h-3 w-3 text-slate-400" aria-hidden="true" />
-                    </a>
+                    </button>
                   </li>
                   <li>
                     <a href="#sss" className="hover:text-indigo-700">
@@ -1424,6 +1427,19 @@ export default function NorniaHomePage() {
             </div>
           </div>
         </footer>
+        {/* Native Modal Popup: On-Premise Server Sizing Calculator */}
+        <ServerSizingModal
+          open={sizingModalOpen}
+          onClose={() => setSizingModalOpen(false)}
+          onApplyToDemo={(sizingLabel) => {
+            setSizingModalOpen(false);
+            setSelectedDeployment("onprem");
+            setSelectedPlanLabel(sizingLabel);
+            if (typeof document !== "undefined") {
+              document.getElementById("demo")?.scrollIntoView({ behavior: "smooth" });
+            }
+          }}
+        />
       </div>
     </>
   );
