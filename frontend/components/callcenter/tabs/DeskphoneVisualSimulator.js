@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import {
   Phone,
   Headphones,
@@ -16,7 +16,11 @@ import {
   Users,
   Wand2,
   Lock,
+  Camera,
+  Cpu,
 } from "lucide-react";
+import { resolvePhonePhotoSpec } from "../../../utils/deskphonePhotoCatalog";
+import { useTheme } from "../../../utils/theme";
 
 export const DSS_KEY_TYPES = [
   {
@@ -153,7 +157,7 @@ export const DSS_KEY_TYPES = [
     id: "none",
     name: "Boş / Atanmamış",
     short: "Boş",
-    led: "bg-slate-600/70",
+    led: "bg-slate-500/60",
     badge: "bg-slate-800 text-slate-400 border-slate-700",
     needsTarget: false,
     supportsAutoName: false,
@@ -229,6 +233,14 @@ export default function DeskphoneVisualSimulator({
   onOpenAutoFillModal,
   liveOnline = false,
 }) {
+  const { bg, hover } = useTheme();
+  const [viewMode, setViewMode] = useState("photo"); // "photo" | "schematic"
+  const [imgError, setImgError] = useState(false);
+
+  useEffect(() => {
+    setImgError(false);
+  }, [brand, model]);
+
   const spec = modelSpec || {
     brand,
     model,
@@ -241,6 +253,9 @@ export default function DeskphoneVisualSimulator({
     expansion_model: "EXP43",
     max_expansions: 3,
   };
+
+  const photoSpec = resolvePhonePhotoSpec(brand, model);
+  const useRealPhoto = Boolean(photoSpec && !imgError && viewMode === "photo");
 
   const brandStyle = BRAND_ACCENTS[brand] || BRAND_ACCENTS.Yealink;
   const isMono = spec.screen === "mono";
@@ -258,10 +273,27 @@ export default function DeskphoneVisualSimulator({
   const leftKeys = isLeftOnly ? pageKeys : pageKeys.slice(0, halfCount);
   const rightKeys = isLeftOnly ? [] : pageKeys.slice(halfCount);
 
+  // Photo-specific column distribution (respects real physical button placement on chassis)
+  const photoMode = photoSpec?.btnMode || "split";
+  const photoIsTouch = photoMode === "touch";
+  const photoLeftKeys =
+    photoMode === "left_only"
+      ? pageKeys
+      : photoMode === "right_only"
+      ? []
+      : pageKeys.slice(0, Math.ceil(pageKeys.length / 2));
+  const photoRightKeys =
+    photoMode === "right_only"
+      ? pageKeys
+      : photoMode === "left_only"
+      ? []
+      : pageKeys.slice(Math.ceil(pageKeys.length / 2));
+
   const brightnessPct = Math.max(45, Math.min(100, 40 + Number(phonePrefs.backlight_active || 8) * 6));
   const headerDisplayLabel = phonePrefs.screen_label?.trim() || `${ext} • ${fullName}`;
   const timeStr = formatPreviewTime(phonePrefs.time_format || "24");
   const dateStr = formatPreviewDate(phonePrefs.date_format || "DD.MM.YYYY");
+  const visibleSoftKeys = softKeys.slice(0, spec.soft_keys || 4);
 
   const resolveKeyDisplay = (k) => {
     if (!k) return { label: "Boş", isAuto: false };
@@ -271,6 +303,19 @@ export default function DeskphoneVisualSimulator({
       label: resolvedLabel || (k.type === "none" ? "Boş" : getTypeMeta(k.type).short),
       isAuto: Boolean(isAuto),
     };
+  };
+
+  // Compute bounded top% for a physical button column so keys never overflow below the LCD bezel
+  const computeBtnTop = (rowIdx, colLen) => {
+    if (!photoSpec) return 20;
+    const baseTop = Number(photoSpec.btnTop ?? photoSpec.lcd.top + 2);
+    if (colLen <= 1) return baseTop;
+    const baseStep = Number(photoSpec.btnStep ?? 3.6);
+    const btnH = Number(photoSpec.btnH ?? 2.8);
+    const maxBottom = photoSpec.lcd.top + photoSpec.lcd.height - btnH - 0.3;
+    const maxSpan = Math.max(2, maxBottom - baseTop);
+    const effectiveStep = Math.min(baseStep, maxSpan / (colLen - 1));
+    return baseTop + rowIdx * effectiveStep;
   };
 
   const activeExpMod =
@@ -326,12 +371,367 @@ export default function DeskphoneVisualSimulator({
     );
   };
 
+  // =========================================================================
+  // REAL HARDWARE PHOTO STAGE RENDERER (ALL 56 AUTO-PROVISIONING MODELS)
+  // =========================================================================
+  const renderRealPhotoStage = () => {
+    const { lcd, softkeys: skBox } = photoSpec;
+    const isCompactLcd = lcd.height < 16;
+
+    return (
+      <div className="flex flex-col gap-3">
+        {/* Crisp White Studio Light-Box Frame (looks clean in both Light & Dark themes) */}
+        <div className="bg-white rounded-2xl p-1.5 sm:p-2 border border-slate-200/80 dark:border-slate-700/70 shadow-inner">
+          <div
+            className="relative w-full max-w-[490px] mx-auto select-none overflow-hidden rounded-xl"
+            style={{ aspectRatio: photoSpec.aspect }}
+          >
+            {/* Actual Tight-Cropped Front-View Product Photo */}
+            <img
+              src={photoSpec.image}
+              alt={`${brand} ${model}`}
+              onError={() => setImgError(true)}
+              draggable={false}
+              className="w-full h-full object-contain block pointer-events-none select-none"
+            />
+
+            {/* ======================================================= */}
+            {/* LIVE DYNAMIC LCD OVERLAY ALIGNED TO REAL PHONE SCREEN   */}
+            {/* ======================================================= */}
+            <div
+              style={{
+                left: `${lcd.left}%`,
+                top: `${lcd.top}%`,
+                width: `${lcd.width}%`,
+                height: `${lcd.height}%`,
+                filter: `brightness(${brightnessPct}%)`,
+              }}
+              className={`absolute rounded-[3px] overflow-hidden flex flex-col justify-between shadow-[inset_0_1px_4px_rgba(0,0,0,0.45)] ${
+                isMono
+                  ? "bg-gradient-to-b from-[#b8c7b0] to-[#a3b59a] text-[#142014] border border-black/30"
+                  : "bg-gradient-to-b from-[#0f2544] via-[#0c1d36] to-[#081326] text-white border border-slate-700/80"
+              }`}
+            >
+              {/* LCD Status Bar */}
+              <div
+                className={`flex items-center justify-between gap-1 px-1.5 py-[1px] border-b shrink-0 leading-none ${
+                  isMono
+                    ? "bg-black/10 border-black/20 text-[#122012] font-extrabold"
+                    : "bg-black/45 border-white/15 text-emerald-300 font-bold"
+                } ${isCompactLcd ? "text-[6.5px] sm:text-[7.5px]" : "text-[7.5px] sm:text-[8.5px]"}`}
+              >
+                <span className="truncate">{headerDisplayLabel}</span>
+                <span className="shrink-0 font-mono flex items-center gap-0.5">
+                  {phonePrefs.dnd_default && <span className={isMono ? "font-black" : "text-rose-400"}>DND</span>}
+                  <span>{timeStr}</span>
+                </span>
+              </div>
+
+              {/* LCD Center DSS Labels (Touch Grid OR Split/Single Column) */}
+              {photoIsTouch ? (
+                <div className="flex-1 p-1 grid grid-cols-2 gap-0.5 sm:gap-1 content-start overflow-hidden">
+                  {pageKeys.slice(0, 10).map((k) => {
+                    const isSel = selectedKey?.category === "dss" && Number(selectedKey?.index) === Number(k.key_index);
+                    const meta = getTypeMeta(k.type);
+                    const disp = resolveKeyDisplay(k);
+                    return (
+                      <button
+                        key={k.key_index}
+                        type="button"
+                        onClick={() => onSelectKey({ category: "dss", index: k.key_index })}
+                        title={`Tuş ${k.key_index} (${meta.short}): ${disp.label}`}
+                        className={`flex items-center justify-between gap-1 px-1.5 py-0.5 rounded text-left transition cursor-pointer border ${
+                          isSel
+                            ? "bg-amber-400/30 border-amber-400 text-amber-100 shadow-sm"
+                            : "bg-white/10 hover:bg-white/20 border-white/15 text-slate-100"
+                        }`}
+                      >
+                        <span className="text-[7px] sm:text-[8px] font-bold truncate leading-tight">
+                          {disp.label}
+                        </span>
+                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${meta.led}`} />
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div
+                  className={`flex-1 px-1 py-0.5 grid gap-x-1 overflow-hidden ${
+                    photoMode === "split" ? "grid-cols-2" : "grid-cols-1"
+                  }`}
+                >
+                  {/* Left LCD Labels */}
+                  {(photoMode === "split" || photoMode === "left_only") && (
+                    <div className="flex flex-col justify-around gap-[1px] min-w-0">
+                      {photoLeftKeys.map((k) => {
+                        const isSel = selectedKey?.category === "dss" && Number(selectedKey?.index) === Number(k.key_index);
+                        const disp = resolveKeyDisplay(k);
+                        return (
+                          <button
+                            key={k.key_index}
+                            type="button"
+                            onClick={() => onSelectKey({ category: "dss", index: k.key_index })}
+                            title={`Tuş ${k.key_index}: ${disp.label}`}
+                            className={`w-full text-left truncate px-1 rounded-[2px] leading-tight transition cursor-pointer font-bold ${
+                              isCompactLcd ? "text-[6.5px] sm:text-[7.5px] py-[0.5px]" : "text-[7px] sm:text-[8px] py-[1px]"
+                            } ${
+                              isSel
+                                ? isMono
+                                  ? "bg-[#152415] text-[#c5d6bd]"
+                                  : "bg-amber-400 text-slate-950"
+                                : isMono
+                                ? "bg-black/[0.06] hover:bg-black/15 text-[#142014]"
+                                : "bg-white/10 hover:bg-white/20 text-slate-100"
+                            }`}
+                          >
+                            {disp.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Right LCD Labels */}
+                  {(photoMode === "split" || photoMode === "right_only") && (
+                    <div className="flex flex-col justify-around gap-[1px] min-w-0">
+                      {photoRightKeys.map((k) => {
+                        const isSel = selectedKey?.category === "dss" && Number(selectedKey?.index) === Number(k.key_index);
+                        const disp = resolveKeyDisplay(k);
+                        return (
+                          <button
+                            key={k.key_index}
+                            type="button"
+                            onClick={() => onSelectKey({ category: "dss", index: k.key_index })}
+                            title={`Tuş ${k.key_index}: ${disp.label}`}
+                            className={`w-full text-right truncate px-1 rounded-[2px] leading-tight transition cursor-pointer font-bold ${
+                              isCompactLcd ? "text-[6.5px] sm:text-[7.5px] py-[0.5px]" : "text-[7px] sm:text-[8px] py-[1px]"
+                            } ${
+                              isSel
+                                ? isMono
+                                  ? "bg-[#152415] text-[#c5d6bd]"
+                                  : "bg-amber-400 text-slate-950"
+                                : isMono
+                                ? "bg-black/[0.06] hover:bg-black/15 text-[#142014]"
+                                : "bg-white/10 hover:bg-white/20 text-slate-100"
+                            }`}
+                          >
+                            {disp.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* LCD Bottom Softkey Labels Strip */}
+              <div
+                className={`border-t grid divide-x shrink-0 ${
+                  visibleSoftKeys.length === 3 ? "grid-cols-3" : "grid-cols-4"
+                } ${
+                  isMono
+                    ? "bg-black/15 border-black/25 divide-black/20"
+                    : "bg-black/55 border-white/15 divide-white/15"
+                }`}
+              >
+                {visibleSoftKeys.map((sk) => {
+                  const isSel = selectedKey?.category === "soft" && Number(selectedKey?.index) === Number(sk.key_index);
+                  return (
+                    <button
+                      key={sk.key_index}
+                      type="button"
+                      onClick={() => onSelectKey({ category: "soft", index: sk.key_index })}
+                      title={`Alt Ekran Tuşu F${sk.key_index}: ${sk.label || `F${sk.key_index}`}`}
+                      className={`truncate text-center font-extrabold leading-tight py-[1px] px-0.5 transition cursor-pointer ${
+                        isCompactLcd ? "text-[6px] sm:text-[6.5px]" : "text-[6.5px] sm:text-[7.5px]"
+                      } ${
+                        isSel
+                          ? "bg-amber-400 text-slate-950"
+                          : isMono
+                          ? "text-[#122012] hover:bg-black/10"
+                          : "text-sky-300 hover:bg-white/10"
+                      }`}
+                    >
+                      {sk.label || `F${sk.key_index}`}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* ======================================================= */}
+            {/* CLICKABLE PHYSICAL SIDE DSS/BLF HARDWARE BUTTONS & LEDS */}
+            {/* ======================================================= */}
+            {!photoIsTouch &&
+              (photoMode === "split" || photoMode === "left_only") &&
+              photoLeftKeys.map((k, rowIdx) => {
+                const isSel = selectedKey?.category === "dss" && Number(selectedKey?.index) === Number(k.key_index);
+                const meta = getTypeMeta(k.type);
+                const disp = resolveKeyDisplay(k);
+                const topPct = computeBtnTop(rowIdx, photoLeftKeys.length);
+                return (
+                  <button
+                    key={`pbtn-l-${k.key_index}`}
+                    type="button"
+                    onClick={() => onSelectKey({ category: "dss", index: k.key_index })}
+                    title={`Tuş ${k.key_index} (${meta.short}): ${disp.label}`}
+                    style={{
+                      left: `${photoSpec.leftBtnX}%`,
+                      top: `${topPct}%`,
+                      width: `${photoSpec.btnW}%`,
+                      height: `${photoSpec.btnH}%`,
+                    }}
+                    className={`absolute p-0 rounded-[4px] flex items-center justify-center transition-all cursor-pointer border ${
+                      isSel
+                        ? "bg-amber-400/35 border-amber-400 ring-2 ring-amber-400/90 shadow-[0_0_12px_rgba(251,191,36,0.9)] z-20 scale-105"
+                        : "bg-slate-900/25 hover:bg-amber-400/20 border-white/25 hover:border-amber-300/80 z-10"
+                    }`}
+                  >
+                    <span
+                      className={`w-[5px] h-[5px] sm:w-[6px] sm:h-[6px] rounded-full ${
+                        k.type === "none" ? "bg-slate-400/50" : meta.led
+                      }`}
+                    />
+                  </button>
+                );
+              })}
+
+            {!photoIsTouch &&
+              (photoMode === "split" || photoMode === "right_only") &&
+              photoRightKeys.map((k, rowIdx) => {
+                const isSel = selectedKey?.category === "dss" && Number(selectedKey?.index) === Number(k.key_index);
+                const meta = getTypeMeta(k.type);
+                const disp = resolveKeyDisplay(k);
+                const topPct = computeBtnTop(rowIdx, photoRightKeys.length);
+                return (
+                  <button
+                    key={`pbtn-r-${k.key_index}`}
+                    type="button"
+                    onClick={() => onSelectKey({ category: "dss", index: k.key_index })}
+                    title={`Tuş ${k.key_index} (${meta.short}): ${disp.label}`}
+                    style={{
+                      left: `${photoSpec.rightBtnX}%`,
+                      top: `${topPct}%`,
+                      width: `${photoSpec.btnW}%`,
+                      height: `${photoSpec.btnH}%`,
+                    }}
+                    className={`absolute p-0 rounded-[4px] flex items-center justify-center transition-all cursor-pointer border ${
+                      isSel
+                        ? "bg-amber-400/35 border-amber-400 ring-2 ring-amber-400/90 shadow-[0_0_12px_rgba(251,191,36,0.9)] z-20 scale-105"
+                        : "bg-slate-900/25 hover:bg-amber-400/20 border-white/25 hover:border-amber-300/80 z-10"
+                    }`}
+                  >
+                    <span
+                      className={`w-[5px] h-[5px] sm:w-[6px] sm:h-[6px] rounded-full ${
+                        k.type === "none" ? "bg-slate-400/50" : meta.led
+                      }`}
+                    />
+                  </button>
+                );
+              })}
+
+            {/* ======================================================= */}
+            {/* CLICKABLE PHYSICAL SOFTKEY HOTSPOTS BELOW LCD           */}
+            {/* ======================================================= */}
+            {!photoIsTouch && skBox && (
+              <div
+                style={{
+                  left: `${skBox.left}%`,
+                  top: `${skBox.top}%`,
+                  width: `${skBox.width}%`,
+                  height: `${skBox.height}%`,
+                }}
+                className={`absolute grid gap-1 z-10 ${
+                  visibleSoftKeys.length === 3 ? "grid-cols-3" : "grid-cols-4"
+                }`}
+              >
+                {visibleSoftKeys.map((sk) => {
+                  const isSel = selectedKey?.category === "soft" && Number(selectedKey?.index) === Number(sk.key_index);
+                  return (
+                    <button
+                      key={`psk-${sk.key_index}`}
+                      type="button"
+                      onClick={() => onSelectKey({ category: "soft", index: sk.key_index })}
+                      title={`Alt Ekran Tuşu F${sk.key_index}: ${sk.label || `F${sk.key_index}`}`}
+                      className={`rounded-sm transition cursor-pointer border ${
+                        isSel
+                          ? "bg-amber-400/35 border-amber-400 ring-1 ring-amber-400"
+                          : "bg-transparent hover:bg-sky-400/20 border-transparent hover:border-sky-400/60"
+                      }`}
+                    />
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ======================================================= */}
+        {/* CLICKABLE KEY SUMMARY STRIP BELOW REAL HARDWARE PHOTO   */}
+        {/* ======================================================= */}
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-2 px-1 text-[10px]">
+            <span className="font-bold text-slate-300">
+              {totalPages > 1
+                ? `Sayfa ${safePage}/${totalPages} — Programlanabilir Tuşlar`
+                : `Programlanabilir Tuşlar (${pageKeys.length})`}
+            </span>
+            <span className="text-slate-400 hidden sm:inline">
+              Düzenlemek için fotoğraf üzerindeki tuşa veya aşağıdaki karta tıklayın
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+            {pageKeys.map((k) => {
+              const isSel = selectedKey?.category === "dss" && Number(selectedKey?.index) === Number(k.key_index);
+              const meta = getTypeMeta(k.type);
+              const disp = resolveKeyDisplay(k);
+              return (
+                <button
+                  key={`chip-${k.key_index}`}
+                  type="button"
+                  onClick={() => onSelectKey({ category: "dss", index: k.key_index })}
+                  className={`flex items-center justify-between gap-2 px-2.5 py-2 rounded-xl border text-left transition-all cursor-pointer ${
+                    isSel
+                      ? "bg-amber-500/20 border-amber-400 ring-2 ring-amber-400/35 shadow-md"
+                      : "bg-slate-800/75 hover:bg-slate-800 border-slate-700/80"
+                  }`}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1 text-[9px] font-black uppercase tracking-wider text-slate-400">
+                      <span>T{k.key_index}</span>
+                      <span>•</span>
+                      <span className="truncate">{meta.short}</span>
+                      {Number(k.key_index) === 1 && (
+                        <Lock size={9} className="text-amber-400 shrink-0" title="Kilitli Ana Hat (Line 1)" />
+                      )}
+                      {disp.isAuto && (
+                        <Sparkles size={9} className="text-emerald-400 shrink-0" title="İsim santralden otomatik çekiliyor" />
+                      )}
+                    </div>
+                    <div className="text-[11px] font-bold text-slate-100 truncate mt-0.5">
+                      {disp.label}
+                      {k.value && String(disp.label || "").trim() !== String(k.value || "").trim() ? (
+                        <span className="text-[10px] font-normal text-slate-400 ml-1">({k.value})</span>
+                      ) : null}
+                    </div>
+                  </div>
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${meta.led}`} />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="flex flex-col gap-4">
       {/* Main Interactive Chassis + Optional Daisy-Chained Sidecars */}
       <div className={`grid gap-4 items-stretch ${expansionModules.length > 0 ? "grid-cols-1 2xl:grid-cols-12" : "grid-cols-1"}`}>
         {/* ============================================================ */}
-        {/* MAIN IP DESK PHONE HARDWARE CHASSIS                          */}
+        {/* MAIN IP DESK PHONE HARDWARE STUDIO / CHASSIS                 */}
         {/* ============================================================ */}
         <div
           className={`${
@@ -339,7 +739,7 @@ export default function DeskphoneVisualSimulator({
           } bg-gradient-to-b ${brandStyle.chassis} border border-slate-700/80 rounded-[28px] p-4 shadow-2xl text-white flex flex-col gap-3 relative overflow-hidden`}
         >
           {/* Top Hardware Bezel Header */}
-          <div className="flex items-center justify-between gap-2 px-1">
+          <div className="flex flex-wrap items-center justify-between gap-2 px-1">
             <div className="flex items-center gap-2 min-w-0">
               <span
                 className={`w-2.5 h-2.5 rounded-full shrink-0 ${
@@ -357,14 +757,18 @@ export default function DeskphoneVisualSimulator({
               </span>
             </div>
 
-            {/* Power / MWI / Missed Call Physical Hardware LED */}
-            <div className="flex items-center gap-2 shrink-0">
+            {/* Right Controls: MWI LED + Page Switcher + Real/Schematic View Toggle */}
+            <div className="flex items-center gap-2 shrink-0 flex-wrap">
               {phonePrefs.mwi_led && (
-                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-rose-500/20 border border-rose-500/40 text-[9px] font-bold text-rose-300" title="Sesli Posta / Cevapsız Çağrı LED'i Aktif">
+                <span
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-rose-500/20 border border-rose-500/40 text-[9px] font-bold text-rose-300"
+                  title="Sesli Posta / Cevapsız Çağrı LED'i Aktif"
+                >
                   <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-ping" />
                   LED
                 </span>
               )}
+
               {totalPages > 1 && (
                 <div className="inline-flex items-center gap-1 bg-slate-950/80 border border-slate-700 rounded-lg p-0.5">
                   <button
@@ -388,158 +792,160 @@ export default function DeskphoneVisualSimulator({
                   </button>
                 </div>
               )}
+
+              {/* View Mode Switcher (Real Phone Photo vs Classic Schematic) */}
+              {photoSpec && !imgError && (
+                <div className="inline-flex items-center bg-slate-950/80 border border-slate-700 rounded-lg p-0.5 text-[10px] font-bold">
+                  <button
+                    type="button"
+                    onClick={() => setViewMode("photo")}
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md transition cursor-pointer ${
+                      useRealPhoto ? `${bg} text-white shadow` : "text-slate-400 hover:text-white"
+                    }`}
+                    title="Gerçek cihaz fotoğrafı üzerinde canlı LCD & LED tuş görünümü"
+                  >
+                    <Camera size={11} />
+                    <span>Gerçek</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode("schematic")}
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md transition cursor-pointer ${
+                      !useRealPhoto ? `${bg} text-white shadow` : "text-slate-400 hover:text-white"
+                    }`}
+                    title="Klasik şematik diyagram görünümü"
+                  >
+                    <Cpu size={11} />
+                    <span>Şematik</span>
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Phone Body: Sculpted Handset (Left) + LCD & Keys Console (Right) */}
-          <div className="grid grid-cols-12 gap-3 items-stretch">
-            {/* Sculpted Realistic Handset Silhouette */}
-            <div className="hidden sm:flex sm:col-span-2 flex-col items-center justify-between py-3 px-1.5 rounded-3xl bg-gradient-to-b from-slate-800/90 via-slate-900 to-slate-800/90 border border-slate-700/70 shadow-inner">
-              {/* Earpiece grille */}
-              <div className="w-9 h-12 rounded-2xl bg-slate-950/90 border border-slate-700/70 flex flex-col items-center justify-center gap-1 p-1.5">
-                <span className="w-5 h-0.5 rounded-full bg-slate-700" />
-                <span className="w-6 h-0.5 rounded-full bg-slate-700" />
-                <span className="w-5 h-0.5 rounded-full bg-slate-700" />
-              </div>
-              <div className="w-2 flex-1 my-2 rounded-full bg-gradient-to-b from-slate-800 via-slate-700/50 to-slate-800" />
-              {/* Mouthpiece grille */}
-              <div className="w-9 h-10 rounded-2xl bg-slate-950/90 border border-slate-700/70 flex items-center justify-center">
-                <div className="grid grid-cols-3 gap-0.5">
-                  {Array.from({ length: 6 }).map((_, i) => (
-                    <span key={i} className="w-1 h-1 rounded-full bg-slate-700" />
-                  ))}
+          {/* MAIN PHONE VIEWPORT: Real Photo Studio OR Classic Schematic */}
+          {useRealPhoto ? (
+            renderRealPhotoStage()
+          ) : (
+            <div className="grid grid-cols-12 gap-3 items-stretch">
+              {/* Sculpted Realistic Handset Silhouette */}
+              <div className="hidden sm:flex sm:col-span-2 flex-col items-center justify-between py-3 px-1.5 rounded-3xl bg-gradient-to-b from-slate-800/90 via-slate-900 to-slate-800/90 border border-slate-700/70 shadow-inner">
+                {/* Earpiece grille */}
+                <div className="w-9 h-12 rounded-2xl bg-slate-950/90 border border-slate-700/70 flex flex-col items-center justify-center gap-1 p-1.5">
+                  <span className="w-5 h-0.5 rounded-full bg-slate-700" />
+                  <span className="w-6 h-0.5 rounded-full bg-slate-700" />
+                  <span className="w-5 h-0.5 rounded-full bg-slate-700" />
+                </div>
+                <div className="w-2 flex-1 my-2 rounded-full bg-gradient-to-b from-slate-800 via-slate-700/50 to-slate-800" />
+                {/* Mouthpiece grille */}
+                <div className="w-9 h-10 rounded-2xl bg-slate-950/90 border border-slate-700/70 flex items-center justify-center">
+                  <div className="grid grid-cols-3 gap-0.5">
+                    {Array.from({ length: 6 }).map((_, i) => (
+                      <span key={i} className="w-1 h-1 rounded-full bg-slate-700" />
+                    ))}
+                  </div>
                 </div>
               </div>
-            </div>
 
-            {/* Console Area: DSS Keys + Live LCD + Softkeys + Dialpad */}
-            <div className="col-span-12 sm:col-span-10 flex flex-col gap-2.5">
-              {/* Upper Display Module */}
-              {isTouch ? (
-                /* TOUCHSCREEN LAYOUT (Yealink T48U / T57W / T58W / Fanvil X7) */
-                <div
-                  style={{ filter: `brightness(${brightnessPct}%)` }}
-                  className={`bg-gradient-to-b ${brandStyle.screenBg} border-2 border-slate-600/90 rounded-2xl overflow-hidden flex flex-col shadow-inner`}
-                >
-                  {/* Touch Status Bar */}
-                  <div className="bg-black/60 px-3 py-1.5 border-b border-slate-700/80 flex items-center justify-between text-[10px]">
-                    <div className="flex items-center gap-1.5 font-extrabold text-emerald-400 truncate">
-                      <Phone size={11} />
-                      <span className="truncate">{headerDisplayLabel}</span>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0 text-slate-300 font-mono font-bold">
-                      {phonePrefs.dnd_default && <BellOff size={11} className="text-rose-400" />}
-                      {phonePrefs.auto_answer && <PhoneCall size={11} className="text-amber-400" />}
-                      {phonePrefs.headset_mode !== "rj9" && <Headphones size={11} className="text-sky-400" />}
-                      <span>{dateStr}</span>
-                      <span>{timeStr}</span>
-                    </div>
-                  </div>
-                  {/* Touch DSS Grid */}
-                  <div className="p-2.5 grid grid-cols-2 gap-1.5 min-h-[220px] content-start">
-                    {pageKeys.map((k) => renderPhysicalDssBtn(k, "left"))}
-                  </div>
-                  {/* Touch Bottom Softkeys */}
-                  <div className="bg-black/70 border-t border-slate-700/80 grid grid-cols-4 divide-x divide-slate-800">
-                    {softKeys.slice(0, spec.soft_keys || 4).map((sk) => {
-                      const isSel = selectedKey?.category === "soft" && Number(selectedKey?.index) === Number(sk.key_index);
-                      return (
-                        <button
-                          key={sk.key_index}
-                          type="button"
-                          onClick={() => onSelectKey({ category: "soft", index: sk.key_index })}
-                          className={`py-2 px-1 text-[10px] font-extrabold truncate cursor-pointer transition ${
-                            isSel ? "bg-amber-400 text-slate-950" : "text-sky-300 hover:bg-white/5"
-                          }`}
-                        >
-                          {sk.label || `F${sk.key_index}`}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : (
-                /* PHYSICAL SIDE-KEY + CENTER LCD LAYOUT (T31P / T33G / T43U / T46U / T54W / GRP26xx / Fanvil X4U-X210 / Cisco) */
-                <div className="grid grid-cols-12 gap-2 items-stretch">
-                  {/* Left Physical Keys */}
-                  <div className={`${isLeftOnly ? "col-span-4" : "col-span-3"} flex flex-col justify-between gap-1.5 py-1`}>
-                    {leftKeys.map((k) => renderPhysicalDssBtn(k, "left"))}
-                  </div>
-
-                  {/* Center LCD Screen */}
+              {/* Console Area: DSS Keys + Live LCD + Softkeys + Dialpad */}
+              <div className="col-span-12 sm:col-span-10 flex flex-col gap-2.5">
+                {/* Upper Display Module */}
+                {isTouch ? (
+                  /* TOUCHSCREEN LAYOUT (Yealink T48U / T57W / T58W / Fanvil X7) */
                   <div
                     style={{ filter: `brightness(${brightnessPct}%)` }}
-                    className={`${isLeftOnly ? "col-span-8" : "col-span-6"} rounded-2xl overflow-hidden flex flex-col justify-between border-2 shadow-inner min-h-[250px] ${
-                      isMono
-                        ? "bg-gradient-to-b from-[#9fb39f] via-[#8ea58e] to-[#7d957d] border-slate-600 text-slate-950"
-                        : `bg-gradient-to-b ${brandStyle.screenBg} border-slate-600/90 text-white`
-                    }`}
+                    className={`bg-gradient-to-b ${brandStyle.screenBg} border-2 border-slate-600/90 rounded-2xl overflow-hidden flex flex-col shadow-inner`}
                   >
-                    {/* LCD Top Bar */}
-                    <div
-                      className={`px-2.5 py-1.5 border-b flex items-center justify-between text-[10px] ${
-                        isMono
-                          ? "bg-black/15 border-black/20 text-slate-950 font-black"
-                          : "bg-black/55 border-slate-700/70 text-emerald-400 font-extrabold"
-                      }`}
-                    >
-                      <div className="flex items-center gap-1 min-w-0">
-                        <Phone size={10} className="shrink-0" />
+                    {/* Touch Status Bar */}
+                    <div className="bg-black/60 px-3 py-1.5 border-b border-slate-700/80 flex items-center justify-between text-[10px]">
+                      <div className="flex items-center gap-1.5 font-extrabold text-emerald-400 truncate">
+                        <Phone size={11} />
                         <span className="truncate">{headerDisplayLabel}</span>
                       </div>
-                      <div className="flex items-center gap-1.5 shrink-0 font-mono">
-                        {phonePrefs.dnd_default && <BellOff size={10} className={isMono ? "text-slate-950" : "text-rose-400"} />}
-                        {phonePrefs.auto_answer && <PhoneCall size={10} className={isMono ? "text-slate-950" : "text-amber-300"} />}
+                      <div className="flex items-center gap-2 shrink-0 text-slate-300 font-mono font-bold">
+                        {phonePrefs.dnd_default && <BellOff size={11} className="text-rose-400" />}
+                        {phonePrefs.auto_answer && <PhoneCall size={11} className="text-amber-400" />}
+                        {phonePrefs.headset_mode !== "rj9" && <Headphones size={11} className="text-sky-400" />}
+                        <span>{dateStr}</span>
                         <span>{timeStr}</span>
                       </div>
                     </div>
+                    {/* Touch DSS Grid */}
+                    <div className="p-2.5 grid grid-cols-2 gap-1.5 min-h-[220px] content-start">
+                      {pageKeys.map((k) => renderPhysicalDssBtn(k, "left"))}
+                    </div>
+                    {/* Touch Bottom Softkeys */}
+                    <div className="bg-black/70 border-t border-slate-700/80 grid grid-cols-4 divide-x divide-slate-800">
+                      {visibleSoftKeys.map((sk) => {
+                        const isSel = selectedKey?.category === "soft" && Number(selectedKey?.index) === Number(sk.key_index);
+                        return (
+                          <button
+                            key={sk.key_index}
+                            type="button"
+                            onClick={() => onSelectKey({ category: "soft", index: sk.key_index })}
+                            className={`py-2 px-1 text-[10px] font-extrabold truncate cursor-pointer transition ${
+                              isSel ? "bg-amber-400 text-slate-950" : "text-sky-300 hover:bg-white/5"
+                            }`}
+                          >
+                            {sk.label || `F${sk.key_index}`}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  /* PHYSICAL SIDE-KEY + CENTER LCD LAYOUT */
+                  <div className="grid grid-cols-12 gap-2 items-stretch">
+                    {/* Left Physical Keys */}
+                    <div className={`${isLeftOnly ? "col-span-4" : "col-span-3"} flex flex-col justify-between gap-1.5 py-1`}>
+                      {leftKeys.map((k) => renderPhysicalDssBtn(k, "left"))}
+                    </div>
 
-                    {/* LCD Middle: Key Labels + Clock/Date Watermark */}
-                    <div className="flex-1 p-2 flex flex-col justify-between gap-1.5">
-                      <div className={`text-center text-[9px] font-mono ${isMono ? "text-slate-900/80" : "text-slate-400"}`}>
-                        {dateStr} • Zil: {String(phonePrefs.ringtone || "Ring1.wav").replace(".wav", "")}
+                    {/* Center LCD Screen */}
+                    <div
+                      style={{ filter: `brightness(${brightnessPct}%)` }}
+                      className={`${isLeftOnly ? "col-span-8" : "col-span-6"} rounded-2xl overflow-hidden flex flex-col justify-between border-2 shadow-inner min-h-[250px] ${
+                        isMono
+                          ? "bg-gradient-to-b from-[#9fb39f] via-[#8ea58e] to-[#7d957d] border-slate-600 text-slate-950"
+                          : `bg-gradient-to-b ${brandStyle.screenBg} border-slate-600/90 text-white`
+                      }`}
+                    >
+                      {/* LCD Top Bar */}
+                      <div
+                        className={`px-2.5 py-1.5 border-b flex items-center justify-between text-[10px] ${
+                          isMono
+                            ? "bg-black/15 border-black/20 text-slate-950 font-black"
+                            : "bg-black/55 border-slate-700/70 text-emerald-400 font-extrabold"
+                        }`}
+                      >
+                        <div className="flex items-center gap-1 min-w-0">
+                          <Phone size={10} className="shrink-0" />
+                          <span className="truncate">{headerDisplayLabel}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0 font-mono">
+                          {phonePrefs.dnd_default && <BellOff size={10} className={isMono ? "text-slate-950" : "text-rose-400"} />}
+                          {phonePrefs.auto_answer && <PhoneCall size={10} className={isMono ? "text-slate-950" : "text-amber-300"} />}
+                          <span>{timeStr}</span>
+                        </div>
                       </div>
 
-                      <div className={`grid gap-1.5 flex-1 content-center ${isLeftOnly ? "grid-cols-1" : "grid-cols-2"}`}>
-                        {/* Left Screen Labels */}
-                        <div className="flex flex-col justify-between gap-1">
-                          {leftKeys.map((k) => {
-                            const isSel = selectedKey?.category === "dss" && Number(selectedKey?.index) === Number(k.key_index);
-                            const disp = resolveKeyDisplay(k);
-                            return (
-                              <div
-                                key={k.key_index}
-                                onClick={() => onSelectKey({ category: "dss", index: k.key_index })}
-                                className={`px-1.5 py-1 rounded text-[9px] font-bold truncate cursor-pointer border transition ${
-                                  isSel
-                                    ? isMono
-                                      ? "bg-slate-950 text-[#9fb39f] border-slate-950"
-                                      : "bg-amber-500/25 border-amber-400 text-amber-200"
-                                    : isMono
-                                    ? "bg-black/10 border-black/15 text-slate-950 hover:bg-black/20"
-                                    : "bg-white/5 border-white/10 text-slate-100 hover:bg-white/10"
-                                }`}
-                              >
-                                {disp.label}
-                                {k.value && String(disp.label || "").trim() !== String(k.value || "").trim() ? (
-                                  <span className="opacity-65 ml-1">({k.value})</span>
-                                ) : null}
-                              </div>
-                            );
-                          })}
+                      {/* LCD Middle: Key Labels + Clock/Date Watermark */}
+                      <div className="flex-1 p-2 flex flex-col justify-between gap-1.5">
+                        <div className={`text-center text-[9px] font-mono ${isMono ? "text-slate-900/80" : "text-slate-400"}`}>
+                          {dateStr} • Zil: {String(phonePrefs.ringtone || "Ring1.wav").replace(".wav", "")}
                         </div>
 
-                        {/* Right Screen Labels */}
-                        {!isLeftOnly && (
+                        <div className={`grid gap-1.5 flex-1 content-center ${isLeftOnly ? "grid-cols-1" : "grid-cols-2"}`}>
+                          {/* Left Screen Labels */}
                           <div className="flex flex-col justify-between gap-1">
-                            {rightKeys.map((k) => {
+                            {leftKeys.map((k) => {
                               const isSel = selectedKey?.category === "dss" && Number(selectedKey?.index) === Number(k.key_index);
                               const disp = resolveKeyDisplay(k);
                               return (
                                 <div
                                   key={k.key_index}
                                   onClick={() => onSelectKey({ category: "dss", index: k.key_index })}
-                                  className={`px-1.5 py-1 rounded text-[9px] font-bold truncate text-right cursor-pointer border transition ${
+                                  className={`px-1.5 py-1 rounded text-[9px] font-bold truncate cursor-pointer border transition ${
                                     isSel
                                       ? isMono
                                         ? "bg-slate-950 text-[#9fb39f] border-slate-950"
@@ -549,86 +955,116 @@ export default function DeskphoneVisualSimulator({
                                       : "bg-white/5 border-white/10 text-slate-100 hover:bg-white/10"
                                   }`}
                                 >
-                                  {k.value && String(disp.label || "").trim() !== String(k.value || "").trim() ? (
-                                    <span className="opacity-65 mr-1">({k.value})</span>
-                                  ) : null}
                                   {disp.label}
+                                  {k.value && String(disp.label || "").trim() !== String(k.value || "").trim() ? (
+                                    <span className="opacity-65 ml-1">({k.value})</span>
+                                  ) : null}
                                 </div>
                               );
                             })}
                           </div>
-                        )}
+
+                          {/* Right Screen Labels */}
+                          {!isLeftOnly && (
+                            <div className="flex flex-col justify-between gap-1">
+                              {rightKeys.map((k) => {
+                                const isSel = selectedKey?.category === "dss" && Number(selectedKey?.index) === Number(k.key_index);
+                                const disp = resolveKeyDisplay(k);
+                                return (
+                                  <div
+                                    key={k.key_index}
+                                    onClick={() => onSelectKey({ category: "dss", index: k.key_index })}
+                                    className={`px-1.5 py-1 rounded text-[9px] font-bold truncate text-right cursor-pointer border transition ${
+                                      isSel
+                                        ? isMono
+                                          ? "bg-slate-950 text-[#9fb39f] border-slate-950"
+                                          : "bg-amber-500/25 border-amber-400 text-amber-200"
+                                        : isMono
+                                        ? "bg-black/10 border-black/15 text-slate-950 hover:bg-black/20"
+                                        : "bg-white/5 border-white/10 text-slate-100 hover:bg-white/10"
+                                    }`}
+                                  >
+                                    {k.value && String(disp.label || "").trim() !== String(k.value || "").trim() ? (
+                                      <span className="opacity-65 mr-1">({k.value})</span>
+                                    ) : null}
+                                    {disp.label}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* LCD Bottom Softkeys Bar */}
+                      <div
+                        className={`border-t grid divide-x ${
+                          (spec.soft_keys || 4) === 3 ? "grid-cols-3" : "grid-cols-4"
+                        } ${isMono ? "bg-black/20 border-black/25 divide-black/20" : "bg-black/65 border-slate-700/80 divide-slate-800"}`}
+                      >
+                        {visibleSoftKeys.map((sk) => {
+                          const isSel = selectedKey?.category === "soft" && Number(selectedKey?.index) === Number(sk.key_index);
+                          return (
+                            <button
+                              key={sk.key_index}
+                              type="button"
+                              onClick={() => onSelectKey({ category: "soft", index: sk.key_index })}
+                              className={`py-1.5 px-1 text-center text-[9px] font-extrabold truncate transition cursor-pointer ${
+                                isSel
+                                  ? "bg-amber-400 text-slate-950"
+                                  : isMono
+                                  ? "text-slate-950 hover:bg-black/10"
+                                  : "text-sky-300 hover:bg-white/5"
+                              }`}
+                            >
+                              {sk.label || `F${sk.key_index}`}
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
 
-                    {/* LCD Bottom Softkeys Bar */}
-                    <div
-                      className={`border-t grid divide-x ${
-                        (spec.soft_keys || 4) === 3 ? "grid-cols-3" : "grid-cols-4"
-                      } ${isMono ? "bg-black/20 border-black/25 divide-black/20" : "bg-black/65 border-slate-700/80 divide-slate-800"}`}
-                    >
-                      {softKeys.slice(0, spec.soft_keys || 4).map((sk) => {
-                        const isSel = selectedKey?.category === "soft" && Number(selectedKey?.index) === Number(sk.key_index);
-                        return (
-                          <button
-                            key={sk.key_index}
-                            type="button"
-                            onClick={() => onSelectKey({ category: "soft", index: sk.key_index })}
-                            className={`py-1.5 px-1 text-center text-[9px] font-extrabold truncate transition cursor-pointer ${
-                              isSel
-                                ? "bg-amber-400 text-slate-950"
-                                : isMono
-                                ? "text-slate-950 hover:bg-black/10"
-                                : "text-sky-300 hover:bg-white/5"
-                            }`}
-                          >
-                            {sk.label || `F${sk.key_index}`}
-                          </button>
-                        );
-                      })}
+                    {/* Right Physical Keys */}
+                    {!isLeftOnly && (
+                      <div className="col-span-3 flex flex-col justify-between gap-1.5 py-1">
+                        {rightKeys.map((k) => renderPhysicalDssBtn(k, "right"))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Compact Realistic Lower Deck: Softkey Buttons + D-Pad + Numeric Keypad */}
+                <div className="pt-2 border-t border-slate-800/90 grid grid-cols-12 gap-3 items-center px-1">
+                  {/* Navigation D-Pad */}
+                  <div className="col-span-4 flex flex-col items-center justify-center gap-1.5">
+                    <div className="w-16 h-16 rounded-full bg-slate-900 border-2 border-slate-700/80 flex items-center justify-center relative shadow-inner">
+                      <div className="w-6 h-6 rounded-full bg-slate-800 border border-slate-600 text-[8px] font-black text-slate-300 flex items-center justify-center">
+                        OK
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-slate-500">
+                      <Headphones size={12} className={phonePrefs.headset_mode !== "rj9" ? "text-sky-400" : ""} />
+                      <MicOff size={12} />
+                      <Voicemail size={12} className={phonePrefs.mwi_led ? "text-purple-400" : ""} />
+                      <Volume2 size={12} />
                     </div>
                   </div>
 
-                  {/* Right Physical Keys */}
-                  {!isLeftOnly && (
-                    <div className="col-span-3 flex flex-col justify-between gap-1.5 py-1">
-                      {rightKeys.map((k) => renderPhysicalDssBtn(k, "right"))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Compact Realistic Lower Deck: Softkey Buttons + D-Pad + Numeric Keypad */}
-              <div className="pt-2 border-t border-slate-800/90 grid grid-cols-12 gap-3 items-center px-1">
-                {/* Navigation D-Pad */}
-                <div className="col-span-4 flex flex-col items-center justify-center gap-1.5">
-                  <div className="w-16 h-16 rounded-full bg-slate-900 border-2 border-slate-700/80 flex items-center justify-center relative shadow-inner">
-                    <div className="w-6 h-6 rounded-full bg-slate-800 border border-slate-600 text-[8px] font-black text-slate-300 flex items-center justify-center">
-                      OK
-                    </div>
+                  {/* Numeric 3x4 Keypad */}
+                  <div className="col-span-8 grid grid-cols-3 gap-1">
+                    {["1", "2 ABC", "3 DEF", "4 GHI", "5 JKL", "6 MNO", "7 PQRS", "8 TUV", "9 WXYZ", "*", "0", "#"].map((lbl) => (
+                      <div
+                        key={lbl}
+                        className="h-6 rounded-md bg-slate-800/80 border border-slate-700/60 flex items-center justify-center text-[9px] font-bold text-slate-300 select-none"
+                      >
+                        {lbl}
+                      </div>
+                    ))}
                   </div>
-                  <div className="flex items-center gap-1.5 text-slate-500">
-                    <Headphones size={12} className={phonePrefs.headset_mode !== "rj9" ? "text-sky-400" : ""} />
-                    <MicOff size={12} />
-                    <Voicemail size={12} className={phonePrefs.mwi_led ? "text-purple-400" : ""} />
-                    <Volume2 size={12} />
-                  </div>
-                </div>
-
-                {/* Numeric 3x4 Keypad */}
-                <div className="col-span-8 grid grid-cols-3 gap-1">
-                  {["1", "2 ABC", "3 DEF", "4 GHI", "5 JKL", "6 MNO", "7 PQRS", "8 TUV", "9 WXYZ", "*", "0", "#"].map((lbl) => (
-                    <div
-                      key={lbl}
-                      className="h-6 rounded-md bg-slate-800/80 border border-slate-700/60 flex items-center justify-center text-[9px] font-bold text-slate-300 select-none"
-                    >
-                      {lbl}
-                    </div>
-                  ))}
                 </div>
               </div>
             </div>
-          </div>
+          )}
 
           {/* Expansion Module Attachment Bar */}
           <div className="pt-2.5 border-t border-slate-800 flex flex-wrap items-center justify-between gap-2 text-[11px]">
@@ -649,7 +1085,7 @@ export default function DeskphoneVisualSimulator({
                 type="button"
                 disabled={!canAddExpansion}
                 onClick={onAddExpansionModule}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 disabled:opacity-40 text-white text-[11px] font-bold transition cursor-pointer"
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg ${bg} ${hover} disabled:opacity-40 text-white text-[11px] font-bold transition cursor-pointer`}
                 title={`${spec.expansion_model} Meşguliyet Modülü Ekle (En fazla ${maxExpAllowed} adet)`}
               >
                 <Plus size={13} />

@@ -31,6 +31,7 @@ import {
 import * as XLSX from "../../utils/excelHelper";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
+import { resolvePhonePhotoSpec } from "../../utils/deskphonePhotoCatalog";
 
 const OUI_BRAND_MAP = {
   "00:15:65": "Yealink",
@@ -978,11 +979,26 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
                           </div>
                         </td>
                         <td className="py-3 px-3">
-                          <div className="flex flex-col">
-                            <span className="font-bold text-slate-800 dark:text-slate-200">{dev.brand || "-"}</span>
-                            <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">
-                              {dev.model || "-"}
-                            </span>
+                          <div className="flex items-center gap-2.5">
+                            {(() => {
+                              const ps = resolvePhonePhotoSpec(dev.brand, dev.model);
+                              return ps ? (
+                                <div className="w-11 h-9 rounded-lg bg-white border border-slate-200/80 dark:border-slate-700 p-0.5 flex items-center justify-center shrink-0 shadow-xs overflow-hidden">
+                                  <img
+                                    src={ps.image}
+                                    alt={`${dev.brand} ${dev.model}`}
+                                    className="w-full h-full object-contain"
+                                    loading="lazy"
+                                  />
+                                </div>
+                              ) : null;
+                            })()}
+                            <div className="flex flex-col">
+                              <span className="font-bold text-slate-800 dark:text-slate-200">{dev.brand || "-"}</span>
+                              <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">
+                                {dev.model || "-"}
+                              </span>
+                            </div>
                           </div>
                         </td>
                         <td className="py-3 px-3">
@@ -1406,6 +1422,58 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
                   </div>
                 </div>
               </div>
+
+              {/* Selected Model Live Hardware Photo Strip */}
+              {(() => {
+                const selPhoto = resolvePhonePhotoSpec(brand, model);
+                const selSpec = modelCatalog.find(
+                  (m) =>
+                    m.brand.toLowerCase() === String(brand || "").toLowerCase() &&
+                    m.model.toLowerCase() === String(model || "").toLowerCase()
+                );
+                if (!selPhoto) return null;
+                return (
+                  <div className="flex items-center gap-3 p-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/70">
+                    <div className="w-16 h-12 rounded-xl bg-white border border-slate-200/80 dark:border-slate-700 p-1 flex items-center justify-center shrink-0 shadow-xs overflow-hidden">
+                      <img
+                        src={selPhoto.image}
+                        alt={`${brand} ${model}`}
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-extrabold text-slate-800 dark:text-slate-100 truncate">
+                        {brand} {model}
+                      </div>
+                      <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 flex flex-wrap items-center gap-1.5">
+                        {selSpec ? (
+                          <>
+                            <span className="px-1.5 py-0.5 rounded bg-slate-200/70 dark:bg-slate-700/70 font-semibold">
+                              {selSpec.max_dss} DSS Tuşu ({selSpec.dss_pages} Sayfa)
+                            </span>
+                            <span className="px-1.5 py-0.5 rounded bg-slate-200/70 dark:bg-slate-700/70 font-semibold">
+                              {selSpec.screen === "mono"
+                                ? "Monokrom LCD"
+                                : selSpec.screen === "touch"
+                                ? "Dokunmatik Ekran"
+                                : selSpec.screen === "dual_screen"
+                                ? "Çift Ekran"
+                                : "Renkli LCD"}
+                            </span>
+                            {selSpec.max_expansions > 0 && (
+                              <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 font-semibold">
+                                Sidecar: {selSpec.expansion_model} (×{selSpec.max_expansions})
+                              </span>
+                            )}
+                          </>
+                        ) : (
+                          <span>Canlı görsel tuş tasarımcısı destekleniyor</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Assigned User */}
               <div>
