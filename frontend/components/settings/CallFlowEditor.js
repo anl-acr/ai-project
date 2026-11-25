@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { getApiBaseUrl, tenantFetch } from "../../utils/apiHost";
 import { 
   GitBranch, 
@@ -127,7 +127,62 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   
   const canvasRef = useRef(null);
+  const nodesContainerRef = useRef(null);
+  const [portOffsets, setPortOffsets] = useState({});
   const API_BASE = getApiBaseUrl(backendHost);
+
+  const nodesLayoutKey = viewMode === "edit"
+    ? nodes
+        .map((n) =>
+          `${n.id}|${n.type}|${n.title || ""}|${n.value || ""}|${(n.options || []).join(",")}|${Boolean(n.extra_fields?.play_announcement)}`
+        )
+        .join(";")
+    : "";
+
+  useLayoutEffect(() => {
+    if (viewMode !== "edit" || !nodesContainerRef.current) return undefined;
+    const measurePorts = () => {
+      const container = nodesContainerRef.current;
+      if (!container) return;
+      const nextOffsets = {};
+      const nodeEls = container.querySelectorAll("[data-callflow-node-id]");
+      nodeEls.forEach((nodeEl) => {
+        const nid = nodeEl.getAttribute("data-callflow-node-id");
+        if (!nid) return;
+        const nRect = nodeEl.getBoundingClientRect();
+        if (!nRect.width && !nRect.height) return;
+        const portEls = nodeEl.querySelectorAll("[data-port-id]");
+        portEls.forEach((portEl) => {
+          const pid = portEl.getAttribute("data-port-id");
+          if (!pid) return;
+          const pRect = portEl.getBoundingClientRect();
+          nextOffsets[`${nid}::${pid}`] = {
+            dx: pRect.left - nRect.left + pRect.width / 2,
+            dy: pRect.top - nRect.top + pRect.height / 2,
+          };
+        });
+      });
+      setPortOffsets((prev) => {
+        const prevKeys = Object.keys(prev);
+        const nextKeys = Object.keys(nextOffsets);
+        if (
+          prevKeys.length === nextKeys.length &&
+          nextKeys.every(
+            (k) =>
+              prev[k] &&
+              Math.abs(prev[k].dx - nextOffsets[k].dx) < 0.25 &&
+              Math.abs(prev[k].dy - nextOffsets[k].dy) < 0.25
+          )
+        ) {
+          return prev;
+        }
+        return nextOffsets;
+      });
+    };
+    measurePorts();
+    const rafId = window.requestAnimationFrame(measurePorts);
+    return () => window.cancelAnimationFrame(rafId);
+  }, [viewMode, nodesLayoutKey, currentWfId]);
 
 
   // Fetch workflows list
@@ -464,8 +519,8 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
       }
       case "menu": {
         const hasBadge = !!node.value;
-        const baseHeight = 48 + (hasBadge ? 16 : 0);
-        return { w: 155, h: baseHeight + (node.options?.length || 14) * 34 };
+        const baseHeight = 56 + (hasBadge ? 24 : 0);
+        return { w: 155, h: baseHeight + (node.options?.length || 4) * 34 };
       }
       case "user_input": return { w: 185, h: 138 };
       case "http_request": return { w: 195, h: 138 };
@@ -496,6 +551,11 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
   const getPortCoords = (nodeId, portId) => {
     const node = nodes.find((n) => n.id === nodeId);
     if (!node) return { x: 0, y: 0 };
+
+    const measured = portOffsets[`${nodeId}::${portId}`];
+    if (measured) {
+      return { x: node.x + measured.dx, y: node.y + measured.dy };
+    }
     
     const dims = getNodeDimensions(node);
 
@@ -541,7 +601,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
       const idx = node.options?.indexOf(portId) ?? -1;
       if (idx !== -1) {
         const hasBadge = !!node.value;
-        const startY = 57 + (hasBadge ? 16 : 0);
+        const startY = 57 + (hasBadge ? 24 : 0);
         return { x: node.x + dims.w, y: node.y + startY + idx * 34 };
       }
     }
@@ -1426,7 +1486,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
             </svg>
 
             {/* Absolute Positioned Nodes container */}
-            <div className="absolute top-0 left-0 w-[2000px] h-[2000px] pointer-events-none z-10">
+            <div ref={nodesContainerRef} className="absolute top-0 left-0 w-[2000px] h-[2000px] pointer-events-none z-10">
                {nodes.map((node) => {
                 const isSelected = selectedNodeId === node.id;
                 const isSimVisited = simVisitedNodeIds.includes(node.id);
@@ -1447,7 +1507,8 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                 return (
                   <div
                     key={node.id}
-                    style={{ left: node.x, top: node.y, width: dims.w, height: dims.h }}
+                    data-callflow-node-id={node.id}
+                    style={{ left: node.x, top: node.y, width: dims.w, minHeight: dims.h }}
                     onClick={(e) => {
                       e.stopPropagation();
                     }}
@@ -1467,6 +1528,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                     {/* Left side input port connector dot */}
                     {!["trunk_start", "start", "did", "stargate_out"].includes(node.type) && (
                       <div
+                        data-port-id="input"
                         className="port absolute left-0 top-1/2 transform -translate-x-1/2 -translate-y-1/2 w-3 h-3 bg-red-500 border-2 border-white dark:border-slate-900 rounded-full cursor-pointer z-20 hover:scale-125 transition"
                         onMouseDown={(e) => {
                           e.stopPropagation();
@@ -1482,6 +1544,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                     {/* Right side output port connector dot */}
                     {["start", "play", "setvalue", "transfer", "tts", "whatsapp_notify", "did", "stargate_out"].includes(node.type) && (
                       <div
+                        data-port-id="output"
                         className={`port absolute right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 w-3.5 h-3.5 ${node.type === "start" ? "bg-emerald-500" : "bg-primary"} border-2 border-white dark:border-slate-900 rounded-full cursor-pointer z-20 hover:scale-125 transition`}
                         onMouseDown={(e) => {
                           handlePortMouseDown(e, node.id, "output");
@@ -1667,10 +1730,11 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                             { id: "output", label: "Tuşlandı (Başarılı)" },
                             { id: "error", label: "Hata / Limit Doldu" }
                           ].map((opt) => (
-                            <div key={opt.id} className="h-[30px] flex items-center justify-end pr-2 bg-slate-50/65 dark:bg-slate-950/30 border border-slate-100/60 dark:border-slate-850 rounded-lg relative select-none">
+                            <div key={opt.id} className="h-[30px] flex items-center justify-end pr-2.5 bg-slate-50/65 dark:bg-slate-950/30 border border-slate-100/60 dark:border-slate-850 rounded-lg relative select-none">
                               <span className="text-slate-600 dark:text-slate-400 font-mono text-[8px]">{opt.label}</span>
                               <div
-                                className={`port absolute right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 w-3 h-3 ${opt.id === "error" ? "bg-rose-500" : "bg-emerald-500"} border-2 border-white dark:border-slate-900 rounded-full cursor-pointer z-20 hover:scale-125 transition`}
+                                data-port-id={opt.id}
+                                className={`port absolute -right-[11px] top-1/2 transform translate-x-1/2 -translate-y-1/2 w-3 h-3 ${opt.id === "error" ? "bg-rose-500" : "bg-emerald-500"} border-2 border-white dark:border-slate-900 rounded-full cursor-pointer z-20 hover:scale-125 transition`}
                                 onMouseDown={(e) => handlePortMouseDown(e, node.id, opt.id)}
                                 onMouseUp={(e) => handlePortMouseUp(e, node.id, opt.id)}
                                 onClick={(e) => handlePortClick(e, node.id, opt.id, false)}
@@ -1690,10 +1754,11 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                             { id: "success", label: "Başarılı (Numara)" },
                             { id: "error", label: "Bulunamadı / Hata" }
                           ].map((opt) => (
-                            <div key={opt.id} className="h-[30px] flex items-center justify-end pr-2 bg-slate-50/65 dark:bg-slate-950/30 border border-slate-100/60 dark:border-slate-850 rounded-lg relative select-none">
+                            <div key={opt.id} className="h-[30px] flex items-center justify-end pr-2.5 bg-slate-50/65 dark:bg-slate-950/30 border border-slate-100/60 dark:border-slate-850 rounded-lg relative select-none">
                               <span className="text-slate-600 dark:text-slate-400 font-mono text-[8px]">{opt.label}</span>
                               <div
-                                className={`port absolute right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 w-3 h-3 ${opt.id === "error" ? "bg-rose-500" : "bg-emerald-500"} border-2 border-white dark:border-slate-900 rounded-full cursor-pointer z-20 hover:scale-125 transition`}
+                                data-port-id={opt.id}
+                                className={`port absolute -right-[11px] top-1/2 transform translate-x-1/2 -translate-y-1/2 w-3 h-3 ${opt.id === "error" ? "bg-rose-500" : "bg-emerald-500"} border-2 border-white dark:border-slate-900 rounded-full cursor-pointer z-20 hover:scale-125 transition`}
                                 onMouseDown={(e) => handlePortMouseDown(e, node.id, opt.id)}
                                 onMouseUp={(e) => handlePortMouseUp(e, node.id, opt.id)}
                                 onClick={(e) => handlePortClick(e, node.id, opt.id, false)}
@@ -1713,10 +1778,11 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                             { id: "loop", label: "Tekrarla (Döngü)" },
                             { id: "completed", label: "Limit Doldu (Çıkış)" }
                           ].map((opt) => (
-                            <div key={opt.id} className="h-[30px] flex items-center justify-end pr-2 bg-slate-50/65 dark:bg-slate-950/30 border border-slate-100/60 dark:border-slate-850 rounded-lg relative select-none">
+                            <div key={opt.id} className="h-[30px] flex items-center justify-end pr-2.5 bg-slate-50/65 dark:bg-slate-950/30 border border-slate-100/60 dark:border-slate-850 rounded-lg relative select-none">
                               <span className="text-slate-600 dark:text-slate-400 font-mono text-[8px]">{opt.label}</span>
                               <div
-                                className={`port absolute right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 w-3 h-3 ${opt.id === "completed" ? "bg-rose-500" : "bg-orange-500"} border-2 border-white dark:border-slate-900 rounded-full cursor-pointer z-20 hover:scale-125 transition`}
+                                data-port-id={opt.id}
+                                className={`port absolute -right-[11px] top-1/2 transform translate-x-1/2 -translate-y-1/2 w-3 h-3 ${opt.id === "completed" ? "bg-rose-500" : "bg-orange-500"} border-2 border-white dark:border-slate-900 rounded-full cursor-pointer z-20 hover:scale-125 transition`}
                                 onMouseDown={(e) => handlePortMouseDown(e, node.id, opt.id)}
                                 onMouseUp={(e) => handlePortMouseUp(e, node.id, opt.id)}
                                 onClick={(e) => handlePortClick(e, node.id, opt.id, false)}
@@ -1736,10 +1802,11 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                             </div>
                           )}
                           {node.options?.map((opt) => (
-                            <div key={opt} className="h-[30px] flex items-center justify-end pr-2 bg-slate-50/60 dark:bg-slate-950/30 border border-slate-100/60 dark:border-slate-850 rounded-lg relative select-none">
+                            <div key={opt} className="h-[30px] flex items-center justify-end pr-2.5 bg-slate-50/60 dark:bg-slate-950/30 border border-slate-100/60 dark:border-slate-850 rounded-lg relative select-none">
                               <span className="text-slate-600 dark:text-slate-400 font-mono text-[9px]">{opt}</span>
                               <div
-                                className="port absolute right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 w-3 h-3 bg-primary border-2 border-white dark:border-slate-900 rounded-full cursor-pointer z-20 hover:scale-125 transition"
+                                data-port-id={opt}
+                                className="port absolute -right-[11px] top-1/2 transform translate-x-1/2 -translate-y-1/2 w-3 h-3 bg-primary border-2 border-white dark:border-slate-900 rounded-full cursor-pointer z-20 hover:scale-125 transition"
                                 onMouseDown={(e) => handlePortMouseDown(e, node.id, opt)}
                                 onMouseUp={(e) => handlePortMouseUp(e, node.id, opt)}
                                 onClick={(e) => handlePortClick(e, node.id, opt, false)}
@@ -1759,10 +1826,11 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                             { id: "true", label: "Evet (Doğru)" },
                             { id: "false", label: "Hayır (Yanlış)" }
                           ].map((opt) => (
-                            <div key={opt.id} className="h-[30px] flex items-center justify-end pr-2 bg-slate-50/65 dark:bg-slate-950/30 border border-slate-100/60 dark:border-slate-850 rounded-lg relative select-none">
+                            <div key={opt.id} className="h-[30px] flex items-center justify-end pr-2.5 bg-slate-50/65 dark:bg-slate-950/30 border border-slate-100/60 dark:border-slate-850 rounded-lg relative select-none">
                               <span className="text-slate-600 dark:text-slate-400 font-mono text-[8px]">{opt.label}</span>
                               <div
-                                className={`port absolute right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 w-3 h-3 ${opt.id === "false" ? "bg-rose-500" : "bg-emerald-500"} border-2 border-white dark:border-slate-900 rounded-full cursor-pointer z-20 hover:scale-125 transition`}
+                                data-port-id={opt.id}
+                                className={`port absolute -right-[11px] top-1/2 transform translate-x-1/2 -translate-y-1/2 w-3 h-3 ${opt.id === "false" ? "bg-rose-500" : "bg-emerald-500"} border-2 border-white dark:border-slate-900 rounded-full cursor-pointer z-20 hover:scale-125 transition`}
                                 onMouseDown={(e) => handlePortMouseDown(e, node.id, opt.id)}
                                 onMouseUp={(e) => handlePortMouseUp(e, node.id, opt.id)}
                                 onClick={(e) => handlePortClick(e, node.id, opt.id, false)}
@@ -1781,10 +1849,13 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                           </div>
                           
                           {["90", "75", "50", "none"].map((opt) => (
-                            <div key={opt} className="h-[30px] flex items-center justify-end pr-2 bg-slate-50/50 dark:bg-slate-950/30 border border-slate-100/60 dark:border-slate-850 rounded-lg relative select-none">
+                            <div key={opt} className="h-[30px] flex items-center justify-end pr-2.5 bg-slate-50/50 dark:bg-slate-950/30 border border-slate-100/60 dark:border-slate-850 rounded-lg relative select-none">
                               <span className="text-slate-500 dark:text-slate-400 font-mono text-[9px]">{opt}</span>
                               <div
-                                className="port absolute right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 w-3 h-3 bg-primary border-2 border-white dark:border-slate-900 rounded-full cursor-pointer z-20 hover:scale-125 transition"
+                                data-port-id={opt}
+                                className="port absolute -right-[11px] top-1/2 transform translate-x-1/2 -translate-y-1/2 w-3 h-3 bg-primary border-2 border-white dark:border-slate-900 rounded-full cursor-pointer z-20 hover:scale-125 transition"
+                                onMouseDown={(e) => handlePortMouseDown(e, node.id, opt)}
+                                onMouseUp={(e) => handlePortMouseUp(e, node.id, opt)}
                                 onClick={(e) => handlePortClick(e, node.id, opt, false)}
                                 title={`Güven skoru ${opt}% çıkışı`}
                               />
@@ -1817,10 +1888,11 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                             { id: "inactive", label: "Mesai Dışı" },
                             { id: "holiday", label: "Resmi Tatil" }
                           ].map((opt) => (
-                            <div key={opt.id} className="h-[30px] flex items-center justify-end pr-2 bg-slate-50/60 dark:bg-slate-950/30 border border-slate-100/60 dark:border-slate-850 rounded-lg relative select-none">
+                            <div key={opt.id} className="h-[30px] flex items-center justify-end pr-2.5 bg-slate-50/60 dark:bg-slate-950/30 border border-slate-100/60 dark:border-slate-850 rounded-lg relative select-none">
                               <span className="text-slate-500 dark:text-slate-400 font-mono text-[8px]">{opt.label}</span>
                               <div
-                                className="port absolute right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 w-3 h-3 bg-primary border-2 border-white dark:border-slate-900 rounded-full cursor-pointer z-20 hover:scale-125 transition"
+                                data-port-id={opt.id}
+                                className="port absolute -right-[11px] top-1/2 transform translate-x-1/2 -translate-y-1/2 w-3 h-3 bg-primary border-2 border-white dark:border-slate-900 rounded-full cursor-pointer z-20 hover:scale-125 transition"
                                 onMouseDown={(e) => handlePortMouseDown(e, node.id, opt.id)}
                                 onMouseUp={(e) => handlePortMouseUp(e, node.id, opt.id)}
                                 onClick={(e) => handlePortClick(e, node.id, opt.id, false)}
@@ -1840,10 +1912,11 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                             </span>
                           </div>
                           {node.options?.map((opt) => (
-                            <div key={opt} className="h-[30px] flex items-center justify-end pr-2 bg-slate-50/60 dark:bg-slate-955/35 border border-slate-100/60 dark:border-slate-850 rounded-lg relative select-none">
+                            <div key={opt} className="h-[30px] flex items-center justify-end pr-2.5 bg-slate-50/60 dark:bg-slate-955/35 border border-slate-100/60 dark:border-slate-850 rounded-lg relative select-none">
                               <span className="text-slate-655 dark:text-slate-400 font-mono text-[9px] truncate mr-1.5">{opt}</span>
                               <div
-                                className="port absolute right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 w-3 h-3 bg-primary border-2 border-white dark:border-slate-900 rounded-full cursor-pointer z-20 hover:scale-125 transition"
+                                data-port-id={opt}
+                                className="port absolute -right-[11px] top-1/2 transform translate-x-1/2 -translate-y-1/2 w-3 h-3 bg-primary border-2 border-white dark:border-slate-900 rounded-full cursor-pointer z-20 hover:scale-125 transition"
                                 onMouseDown={(e) => handlePortMouseDown(e, node.id, opt)}
                                 onMouseUp={(e) => handlePortMouseUp(e, node.id, opt)}
                                 onClick={(e) => handlePortClick(e, node.id, opt, false)}
