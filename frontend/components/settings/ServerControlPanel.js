@@ -20,6 +20,7 @@ import {
   ChevronUp,
 } from "lucide-react";
 import { useTheme } from "../../utils/theme";
+import { getApiBaseUrl, tenantFetch } from "../../utils/apiHost";
 
 const STATUS_BADGE = {
   running: {
@@ -54,13 +55,10 @@ const STATUS_BADGE = {
   },
 };
 
-export default function ServerControlPanel({ backendHost = "localhost:8000", userPermissions = null }) {
+export default function ServerControlPanel({ backendHost = "localhost:8000", userPermissions = ["*"] }) {
   const { bg, hover, text, border, ring, lightBg, borderLight } = useTheme();
 
-  const API_BASE =
-    typeof window !== "undefined"
-      ? `${window.location.protocol}//${backendHost}`
-      : `http://${backendHost}`;
+  const API_BASE = getApiBaseUrl(backendHost);
 
   const getAuthHeaders = useCallback(() => {
     const hdrs = {};
@@ -71,26 +69,29 @@ export default function ServerControlPanel({ backendHost = "localhost:8000", use
           const parsed = JSON.parse(rawU);
           const uid = parsed?.id || parsed?.extension;
           if (uid) hdrs["X-User-ID"] = String(uid);
-          if (parsed?.tenant_id) hdrs["X-Tenant-ID"] = String(parsed.tenant_id);
         }
-        const activeTenant = localStorage.getItem("active_tenant_id");
-        if (activeTenant) hdrs["X-Tenant-ID"] = activeTenant;
       } catch {}
     }
     return hdrs;
   }, []);
 
   const canWrite = useMemo(() => {
-    if (typeof window === "undefined") return true;
-    try {
-      const raw = localStorage.getItem("aida_user") || sessionStorage.getItem("aida_user");
-      if (raw) {
-        const u = JSON.parse(raw);
-        if (String(u?.role || "").toLowerCase() === "admin") return true;
-      }
-    } catch {}
+    if (typeof window !== "undefined") {
+      try {
+        if (sessionStorage.getItem("is_nornia_root") === "true") return true;
+        const raw = localStorage.getItem("aida_user") || sessionStorage.getItem("aida_user");
+        if (raw) {
+          const u = JSON.parse(raw);
+          const r = String(u?.role || "").toLowerCase();
+          if (r === "admin" || r === "superadmin" || r === "nornia_root") return true;
+        }
+      } catch {}
+    }
     if (!Array.isArray(userPermissions)) return true;
-    return userPermissions.includes("server_control:write");
+    return (
+      userPermissions.includes("*") ||
+      userPermissions.includes("server_control:write")
+    );
   }, [userPermissions]);
 
   const [host, setHost] = useState(null);
@@ -123,12 +124,12 @@ export default function ServerControlPanel({ backendHost = "localhost:8000", use
     async (silent = false) => {
       if (!silent) setLoading(true);
       try {
-        const res = await fetch(`${API_BASE}/api/server/control/overview`, {
+        const res = await tenantFetch(`${API_BASE}/api/server/control/overview`, {
           headers: getAuthHeaders(),
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
-          if (!silent) flashBanner(false, err.detail || "Sunucu bilgileri alınamadı.");
+          if (!silent) flashBanner(false, err.detail || `Sunucu bilgileri alınamadı (HTTP ${res.status}).`);
           return false;
         }
         const data = await res.json();
@@ -186,7 +187,7 @@ export default function ServerControlPanel({ backendHost = "localhost:8000", use
     const key = `${svc.id}:${action}`;
     setBusyKey(key);
     try {
-      const res = await fetch(
+      const res = await tenantFetch(
         `${API_BASE}/api/server/control/service/${encodeURIComponent(svc.id)}/${encodeURIComponent(action)}`,
         {
           method: "POST",
@@ -281,7 +282,7 @@ export default function ServerControlPanel({ backendHost = "localhost:8000", use
     // Host reboot / poweroff
     setBusyKey(`host:${modalSnap.action}`);
     try {
-      const res = await fetch(`${API_BASE}/api/server/control/power`, {
+      const res = await tenantFetch(`${API_BASE}/api/server/control/power`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         body: JSON.stringify({
@@ -308,7 +309,7 @@ export default function ServerControlPanel({ backendHost = "localhost:8000", use
   const openLogsModal = async (svc) => {
     setLogModal({ service_id: svc.id, service_name: svc.name, unit: svc.unit, lines: "", loading: true });
     try {
-      const res = await fetch(
+      const res = await tenantFetch(
         `${API_BASE}/api/server/control/service/${encodeURIComponent(svc.id)}/logs?lines=100`,
         { headers: getAuthHeaders() }
       );

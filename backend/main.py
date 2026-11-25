@@ -3314,12 +3314,46 @@ async def get_public_ip():
             return {"status": "error", "message": f"Dış IP adresi tespit edilemedi: {e2}", "ip": None}
 
 
-def _check_server_control_perm(user_info: dict, action: str = "read") -> None:
-    role_val = str(user_info.get("role") or "").strip().lower()
-    if role_val == "admin":
+def _resolve_request_role_and_perms(request: Optional[Request], user_info: dict) -> tuple:
+    """Resolves (is_admin, role_code, perms_list) from request.state.auth_user and settings_db['roles']."""
+    auth_u = getattr(request.state, "auth_user", None) if request is not None else None
+    role_code = ""
+    is_root = False
+    if isinstance(auth_u, dict):
+        is_root = bool(auth_u.get("root"))
+        role_code = str(auth_u.get("role") or "").strip().lower()
+    if not role_code and isinstance(user_info, dict):
+        role_code = str(user_info.get("role") or "").strip().lower()
+    if not role_code:
+        raw_uid = str((user_info or {}).get("raw_user_id") or "").strip()
+        if raw_uid.lower() in ("admin", "system", "nornia_root", "root"):
+            is_root = True
+            role_code = "admin"
+        elif raw_uid:
+            for u_obj in (settings_db.get("users") or []):
+                if not isinstance(u_obj, dict):
+                    continue
+                if str(u_obj.get("id") or "").strip() == raw_uid or str(u_obj.get("extension") or "").strip() == raw_uid:
+                    role_code = str(u_obj.get("role") or "").strip().lower()
+                    break
+    if is_root or role_code in ("admin", "superadmin", "nornia_root", "root"):
+        return True, role_code or "admin", ["*"]
+    perms = []
+    if role_code:
+        for r_obj in (settings_db.get("roles") or []):
+            if isinstance(r_obj, dict) and str(r_obj.get("role_code") or r_obj.get("id") or "").strip().lower() == role_code:
+                r_perms = r_obj.get("permissions")
+                if isinstance(r_perms, list):
+                    perms = list(r_perms)
+                break
+    return False, role_code, perms
+
+
+def _check_server_control_perm(request: Optional[Request], user_info: dict, action: str = "read") -> None:
+    is_admin, _, perms = _resolve_request_role_and_perms(request, user_info)
+    if is_admin or "*" in perms:
         return
-    perms = user_info.get("permissions")
-    if isinstance(perms, list) and f"server_control:{action}" in perms:
+    if f"server_control:{action}" in perms or (action == "read" and "server_control:write" in perms):
         return
     raise HTTPException(
         status_code=403,
@@ -3357,9 +3391,12 @@ def _record_server_control_audit(
 
 
 @app.get("/api/server/control/overview")
-async def get_server_control_overview_endpoint(user_info: dict = Depends(get_user_info)):
+async def get_server_control_overview_endpoint(
+    request: Request,
+    user_info: dict = Depends(get_user_info),
+):
     """Canlı sunucu kaynak kullanımı, aktif çağrı sayısı, yönetilen servis durumları ve işlem günlüklerini döner."""
-    _check_server_control_perm(user_info, "read")
+    _check_server_control_perm(request, user_info, "read")
     from backend.services.server_control_service import get_server_control_overview
     active_cnt = 0
     try:
@@ -3380,10 +3417,10 @@ async def run_server_service_action_endpoint(
     user_info: dict = Depends(get_user_info),
 ):
     """İzin listeli sistem/PM2 servislerinde start, stop, restart veya reload işlemi çalıştırır."""
-    _check_server_control_perm(user_info, "write")
+    _check_server_control_perm(request, user_info, "write")
     from backend.services.server_control_service import execute_service_action
 
-    actor = str(user_info.get("username") or user_info.get("full_name") or user_info.get("id") or "admin")
+    actor = str(user_info.get("user_id") or user_info.get("raw_user_id") or "admin")
     client_ip = (
         (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
         or (request.headers.get("x-real-ip") or "").strip()
@@ -3417,11 +3454,12 @@ async def run_server_service_action_endpoint(
 @app.get("/api/server/control/service/{service_id}/logs")
 async def get_server_service_logs_endpoint(
     service_id: str,
+    request: Request,
     lines: int = Query(80, ge=10, le=300),
     user_info: dict = Depends(get_user_info),
 ):
     """Seçili servisin son log satırlarını (journalctl / pm2 logs) döner."""
-    _check_server_control_perm(user_info, "read")
+    _check_server_control_perm(request, user_info, "read")
     from backend.services.server_control_service import get_service_logs
     try:
         return get_service_logs(service_id, lines=lines)
@@ -3431,12 +3469,12 @@ async def get_server_service_logs_endpoint(
 
 @app.post("/api/server/control/power")
 async def server_host_power_action_endpoint(
+    request: Request,
     payload: dict = Body(...),
-    request: Request = None,
     user_info: dict = Depends(get_user_info),
 ):
     """Santral sunucusunu güvenli gecikme (3 sn) ile yeniden başlatır (reboot) veya kapatır (poweroff)."""
-    _check_server_control_perm(user_info, "write")
+    _check_server_control_perm(request, user_info, "write")
     from backend.services.server_control_service import schedule_host_power_action
 
     act = str(payload.get("action") or "").strip().lower()
@@ -3446,7 +3484,7 @@ async def server_host_power_action_endpoint(
     if act == "poweroff" and confirm_text != "KAPAT":
         raise HTTPException(status_code=400, detail="Sunucuyu kapatmak için onay kutusuna 'KAPAT' yazmanız gerekir.")
 
-    actor = str(user_info.get("username") or user_info.get("full_name") or user_info.get("id") or "admin")
+    actor = str(user_info.get("user_id") or user_info.get("raw_user_id") or "admin")
     client_ip = ""
     if request is not None:
         client_ip = (

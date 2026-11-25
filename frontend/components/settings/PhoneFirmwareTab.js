@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
+import { getApiBaseUrl } from "../../utils/apiHost";
 
 const BRAND_LIST = ["Yealink", "Grandstream", "Fanvil", "Cisco"];
 
@@ -113,10 +114,7 @@ export default function PhoneFirmwareTab({
 }) {
   const { bg, hover, text, border, ring, lightBg, borderLight } = useTheme();
 
-  const API_BASE =
-    typeof window !== "undefined"
-      ? `${window.location.protocol}//${backendHost}`
-      : `http://${backendHost}`;
+  const API_BASE = getApiBaseUrl(backendHost);
 
   // RBAC permissions check (admin or phone_firmware:* / autoprovision:*)
   const { canWrite, canDelete } = useMemo(() => {
@@ -125,9 +123,10 @@ export default function PhoneFirmwareTab({
       const raw = localStorage.getItem("aida_user") || sessionStorage.getItem("aida_user");
       if (!raw) return { canWrite: true, canDelete: true };
       const u = JSON.parse(raw);
-      if (String(u?.role || "").toLowerCase() === "admin") return { canWrite: true, canDelete: true };
+      const r = String(u?.role || "").toLowerCase();
+      if (r === "admin" || r === "superadmin" || r === "nornia_root") return { canWrite: true, canDelete: true };
       const perms = Array.isArray(u?.permissions) ? u.permissions : null;
-      if (!perms) return { canWrite: true, canDelete: true };
+      if (!perms || perms.includes("*")) return { canWrite: true, canDelete: true };
       return {
         canWrite: perms.includes("phone_firmware:write") || perms.includes("autoprovision:write"),
         canDelete: perms.includes("phone_firmware:delete") || perms.includes("autoprovision:delete"),
