@@ -44,8 +44,122 @@ Webhook Fields: messages`
     troubleshooting: [
       { problem: "Dış API anahtarı ile istek atınca '403 Forbidden' alıyorum", cause: "Anahtarda o uç noktanın gerekli Scope yetkisi işaretli değil veya sunucu IP'si IP Whitelist listesinde yok.", solution: "Sistem Ayarları → Kurumsal Dış API → Canlı Erişim Günlüğü sekmesinde tam reddedilme gerekçesini okuyup Scope/IP ayarını güncelleyin." }
     ],
-    relatedPages: ["ortak-gelen-kutusu", "ai-temsilcileri", "zamanlanmis-raporlar"],
+    relatedPages: ["ortak-gelen-kutusu", "omnichannel-memnuniyet-anketi-csat", "otel-ve-pms-yonetim-merkezi", "ai-temsilcileri"],
     relatedApis: ["GET /api/v1/status", "POST /api/v1/webhooks/subscribe", "POST /api/cti/lookup", "GET /api/webhooks/whatsapp"]
+  },
+  {
+    id: "omnichannel-memnuniyet-anketi-csat",
+    number: "46",
+    groupId: "yonetim",
+    category: "Yönetim & Sistem Ayarları",
+    title: "Omnichannel Memnuniyet Anketi (CSAT — WhatsApp, Telegram, Meta & E-Posta)",
+    shortTitle: "Omnichannel CSAT",
+    menuPath: "Yönetim & Ayarlar → Sistem Ayarları → Kanallar & Entegrasyon → Omnichannel Memnuniyet Anketi (CSAT)",
+    pbxRoute: "/?tab=ayarlar&subtab=omnichannel-csat",
+    permissions: ["omnichannel_csat:read", "omnichannel_csat:write"],
+    badge: "WhatsApp Buton • Telegram Inline • Meta Quick Reply • AI vs İnsan",
+    readMinutes: 9,
+    summary:
+      "WhatsApp, Telegram, Instagram DM, Facebook Messenger ve E-Posta kanallarındaki sohbetler çözüldü olarak kapatıldığında müşteriye kanalın kendi etkileşimli butonlarıyla (ücretsiz 24 saatlik müşteri hizmet penceresi içinde) otomatik memnuniyet anketi gönderir; düşük puanlarda takip sorusu ile süpervizöre anlık alarm üretir ve AI vs. İnsan Temsilci CSAT karnesi sunar.",
+    screenshots: [],
+    fieldTable: [
+      { field: "Omnichannel CSAT Motoru & Kapanışta Tetikleme", type: "Toggle (enabled / trigger_on_close)", defaultVal: "Aktif", required: false, description: "Ortak Gelen Kutusu'nda bir sohbet 'Çözüldü / Kapat' yapıldığında anketi otomatik gönderir." },
+      { field: "Aktif Anket Kanalları", type: "Çoklu Seçim", defaultVal: "WhatsApp, Telegram, Instagram, Facebook, E-Posta", required: false, description: "WhatsApp'ta Interactive Quick Reply butonları, Telegram'da InlineKeyboard, Meta'da Quick Reply ve E-Posta'da tek tık puanlama bağlantısı (/api/omnichannel/csat/rate/{id}) kullanılır." },
+      { field: "Soğuma Süresi — Cooldown (Saat)", type: "Integer (0–720)", defaultVal: "24 Saat", required: false, description: "Aynı müşteriye belirtilen süre içinde ikinci kez anket gönderilerek rahatsız edilmesini önler (0 = her kapatmada gönder)." },
+      { field: "Süpervizör Alarm Eşiği & Düşük Puan Takip Sorusu", type: "Seçim (≤1 / ≤2 / ≤3) + Metin", defaultVal: "≤ 2 Puan", required: false, description: "Eşik altı puan veren müşteriye 'Yaşadığınız aksaklığı kısaca yazar mısınız?' sorusu gider; yanıtı kaydedilir ve süpervizörlere WebSocket üzerinden anlık uyarı düşer." },
+      { field: "Rapor & Skorlar Sekmesi (7 / 30 / 90 Gün)", type: "Canlı KPI & Tablo", defaultVal: "Son 30 Gün", required: false, description: "Ortalama CSAT, katılım oranı, AI Asistan vs. İnsan Temsilci ortalama puan kıyaslaması, kanal bazlı dağılım ve müşteri yorum listesi." }
+    ],
+    sections: [
+      {
+        heading: "1. Müşteri Yanıt Yakalama (Yeni AI Bileti Açmadan Puanlama)",
+        body: "Müşteri anket butonuna bastığında veya 1–5 arası puan yazdığında, Nornia'nın chat_service katmanı bu yanıtı anket cevabı olarak yakalar, yeni bir AI sohbeti başlatmadan veritabanına (omnichannel_csat_surveys) işler ve teşekkür/takip mesajını iletir. Düşük puanlarda 20 dakika içinde gelen açıklama mesajı da otomatik olarak ilgili anketin yorum alanına eklenir.",
+        codeBlock: {
+          title: "Omnichannel CSAT REST Uç Noktaları",
+          lang: "text",
+          code: `GET  /api/settings/omnichannel-csat          # Anket yapılandırmasını getir
+POST /api/settings/omnichannel-csat          # Anket yapılandırmasını kaydet
+GET  /api/omnichannel/csat/stats?days=30     # Kanal & AI vs İnsan CSAT raporu
+POST /api/omnichannel/chats/{id}/send-csat   # Seçili sohbete manuel anket gönder
+GET  /api/omnichannel/csat/rate/{survey_id}?score=5  # E-posta tek tık puanlama`
+        }
+      }
+    ],
+    troubleshooting: [
+      { problem: "Sohbeti kapattım ama WhatsApp'a anket gitmedi", cause: "Aynı numaraya son 24 saat içinde anket gönderilmiş (Cooldown aktif) veya WhatsApp kanalı anket kanalları listesinde seçili değil.", solution: "Ayarlar → Omnichannel Memnuniyet Anketi → Anket Ayarları sekmesinden Cooldown süresini ve aktif kanalları kontrol edin." },
+      { problem: "E-posta anketindeki puanlama linkleri açılmıyor", cause: "Genel URL (public_base_url) veya Nornia Connect alt alan adı tanımlı değil.", solution: "Nornia Connect tünelini aktif edin veya CSAT ayarlarında genel erişim adresinizi belirtin." }
+    ],
+    relatedPages: ["ortak-gelen-kutusu", "kanallar-crm-ve-dis-api", "rapor-anket"],
+    relatedApis: ["GET /api/omnichannel/csat/stats", "POST /api/settings/omnichannel-csat", "POST /api/omnichannel/chats/{session_id}/send-csat"]
+  },
+  {
+    id: "otel-ve-pms-yonetim-merkezi",
+    number: "47",
+    groupId: "yonetim",
+    category: "Yönetim & Sistem Ayarları",
+    title: "Otel & PMS Yönetim Merkezi (Check-In/Out, AI Uyandırma, Kat Hizmetleri, ElektraWeb & FIAS)",
+    shortTitle: "Otel & PMS Merkezi",
+    menuPath: "Yönetim & Ayarlar → Sistem Ayarları → Kanallar & Entegrasyon → Otel & PMS Yönetim Merkezi",
+    pbxRoute: "/?tab=ayarlar&subtab=otel-pms",
+    permissions: ["hotel_pms:read", "hotel_pms:write", "hotel_pms:delete"],
+    badge: "Check-In/Out • *71-*74 • AI *55 Uyandırma • ElektraWeb • FIAS OPERA",
+    readMinutes: 14,
+    summary:
+      "Oteller, tatil köyleri ve hastaneler için eksiksiz Otel Santrali ve PMS (Property Management System) köprü modülüdür. Bağımsız çalışabildiği gibi ElektraWeb REST API, Oracle OPERA / Protel / Fidelio FIAS (TCP/IP) ve Open PMS API ile çift yönlü haberleşerek Check-In/Check-Out dış arama kilidi, kat hizmetleri (*71–*74), 6 dilde kişiselleştirilmiş AI uyandırma (*55), oda-arası arama kısıtlama ve çağrı ücretlendirme (Folio) süreçlerini otomatikleştirir.",
+    screenshots: [],
+    fieldTable: [
+      { field: "Sekme 1: Oda Panosu (Check-In / Check-Out)", type: "Oda Kartları + Tek Tık İşlem", defaultVal: "Boş Oda = Dış Arama Kilitli", required: true, description: "Check-In ile odanın dış araması açılır ve misafir adı CallerID'ye yazılır. Check-Out ile dış arama kilitlenir (112 ve Resepsiyon hariç), uyandırmalar ve sesli mesajlar (voicemail) silinir, DND sıfırlanır, oda Kirli işaretlenir ve Folio hesabı çıkarılır." },
+      { field: "Kat Hizmetleri (Housekeeping) Telefon Kodları", type: "Asterisk Dialplan (*71–*74)", defaultVal: "*71 Temiz, *72 Kirli, *73 Arıza, *74 Onaylı", required: false, description: "Kat görevlisi oda telefonundan kodu tuşladığında onay bip sesi alır; resepsiyon panosu ve bağlı PMS (ElektraWeb / FIAS) anlık güncellenir." },
+      { field: "Sekme 2: AI Çok Dilli Uyandırma (*55 / *56)", type: "edge-tts (TR/EN/DE/RU/AR/FR) + AMI Originate", defaultVal: "2 Tekrar (5 dk) + Resepsiyon Alarmı", required: false, description: "Misafir oda telefonundan *55 + 4 haneli saat (örn. 0730) tuşlayarak veya resepsiyondan uyandırma kurar (*56 iptal eder). Saatinde misafirin kendi dilinde AI sesli uyandırma yapılır; yanıt alınmazsa 5 dk arayla tekrar dener ve hâlâ açılmazsa Resepsiyona kırmızı alarm düşer." },
+      { field: "Oda-Arası Arama Kısıtlama & Aile Grubu", type: "ACL Politikası (block_room_to_room)", defaultVal: "Aktif (Aynı Aile Grubu Serbest)", required: false, description: "Misafir odalarının birbirini rahatsız etmesini engeller; aynı Aile/Grup koduna sahip bağlantılı odalar birbirini serbestçe arayabilir." },
+      { field: "Sekme 3: Ücretlendirme & Folio (Call Accounting)", type: "Şehir İçi / GSM / Uluslararası + Minibar", defaultVal: "TRY / EUR / USD", required: false, description: "Oda dahililerinden yapılan tüm dış aramalar dakika tarifesine göre otomatik hesaplanıp oda foliosuna işlenir; Check-Out'ta toplam tutar PMS'e gönderilir." },
+      { field: "Sekme 4: ElektraWeb / FIAS (OPERA & Fidelio) / Open PMS API", type: "REST Webhook + TCP/IP STX/ETX + X-PMS-API-Key", defaultVal: "FIAS Port 5008 (Sunucu/İstemci)", required: false, description: "ElektraWeb için REST Webhook, Oracle OPERA/Protel/Fidelio için canlı FIAS TCP/IP köprüsü (LS/LA/GI/GO/GC/RE/WR/WA/PS) ve Sedna/HMS/Mod Hotel için Open PMS API." }
+    ],
+    sections: [
+      {
+        heading: "1. Oda Telefonu Özellik Kodları (Asterisk Dialplan)",
+        body: "Otel modülü aktif edildiğinde tüm oda dahilileri (IP telefon veya analog ATA gateway) aşağıdaki kısa kodları doğrudan tuşlayabilir:",
+        codeBlock: {
+          title: "Otel Oda Telefonu Kısa Kodları",
+          lang: "text",
+          code: `*71  -> Kat Hizmetleri: Oda Temiz (Hazır)
+*72  -> Kat Hizmetleri: Oda Kirli (Temizlik Bekliyor)
+*73  -> Kat Hizmetleri: Oda Arıza / Teknik Bakım Gerekli
+*74  -> Kat Hizmetleri: Oda Kontrol Edildi (Onaylı)
+*55  -> Uyandırma Kur (Bip sesinden sonra 4 hane saat: örn. 0730)
+*56  -> Aktif Oda Uyandırmasını İptal Et`
+        }
+      },
+      {
+        heading: "2. FIAS (OPERA / Protel / Fidelio) & Open PMS REST API Örnekleri",
+        body: "FIAS köprüsü hem TCP Sunucu (OPERA santrale bağlanır) hem TCP İstemci (santral OPERA IFC'ye bağlanır) modunu destekler. Yerel PMS yazılımları için ise X-PMS-API-Key başlığı ile doğrudan REST entegrasyonu kullanılabilir:",
+        codeBlock: {
+          title: "Open PMS REST API & FIAS Çerçeve Yapısı",
+          lang: "bash",
+          code: `# Open PMS REST Check-In (Sedna / HMS / Mod Hotel / Özel PMS)
+curl -X POST https://<alt-alan-adiniz>.nornia.com.tr/api/pms/checkin \\
+  -H "X-PMS-API-Key: <OPEN_API_KEY>" -H "Content-Type: application/json" \\
+  -d '{"room_number":"304","guest_name":"Ahmet Yilmaz","guest_language":"tr","reservation_code":"RES-9921"}'
+
+# Open PMS REST Check-Out & Folio
+curl -X POST https://<alt-alan-adiniz>.nornia.com.tr/api/pms/checkout \\
+  -H "X-PMS-API-Key: <OPEN_API_KEY>" -H "Content-Type: application/json" \\
+  -d '{"room_number":"304"}'
+
+# FIAS TCP/IP Desteklenen Çerçeveler (STX 0x02 ... ETX 0x03)
+# GI|RN304|GNAhmet Yilmaz|GLTR|G#9921|   (Check-In)
+# GO|RN304|                              (Check-Out)
+# RE|RN304|RS2|                          (Kat Hizmetleri: 1=Kirli, 2=Temiz, 4=Onaylı, 5=Arıza)
+# WR|RN304|TI0730|                       (Uyandırma Talebi)
+# PS|RN304|TA1250|PT1|                   (Folio Ücret Aktarımı - Kuruş)`
+        }
+      }
+    ],
+    troubleshooting: [
+      { problem: "Check-In yapılan odadan dış arama yapılamıyor", cause: "Check-In formunda 'Dış Arama Açık' kutusu işaretsiz bırakılmış veya santralde genel giden arama kuralı tanımlı değil.", solution: "Oda Panosu'ndan ilgili odanın 'Dış Arama Açık' rozetini kontrol edin; acil durum (112) ve resepsiyon aramaları her zaman serbesttir." },
+      { problem: "FIAS bağlantısı 'Dinliyor' görünüyor ama OPERA bağlanmıyor", cause: "Sunucu güvenlik duvarında (UFW) 5008/TCP portu PMS sunucusunun IP adresine açılmamış.", solution: "FIAS TCP portunu (varsayılan 5008/TCP) yalnızca yerel ağdaki OPERA/Protel IFC sunucusunun IP adresine izin vererek açın." }
+    ],
+    relatedPages: ["kanallar-crm-ve-dis-api", "giden-arama-kurali", "dis-hat-tanimi"],
+    relatedApis: ["POST /api/pms/checkin", "POST /api/pms/checkout", "POST /api/pms/housekeeping", "POST /api/pms/wakeup", "GET /api/pms/folio/{room_number}", "POST /api/pms/elektra/webhook"]
   },
   {
     id: "bakim-yedekleme-ve-kayit-saklama",

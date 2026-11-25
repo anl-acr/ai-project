@@ -88,15 +88,15 @@ export const CHAPTERS_SANTRAL_B = [
     number: "23",
     groupId: "santral",
     category: "Santral",
-    title: "Dış Hat Tanımı (SIP Trunk, Dakika Paketi & /30 VLAN)",
+    title: "Dış Hat Tanımı (SIP Trunk, Dakika Paketi, /30 VLAN & Tünel Trunk Proxy)",
     shortTitle: "Dış Hat Tanımı",
     menuPath: "Santral → Dış Hat Tanımı",
     pbxRoute: "/?tab=dis-hatlar-sip-trunk",
     permissions: ["trunks:read", "trunks:write", "trunks:delete"],
-    badge: "PJSIP • Register/IP-Auth • /30 Policy Routing",
-    readMinutes: 13,
+    badge: "PJSIP • Register/IP-Auth • /30 Policy Routing • Zero-Port Tünel Proxy",
+    readMinutes: 15,
     summary:
-      "Türk Telekom, Superonline, Vodafone, Ikon Telekom, NetGSM, Bulutfon ve tüm VoIP operatörlerinin SIP Trunk bağlantılarını (Kullanıcı/Şifre Register veya Sabit IP-Auth), eşzamanlı kanal limitlerini, dakika paketlerini, özel SIP başlıklarını (PAI / RPID / Diversion) ve aynı operatöre giden çoklu /30 Metro/VLAN hatları için Linux Policy Routing (Table 201+) yapılandırmasını yöneten kritik santral modülüdür.",
+      "Türk Telekom, Superonline, Vodafone, Ikon Telekom, NetGSM, Bulutfon ve tüm VoIP operatörlerinin SIP Trunk bağlantılarını (Kullanıcı/Şifre Register veya Sabit IP-Auth), eşzamanlı kanal limitlerini, dakika paketlerini, özel SIP başlıklarını (PAI / RPID / Diversion), çoklu /30 Metro/VLAN hatları için Linux Policy Routing (Table 201+) yapılandırmasını ve CGNAT/firewall arkasındaki santraller için Nornia Connect Tünel (Kamailio SIP Edge) üzerinden 2 katmanlı DID/;line= trunk yönlendirmesini yöneten kritik santral modülüdür.",
     screenshots: [
       {
         src: "/screenshots/21-trunks.jpg",
@@ -106,17 +106,18 @@ export const CHAPTERS_SANTRAL_B = [
     ],
     fieldTable: [
       { field: "Sekme 1: Genel — Trunk Adı & Operatör Host/Port", type: "Metin + IP/FQDN + Port", defaultVal: "Port 5060 (UDP/TCP/TLS)", required: true, description: "Operatör SBC sunucu adresi ve sinyal protokolü." },
-      { field: "Kimlik Doğrulama Modu", type: "Registration (User/Pass) / IP-Auth (Static IP)", defaultVal: "Registration", required: true, description: "Sabit IP / Metro Ethernet SIP Trunk'larda IP-Auth, 0850 bulut operatörlerde Registration seçilir." },
+      { field: "Kimlik Doğrulama Modu", type: "Registration (User/Pass) / IP-Auth (Static IP)", defaultVal: "Registration (120 sn)", required: true, description: "Sabit IP / Metro Ethernet SIP Trunk'larda IP-Auth, 0850 bulut operatörlerde Registration seçilir. NAT/tünel arkasında soket düşmemesi için kayıt yenileme süresi otomatik 120 sn (expiration=120) olarak ayarlanır." },
       { field: "DID Numarası & Varsayılan CallerID", type: "E.164", defaultVal: "908503607390", required: true, description: "Bu hattan çıkacak aramalarda operatöre bildirilecek resmi şirket numarası." },
       { field: "Eşzamanlı Kanal Limiti (Max Channels)", type: "Integer", defaultVal: "30", required: false, description: "Operatörle sözleşmeli maksimum eşzamanlı konuşma kanalı; dolduğunda yedek Trunk'a taşar." },
       { field: "Sekme 2: Dakika Paketi (package)", type: "Aylık Dakika + Yenileme Günü", defaultVal: "Opsiyonel", required: false, description: "Örn. aylık 5.000 dakika paket tanımlayıp Operatör Dakika & Paket Raporu'nda anlık kalan dakikayı ve uyarı eşiklerini izlersiniz." },
-      { field: "Sekme 3: Gelişmiş — Kodek & DTMF & Keepalive", type: "alaw/ulaw/g722/g729 + rfc4733", defaultVal: "alaw, ulaw + 60 sn qualify", required: false, description: "Operatör uyumluluğu için Türkiye'de birincil kodek olarak mutlaka G.711 A-Law (alaw) ilk sırada olmalıdır." },
+      { field: "Sekme 3: Gelişmiş — Kodek & DTMF & Keepalive", type: "alaw/ulaw/g722/g729 + rfc4733", defaultVal: "alaw, ulaw + 30 sn qualify", required: false, description: "Operatör uyumluluğu için Türkiye'de birincil kodek olarak mutlaka G.711 A-Law (alaw) ilk sırada olmalıdır." },
+      { field: "Sekme 4: Nornia Connect Tünel (SIP Edge) Üzerinden Geçir", type: "Toggle (use_tunnel_proxy)", defaultVal: "Kapalı (Opsiyonel)", required: false, description: "CGNAT veya port açılamayan katı kurumsal firewall arkasındaki lokasyonlarda yalnızca bu dış hattı WireGuard + Kamailio SIP Edge (10.200.0.1:5060) üzerinden geçirir. Aynı operatörde birden fazla müşteri olsa dahi gelen çağrılar RFC 3261 ;line= parametresi ve benzersiz DID tablosu (nornia_did_routes) ile 2 katmanlı olarak çakışmadan ayrıştırılır." },
       { field: "Sekme 4: SIP Başlıkları & /30 VLAN Policy Routing", type: "PAI / RPID / Diversion + Local Bind IP", defaultVal: "Opsiyonel", required: false, description: "Aynı operatör SBC bloğuna (örn. 10.99.1.0/24) giden birden fazla /30 hattınız varsa Nornia yerel IP'yi ağ kartına ekleyip Linux Policy Routing (Table 201+) ile SIP/RTP paketlerini doğru hattan çıkarır." }
     ],
     sections: [
       {
         heading: "1. PJSIP Özel Konfigürasyon ve NAT Uyumluluğu",
-        body: "Dış Hat kaydedildiğinde /etc/asterisk/pjsip_custom.conf dosyasında Registration, Auth, AOR, Endpoint ve Identify bölümleri otomatik oluşturulur. Santral NAT arkasındaysa Sistem Ayarları → NAT ve Dış IP bölümündeki dış IP tüm PJSIP transport'larına otomatik işlenir.",
+        body: "Dış Hat kaydedildiğinde /etc/asterisk/pjsip_custom.conf dosyasında Registration, Auth, AOR, Endpoint ve Identify bölümleri otomatik oluşturulur. Sistem Ayarları → NAT ve Dış IP ekranında NAT Koruması etkinleştirildiğinde dış IP tüm PJSIP transport'larına işlenir; NAT Pasif yapıldığında ise eski dış IP artık transport'lara yazılmaz ve santral özel IP (RFC1918) bildirerek operatörün otomatik NAT/rport düzeltmesinden faydalanır.",
         codeBlock: {
           title: "Operatör SIP Trunk Sağlık Kontrolü (Asterisk CLI)",
           lang: "bash",
@@ -124,11 +125,23 @@ export const CHAPTERS_SANTRAL_B = [
 asterisk -rx "pjsip show aors"
 asterisk -rx "pjsip show identify"`
         }
+      },
+      {
+        heading: "2. Nornia Connect Tünel (Zero-Port) Trunk Proxy & Çoklu Müşteri DID Ayrıştırma",
+        body: "Tünel üzerinden geçirilen trunk'lar Asterisk'te outbound_proxy=sip:10.200.0.1:5060\\;lr ve line=yes ayarlarıyla Nornia Hub Kamailio sunucusuna çıkar. Santral tünele bağlandığında aktif trunk DID numaralarını Hub'a bildirir (nornia_did_routes.map). Gelen INVITE paketleri Kamailio'da önce ;line= parametresi, ardından Request-URI/To DID numarası ile eşleştirilerek RTPEngine üzerinden ilgili santralin WireGuard IP'sine (10.200.x.y:5060) indirilir.",
+        codeBlock: {
+          title: "Hub Sunucusunda Canlı Kamailio DID Tablosu Kontrolü",
+          lang: "bash",
+          code: `cat /etc/kamailio/nornia_did_routes.map
+kamcmd htable.dump nornia_did_routes
+kamcmd htable.dump nornia_line_routes`
+        }
       }
     ],
     troubleshooting: [
+      { problem: "Dış hat 'Registered' görünüyor ama dışarıdan arayınca sngrep'te hiçbir paket gelmiyor", cause: "Santral NAT/tünel arkasında ve port 5060 dışarıya kapalı olmasına rağmen NAT & Dış IP ayarında eski/farklı bir Public IP kayıtlı kalmış; operatör INVITE'ı o kapalı IP:5060 adresine atıyor.", solution: "Sistem Ayarları → NAT ve Dış IP ekranında NAT korumasını kapatın (dış port yönlendirmeniz yoksa) veya CGNAT arkasındaysanız trunk üzerinde 'Nornia Connect Tünel Üzerinden Geçir' seçeneğini açın." },
       { problem: "SIP Trunk durumu 'Rejected' veya 'Unregistered'", cause: "Şifre/kullanıcı adı hatalı, operatör IP'mizi whitelist'e almamış veya NAT dış IP eksik.", solution: "Sorun İnceleme (Web sngrep) ekranında REGISTER paketine gelen 401/403 cevabını inceleyin ve operatörle dış IP'nizi teyit edin." },
-      { problem: "Çağrı kuruluyor ama 30 saniyede kendiliğinden kopuyor", cause: "SIP ACK paketi NAT nedeniyle santrale dönemiyor.", solution: "Sistem Ayarları → NAT ve Dış IP ekranında gerçek statik dış IP'nizi tanımlayıp kaydedin." }
+      { problem: "Çağrı kuruluyor ama 30 saniyede kendiliğinden kopuyor", cause: "SIP ACK paketi NAT nedeniyle santrale dönemiyor.", solution: "Port yönlendirmesi olan sabit IP ağlarda Sistem Ayarları → NAT ve Dış IP ekranında gerçek statik dış IP'nizi tanımlayıp kaydedin." }
     ],
     relatedPages: ["giden-arama-kurali", "gelen-arama-kurali", "santral-entegrasyonu-ve-nat", "sorun-inceleme-sip-debugger"],
     relatedApis: ["GET /api/v1/trunks", "GET /api/reports/trunk-package-usage"]

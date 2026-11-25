@@ -26,9 +26,9 @@ const ALL_EDIT_GUIDES = {
 
 export const MANUAL_META = {
   product: "Nornia Enterprise AI PBX",
-  version: "v3.10.11",
-  updatedAt: "24 Kasım 2026",
-  totalPages: 105,
+  version: "v3.11.1",
+  updatedAt: "26 Kasım 2026",
+  totalPages: 107,
   fullPdfPath: "/pdfs/nornia-kullanim-kilavuzu-tam.pdf"
 };
 
@@ -78,7 +78,7 @@ export const MANUAL_GROUPS = [
   {
     id: "yonetim",
     title: "Yönetim & Sistem Ayarları",
-    subtitle: "Santral/NAT, Ağ/Nornia Connect, Multi-Site, Roller/KVKK/LDAP, Lisans, AI/Kanal Ayarları, sngrep ve Güvenlik",
+    subtitle: "Santral/NAT, Ağ/Nornia Connect, Multi-Site, Roller/KVKK/LDAP, Lisans, AI/Kanal/CSAT, Otel & PMS, sngrep ve Güvenlik",
     color: "slate"
   },
   {
