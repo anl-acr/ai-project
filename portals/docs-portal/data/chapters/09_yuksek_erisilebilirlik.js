@@ -1,7 +1,8 @@
 export const CHAPTERS_YUKSEK_ERISILEBILIRLIK = [
   {
-    id: "nornia-spark-tek-sunucu-ha",
-    number: "108",
+    id: "nornia-spark",
+    number: "HA-1",
+    hidden: true,
     groupId: "yuksek-erisilebilirlik",
     category: "Yüksek Erişilebilirlik & Coğrafi Yedeklilik",
     title: "Nornia Spark — Tek Sunucu Always-Up Docker HA & ISO Kurulumu",
@@ -226,13 +227,14 @@ sudo bash scripts/ha/build_nornia_ha_iso.sh \\
         solution: "Üretim ortamında `--email` parametresiyle Let's Encrypt sertifikası alın veya kurumsal CA sertifikanızı fullchain+privkey birleşik formatında `/etc/nornia/certs/nornia.pem` dosyasına kopyalayıp `docker restart nornia-haproxy` çalıştırın."
       }
     ],
-    relatedPages: ["nornia-midgard-tam-sip-ha", "nornia-odin-cografi-yedeklilik", "sistem-mimarisi-ve-servis-haritasi"],
+    relatedPages: ["nornia-midgard", "nornia-odin", "sistem-mimarisi-ve-servis-haritasi"],
     relatedApis: ["GET /api/system/ready", "GET /api/system/health", "GET /api/recordings/{filename}"]
   },
 
   {
-    id: "nornia-midgard-tam-sip-ha",
-    number: "109",
+    id: "nornia-midgard",
+    number: "HA-2",
+    hidden: true,
     groupId: "yuksek-erisilebilirlik",
     category: "Yüksek Erişilebilirlik & Coğrafi Yedeklilik",
     title: "Nornia Midgard — Tek Sunucu Tam SIP-HA (Kamailio + RTPEngine + 2×Asterisk)",
@@ -407,13 +409,14 @@ sudo bash scripts/ha/build_nornia_ha_iso.sh --edition midgard --version 3.12.0`
         solution: "`docker exec nornia-asterisk-2 asterisk -rx 'pjsip show transports'` çıktısında `127.0.0.1:5064` göründüğünü doğrulayın."
       }
     ],
-    relatedPages: ["nornia-spark-tek-sunucu-ha", "nornia-odin-cografi-yedeklilik", "sip-webrtc-ami-cagri-akisi"],
+    relatedPages: ["nornia-spark", "nornia-odin", "sip-webrtc-ami-cagri-akisi"],
     relatedApis: ["GET /api/system/ready", "GET /api/webrtc/config", "GET /api/sip-debugger/calls"]
   },
 
   {
-    id: "nornia-odin-cografi-yedeklilik",
-    number: "110",
+    id: "nornia-odin",
+    number: "HA-3",
+    hidden: true,
     groupId: "yuksek-erisilebilirlik",
     category: "Yüksek Erişilebilirlik & Coğrafi Yedeklilik",
     title: "Nornia Odin — Çoklu Sunucu, Ayrıştırılmış Asterisk & Coğrafi Yedeklilik (Geo-DR)",
@@ -683,7 +686,7 @@ sudo bash /opt/ai-project/scripts/ha/install_nornia_odin.sh \\
         solution: "`/etc/keepalived/keepalived.conf` içinde `unicast_src_ip` ve `unicast_peer` bloklarını ekleyerek Keepalived'ı unicast moda geçirin."
       }
     ],
-    relatedPages: ["nornia-spark-tek-sunucu-ha", "nornia-midgard-tam-sip-ha", "cok-subeli-dagitik-santral"],
+    relatedPages: ["nornia-spark", "nornia-midgard", "cok-subeli-santral-federation"],
     relatedApis: ["GET /api/system/ready", "POST /api/federation/heartbeat", "GET /api/recordings/{filename}"]
   }
 ];

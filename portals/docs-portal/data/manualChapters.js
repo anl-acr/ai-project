@@ -29,7 +29,7 @@ export const MANUAL_META = {
   product: "Nornia Enterprise AI PBX",
   version: "v3.12.0",
   updatedAt: "26 Kasım 2026",
-  totalPages: 110,
+  totalPages: 107,
   fullPdfPath: "/pdfs/nornia-kullanim-kilavuzu-tam.pdf"
 };
 
@@ -87,12 +87,6 @@ export const MANUAL_GROUPS = [
     title: "Teknik Mimari & Sistem Dokümantasyonu",
     subtitle: "Çalışan tüm servisler, port/bağlantı haritası, SIP/WebRTC/AMI çağrı akışı, AudioSocket AI, Canlı Çeviri, Tünel ve PostgreSQL",
     color: "indigo"
-  },
-  {
-    id: "yuksek-erisilebilirlik",
-    title: "Yüksek Erişilebilirlik & Coğrafi Yedeklilik (Spark • Midgard • Odin)",
-    subtitle: "Nornia Spark (Tek Sunucu Docker HA), Nornia Midgard (Kamailio + RTPEngine + 2×Asterisk SIP-HA), Nornia Odin (Coğrafi Yedekli Kurumsal Bulut) ve Air-Gapped ISO rehberi",
-    color: "emerald"
   }
 ];
 
@@ -107,8 +101,7 @@ const RAW_CHAPTERS = [
   ...CHAPTERS_RAPORLAR,
   ...CHAPTERS_YONETIM_A,
   ...CHAPTERS_YONETIM_B,
-  ...CHAPTERS_TEKNIK_MIMARI,
-  ...CHAPTERS_YUKSEK_ERISILEBILIRLIK
+  ...CHAPTERS_TEKNIK_MIMARI
 ];
 
 export const MANUAL_CHAPTERS = RAW_CHAPTERS.map((ch, idx) => {
@@ -120,6 +113,19 @@ export const MANUAL_CHAPTERS = RAW_CHAPTERS.map((ch, idx) => {
   };
 });
 
+// Menüde ve genel aramada görünmeyen, yalnızca doğrudan URL ile erişilen gizli/özel sayfalar
+// (/nornia-spark, /nornia-midgard, /nornia-odin)
+export const DIRECT_ACCESS_CHAPTERS = CHAPTERS_YUKSEK_ERISILEBILIRLIK.map((ch) => {
+  const guide = ALL_EDIT_GUIDES[ch.id] || {};
+  return {
+    ...ch,
+    hidden: true,
+    editFormSections: guide.editFormSections || ch.editFormSections || []
+  };
+});
+
+export const ALL_CHAPTERS = [...MANUAL_CHAPTERS, ...DIRECT_ACCESS_CHAPTERS];
+
 export function getChapterById(slug) {
-  return MANUAL_CHAPTERS.find((c) => c.id === slug) || null;
+  return ALL_CHAPTERS.find((c) => c.id === slug) || null;
 }

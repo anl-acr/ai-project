@@ -3,11 +3,11 @@ import Head from "next/head";
 import { FileDown, Printer, BookOpen, CheckCircle2, Layers } from "lucide-react";
 import DocsShell from "../components/DocsShell";
 import ChapterArticle from "../components/ChapterArticle";
-import { MANUAL_CHAPTERS, getChapterById } from "../data/manualChapters";
+import { ALL_CHAPTERS, getChapterById } from "../data/manualChapters";
 
 export async function getStaticPaths() {
   return {
-    paths: MANUAL_CHAPTERS.map((c) => ({ params: { slug: c.id } })),
+    paths: ALL_CHAPTERS.map((c) => ({ params: { slug: c.id } })),
     fallback: false
   };
 }
@@ -60,6 +60,7 @@ export default function ManualChapterPage({ chapter, bundleChapters = [] }) {
           {chapter.number}. {chapter.title} — Nornia Doküman
         </title>
         <meta name="description" content={chapter.summary} />
+        {chapter.hidden && <meta name="robots" content="noindex, nofollow" />}
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
         <link rel="alternate icon" href="/favicon.ico" sizes="32x32" />

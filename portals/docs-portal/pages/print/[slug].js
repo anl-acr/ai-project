@@ -1,10 +1,10 @@
 import React, { useEffect } from "react";
 import Head from "next/head";
-import { MANUAL_CHAPTERS, MANUAL_GROUPS, MANUAL_META, getChapterById } from "../../data/manualChapters";
+import { ALL_CHAPTERS, MANUAL_CHAPTERS, MANUAL_GROUPS, MANUAL_META, getChapterById } from "../../data/manualChapters";
 import ChapterArticle from "../../components/ChapterArticle";
 
 export async function getStaticPaths() {
-  const paths = [{ params: { slug: "all" } }, ...MANUAL_CHAPTERS.map((c) => ({ params: { slug: c.id } }))];
+  const paths = [{ params: { slug: "all" } }, ...ALL_CHAPTERS.map((c) => ({ params: { slug: c.id } }))];
   return { paths, fallback: false };
 }
 
