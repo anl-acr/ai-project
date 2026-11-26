@@ -5,7 +5,7 @@ export const CHAPTERS_YUKSEK_ERISILEBILIRLIK = [
     groupId: "yuksek-erisilebilirlik",
     category: "Yüksek Erişilebilirlik & Coğrafi Yedeklilik",
     title: "Nornia Spark — Tek Sunucu Always-Up Docker HA & ISO Kurulumu",
-    shortTitle: "Nornia Spark (Seçenek 1)",
+    shortTitle: "Nornia Spark",
     menuPath: "Yüksek Erişilebilirlik & Coğrafi Yedeklilik → Nornia Spark",
     pbxRoute: "/opt/ai-project/deploy/ha/docker-compose.spark.yml",
     permissions: ["Sistem Yöneticisi / BT Mühendisi (SSH: root)"],
@@ -236,7 +236,7 @@ sudo bash scripts/ha/build_nornia_ha_iso.sh \\
     groupId: "yuksek-erisilebilirlik",
     category: "Yüksek Erişilebilirlik & Coğrafi Yedeklilik",
     title: "Nornia Midgard — Tek Sunucu Tam SIP-HA (Kamailio + RTPEngine + 2×Asterisk)",
-    shortTitle: "Nornia Midgard (Seçenek 2)",
+    shortTitle: "Nornia Midgard",
     menuPath: "Yüksek Erişilebilirlik & Coğrafi Yedeklilik → Nornia Midgard",
     pbxRoute: "/opt/ai-project/deploy/ha/docker-compose.midgard.yml",
     permissions: ["Sistem Yöneticisi / Telekom Mühendisi (SSH: root)"],
@@ -417,7 +417,7 @@ sudo bash scripts/ha/build_nornia_ha_iso.sh --edition midgard --version 3.12.0`
     groupId: "yuksek-erisilebilirlik",
     category: "Yüksek Erişilebilirlik & Coğrafi Yedeklilik",
     title: "Nornia Odin — Çoklu Sunucu, Ayrıştırılmış Asterisk & Coğrafi Yedeklilik (Geo-DR)",
-    shortTitle: "Nornia Odin (Seçenek 3)",
+    shortTitle: "Nornia Odin",
     menuPath: "Yüksek Erişilebilirlik & Coğrafi Yedeklilik → Nornia Odin",
     pbxRoute: "/opt/ai-project/scripts/ha/install_nornia_odin.sh",
     permissions: ["Kurumsal Altyapı Mimarı / Sistem Yöneticisi (SSH: root)"],
@@ -651,7 +651,7 @@ sudo bash /opt/ai-project/scripts/ha/install_nornia_odin.sh \\
         body:
           "Müşteri ölçeğine ve SLA gereksinimine göre doğru Nornia Yüksek Erişilebilirlik sürümünü aşağıdaki tablodan seçebilirsiniz.",
         table: {
-          headers: ["Özellik / Kriter", "Nornia Spark (Seçenek 1)", "Nornia Midgard (Seçenek 2)", "Nornia Odin (Seçenek 3)"],
+          headers: ["Özellik / Kriter", "Nornia Spark", "Nornia Midgard", "Nornia Odin"],
           rows: [
             ["Kurulum Topolojisi", "Tek Sunucu (8 Konteyner)", "Tek Sunucu (11 Konteyner)", "Çoklu Sunucu & 2+1 Veri Merkezi"],
             ["Uygulama (Backend / UI)", "2× Aktif-Aktif + HAProxy", "2× Aktif-Aktif + HAProxy", "Sınırsız Stateless Havuz"],

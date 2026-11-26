@@ -1295,7 +1295,7 @@ def build_html() -> str:
       <!-- SPARK -->
       <div class="card" style="padding: 13px; display: flex; flex-direction: column; justify-content: space-between;">
         <div>
-          <div class="pill-tag" style="margin-bottom: 6px;">Seçenek 1 • Tek Sunucu HA</div>
+          <div class="pill-tag" style="margin-bottom: 6px;">Tek Sunucu HA</div>
           <div class="card-title" style="font-size: 11.4pt; color: #0f172a;">Nornia Spark</div>
           <div style="font-size: 7.8pt; color: #475569; margin-top: 2px; font-weight: 600;">
             Always-Up Docker Yüksek Erişilebilirlik
@@ -1315,7 +1315,7 @@ def build_html() -> str:
       <!-- MIDGARD -->
       <div class="card indigo" style="padding: 13px; border: 2px solid #4f46e5; display: flex; flex-direction: column; justify-content: space-between;">
         <div>
-          <div class="pill-tag" style="background: #1e1b4b; color: #ffffff; margin-bottom: 6px;">Seçenek 2 • Tam SIP-HA</div>
+          <div class="pill-tag" style="background: #1e1b4b; color: #ffffff; margin-bottom: 6px;">Tam SIP-HA</div>
           <div class="card-title" style="font-size: 11.4pt; color: #1e1b4b;">Nornia Midgard</div>
           <div style="font-size: 7.8pt; color: #4338ca; margin-top: 2px; font-weight: 600;">
             Kamailio + RTPEngine + 2× Asterisk
@@ -1335,7 +1335,7 @@ def build_html() -> str:
       <!-- ODIN -->
       <div class="card dark" style="padding: 13px; display: flex; flex-direction: column; justify-content: space-between;">
         <div>
-          <div class="pill-tag" style="background: rgba(56,189,248,0.18); color: #7dd3fc; border: 1px solid rgba(56,189,248,0.35); margin-bottom: 6px;">Seçenek 3 • Enterprise Geo-DR</div>
+          <div class="pill-tag" style="background: rgba(56,189,248,0.18); color: #7dd3fc; border: 1px solid rgba(56,189,248,0.35); margin-bottom: 6px;">Enterprise Geo-DR</div>
           <div class="card-title" style="font-size: 11.4pt; color: #ffffff;">Nornia Odin</div>
           <div style="font-size: 7.8pt; color: #94a3b8; margin-top: 2px; font-weight: 600;">
             Çoklu Sunucu &amp; Coğrafi Yedeklilik (%99.99)
