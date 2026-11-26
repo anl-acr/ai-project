@@ -1441,6 +1441,14 @@ class AIAgentSchema(BaseModel):
     elevenlabs_stability: Optional[float] = 0.5
     elevenlabs_similarity: Optional[float] = 0.75
     elevenlabs_style: Optional[float] = 0.0
+    # Multi-Engine Realtime Voice & Failover Settings
+    realtime_engine: Optional[str] = "gemini_live"  # gemini_live | openai_realtime | deepgram_cartesia | deepgram_elevenlabs
+    realtime_auto_failover: Optional[bool] = True
+    realtime_failover_chain: Optional[List[str]] = None
+    openai_realtime_model: Optional[str] = "gpt-4o-realtime-preview"
+    openai_realtime_voice: Optional[str] = "coral"
+    cartesia_voice_id: Optional[str] = ""
+    deepgram_language: Optional[str] = "tr"
     # Background Ambient Noise Settings
     bg_noise_enabled: Optional[bool] = False
     bg_noise_type: Optional[str] = "call_center"  # call_center, office_keyboard, cafe_lounge, soft_rain, analog_warmth
@@ -22146,19 +22154,30 @@ async def delete_rag_media_item(media_id: str, user_info: dict = Depends(get_use
 @app.get("/api/settings/ai-providers")
 async def get_ai_providers(user_info: dict = Depends(get_user_info)):
     target_tenant = user_info.get("tenant_id") or "tenant-default"
+    base_defaults = {
+        "google_api_key": "",
+        "openai_api_key": "",
+        "anthropic_api_key": "",
+        "groq_api_key": "",
+        "elevenlabs_api_key": "",
+        "deepgram_api_key": "",
+        "cartesia_api_key": "",
+    }
     tenant_keys = settings_db.get("tenant_ai_providers", {}).get(target_tenant)
-    if tenant_keys:
-        return tenant_keys
+    if isinstance(tenant_keys, dict):
+        return {**base_defaults, **tenant_keys}
     if is_global_tenant(target_tenant) or is_default_tenant(target_tenant):
-        return settings_db.get("ai_providers", DEFAULT_SETTINGS["ai_providers"])
-    return {"google_api_key": "", "openai_api_key": "", "anthropic_api_key": "", "groq_api_key": "", "elevenlabs_api_key": ""}
+        return {**base_defaults, **(settings_db.get("ai_providers") or DEFAULT_SETTINGS["ai_providers"])}
+    return base_defaults
 
 class AIProvidersSchema(BaseModel):
-    google_api_key: str
-    openai_api_key: str
-    anthropic_api_key: str
-    groq_api_key: str
-    elevenlabs_api_key: str
+    google_api_key: str = ""
+    openai_api_key: str = ""
+    anthropic_api_key: str = ""
+    groq_api_key: str = ""
+    elevenlabs_api_key: str = ""
+    deepgram_api_key: str = ""
+    cartesia_api_key: str = ""
 
 @app.post("/api/settings/ai-providers")
 async def save_ai_providers(payload: AIProvidersSchema, user_info: dict = Depends(get_user_info)):
@@ -22170,7 +22189,20 @@ async def save_ai_providers(payload: AIProvidersSchema, user_info: dict = Depend
     if is_default_tenant(target_tenant):
         settings_db["ai_providers"] = data
     save_settings(settings_db)
-    return {"status": "success", "message": "AI ve TTS API anahtarları kaydedildi."}
+    return {"status": "success", "message": "AI, Realtime STT ve TTS API anahtarları kaydedildi."}
+
+
+@app.post("/api/settings/ai-providers/test-realtime")
+async def test_realtime_ai_providers_endpoint(payload: dict = Body(default={}), user_info: dict = Depends(get_user_info)):
+    from backend.services.realtime_voice_engine import get_provider_keys, test_realtime_voice_providers
+
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    keys = get_provider_keys(settings_db, target_tenant)
+    if isinstance(payload, dict):
+        for k in list(keys.keys()):
+            if payload.get(k):
+                keys[k] = str(payload[k]).strip()
+    return await test_realtime_voice_providers(keys)
 
 
 @app.get("/api/settings/ai-task-routing")

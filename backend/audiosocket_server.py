@@ -2990,8 +2990,113 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
                 else:
                     print(f"[ElevenLabs WARNING] UYARI: Temsilci '{ai_agent.get('name')}' ElevenLabs TTS olarak seçildi ancak ElevenLabs API Key henüz girilmemiş! Gemini Dahili Ses Motoruna geçiliyor.")
 
+        # 1.5 Multi-Engine Realtime Voice Orchestrator (OpenAI Realtime + Deepgram/Cartesia/ElevenLabs + Failover)
+        from backend.services.realtime_voice_engine import (
+            get_provider_keys as _rt_get_keys,
+            resolve_voice_engine_chain as _rt_resolve_chain,
+            run_openai_realtime_session as _rt_run_openai,
+            run_deepgram_pipeline_session as _rt_run_deepgram,
+        )
+        _rt_tenant_id = str((ai_agent or {}).get("tenant_id") or "tenant-default")
+        _rt_keys = _rt_get_keys(settings_data, _rt_tenant_id)
+        _rt_chain = _rt_resolve_chain(ai_agent, _rt_keys)
+
+        async def _try_alt_realtime_engines(alt_engines: list, reason_label: str = "primary") -> bool:
+            if not alt_engines:
+                return False
+            nonlocal silence_task
+            _alt_prompt = await compile_system_prompt(ai_agent)
+
+            async def _alt_on_transcript(speaker_label: str, text_val: str):
+                try:
+                    await write_db_transcript(call_id, speaker_label, text_val)
+                except Exception as _tre:
+                    print(f"[Multi-Engine Transcript Error]: {_tre}")
+
+            async def _alt_on_transfer(target_ext: str):
+                try:
+                    from backend.services.ami_manager import redirect_call_to_human as _rt_redirect
+                    await _rt_redirect(call_id, extension=target_ext, context="webrtc_agents")
+                except Exception as _te:
+                    print(f"[Multi-Engine Transfer Error] {target_ext}: {_te}")
+
+            async def _alt_on_hangup():
+                try:
+                    from backend.services.ami_manager import hangup_call as _rt_hangup
+                    await _rt_hangup(call_id)
+                except Exception as _he:
+                    print(f"[Multi-Engine Hangup Error]: {_he}")
+
+            for _eng in alt_engines:
+                if _eng == "gemini_live":
+                    continue
+                try:
+                    print(f"[Multi-Engine Voice] Call={call_id} başlatılıyor -> {_eng} (sebep: {reason_label})", flush=True)
+                    if silence_task:
+                        silence_task.cancel()
+                        try:
+                            await silence_task
+                        except Exception:
+                            pass
+                        silence_task = None
+                    if _eng == "openai_realtime":
+                        await _rt_run_openai(
+                            call_id=call_id,
+                            reader=reader,
+                            writer=writer,
+                            ai_agent=ai_agent,
+                            keys=_rt_keys,
+                            system_instruction=_alt_prompt,
+                            on_transcript=_alt_on_transcript,
+                            on_transfer=_alt_on_transfer,
+                            on_hangup=_alt_on_hangup,
+                        )
+                        return True
+                    if _eng in ("deepgram_cartesia", "deepgram_elevenlabs"):
+                        await _rt_run_deepgram(
+                            call_id=call_id,
+                            reader=reader,
+                            writer=writer,
+                            ai_agent=ai_agent,
+                            keys=_rt_keys,
+                            system_instruction=_alt_prompt,
+                            tts_mode="cartesia" if _eng == "deepgram_cartesia" else "elevenlabs",
+                            on_transcript=_alt_on_transcript,
+                            on_transfer=_alt_on_transfer,
+                            on_hangup=_alt_on_hangup,
+                        )
+                        return True
+                except Exception as _eng_err:
+                    print(f"[Multi-Engine Failover] {_eng} başarısız ({_eng_err}), sıradaki motor deneniyor...", flush=True)
+                    try:
+                        from backend.services.notification_service import trigger_notification_bg
+                        trigger_notification_bg(
+                            "ai_provider_error_or_quota",
+                            f"Realtime Ses Motoru Failover ({_eng})",
+                            f"Call {call_id} için {_eng} bağlantısı kurulamadı ({_eng_err}); otomatik yedek motora geçiliyor.",
+                            severity="warning",
+                        )
+                    except Exception:
+                        pass
+                    continue
+            return False
+
+        # If the agent explicitly selected a non-Gemini primary realtime engine (OpenAI Realtime / Deepgram+Cartesia / Deepgram+ElevenLabs)
+        if _rt_chain and _rt_chain[0] != "gemini_live":
+            _primary_non_gemini = [e for e in _rt_chain if e != "gemini_live"]
+            if await _try_alt_realtime_engines(_primary_non_gemini, reason_label="configured_primary"):
+                writer.close()
+                await writer.wait_closed()
+                return
+            print(f"[Multi-Engine Failover] Birincil motorlar ({_primary_non_gemini}) başarısız, Gemini Live yedeğine dönülüyor...", flush=True)
+
         # 2. Connect to Google Gemini Multimodal Live API via WebSocket
         if not GEMINI_API_KEY:
+            _fallback_alts = [e for e in _rt_chain if e != "gemini_live"]
+            if _fallback_alts and await _try_alt_realtime_engines(_fallback_alts, reason_label="gemini_key_missing_failover"):
+                writer.close()
+                await writer.wait_closed()
+                return
             print("Hata: GEMINI_API_KEY tanimlanmamis!")
             try:
                 from backend.services.notification_service import trigger_notification_bg
@@ -3027,7 +3132,12 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
                     await asyncio.sleep(0.5)
                     
         if not gemini_ws:
-            print("Hata: Gemini WebSocket sunucusuna baglanilamadi!")
+            print("Hata: Gemini WebSocket sunucusuna baglanilamadi! Otomatik Failover kontrol ediliyor...")
+            _fallback_alts = [e for e in _rt_chain if e != "gemini_live"]
+            if _fallback_alts and await _try_alt_realtime_engines(_fallback_alts, reason_label=f"gemini_ws_failover:{last_gemini_err[:60]}"):
+                writer.close()
+                await writer.wait_closed()
+                return
             try:
                 from backend.services.notification_service import trigger_notification_bg
                 trigger_notification_bg(

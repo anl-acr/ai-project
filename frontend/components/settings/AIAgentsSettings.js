@@ -91,6 +91,14 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
   const [elevenlabsStyle, setElevenlabsStyle] = useState(0.0);
   const [elevenlabsVoiceList, setElevenlabsVoiceList] = useState([]);
 
+  // Multi-Engine Realtime Voice & Failover States
+  const [realtimeEngine, setRealtimeEngine] = useState("gemini_live");
+  const [realtimeAutoFailover, setRealtimeAutoFailover] = useState(true);
+  const [openaiRealtimeModel, setOpenaiRealtimeModel] = useState("gpt-4o-realtime-preview");
+  const [openaiRealtimeVoice, setOpenaiRealtimeVoice] = useState("coral");
+  const [cartesiaVoiceId, setCartesiaVoiceId] = useState("");
+  const [deepgramLanguage, setDeepgramLanguage] = useState("tr");
+
   // Ambient Background Noise States
   const [bgNoiseEnabled, setBgNoiseEnabled] = useState(false);
   const [bgNoiseType, setBgNoiseType] = useState("call_center");
@@ -597,6 +605,14 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
     setElevenlabsSimilarity(agent.elevenlabs_similarity !== undefined ? agent.elevenlabs_similarity : 0.75);
     setElevenlabsStyle(agent.elevenlabs_style !== undefined ? agent.elevenlabs_style : 0.0);
 
+    // Multi-Engine Realtime Voice & Failover
+    setRealtimeEngine(agent.realtime_engine || "gemini_live");
+    setRealtimeAutoFailover(agent.realtime_auto_failover !== undefined ? Boolean(agent.realtime_auto_failover) : true);
+    setOpenaiRealtimeModel(agent.openai_realtime_model || "gpt-4o-realtime-preview");
+    setOpenaiRealtimeVoice(agent.openai_realtime_voice || "coral");
+    setCartesiaVoiceId(agent.cartesia_voice_id || "");
+    setDeepgramLanguage(agent.deepgram_language || "tr");
+
     // Ambient Noise
     setBgNoiseEnabled(Boolean(agent.bg_noise_enabled));
     setBgNoiseType(agent.bg_noise_type || "call_center");
@@ -683,6 +699,12 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
       elevenlabs_stability: elevenlabsStability,
       elevenlabs_similarity: elevenlabsSimilarity,
       elevenlabs_style: elevenlabsStyle,
+      realtime_engine: realtimeEngine,
+      realtime_auto_failover: realtimeAutoFailover,
+      openai_realtime_model: openaiRealtimeModel,
+      openai_realtime_voice: openaiRealtimeVoice,
+      cartesia_voice_id: cartesiaVoiceId,
+      deepgram_language: deepgramLanguage,
       bg_noise_enabled: bgNoiseEnabled,
       bg_noise_type: bgNoiseType,
       bg_noise_volume: parseFloat(bgNoiseVolume) || 0.15,
@@ -1349,6 +1371,98 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
                 <p className="text-[11px] text-slate-400">
                   Lisansınızda tanımlı ses tanıma (STT), ses sentezleme (TTS) sağlayıcılarını, ses karakterini ve konuşma hızını yapılandırın.
                 </p>
+              </div>
+
+              {/* Çoklu Realtime Ses Motoru & Otomatik Failover */}
+              <div className={`p-4 rounded-2xl border ${lightBg} ${borderLight} space-y-4`}>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <div className={`text-xs font-extrabold flex items-center gap-1.5 ${text}`}>
+                      <Radio size={14} />
+                      <span>Çoklu Realtime Ses Motoru &amp; Otomatik Failover</span>
+                    </div>
+                    <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-0.5">
+                      Canlı telefon ses akışını yönetecek birincil motoru seçin; kesinti veya kota dolumunda sistem tanımlı yedek motorlara otomatik geçer.
+                    </p>
+                  </div>
+                  <label className="inline-flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-200 cursor-pointer shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={realtimeAutoFailover}
+                      onChange={(e) => setRealtimeAutoFailover(e.target.checked)}
+                    />
+                    <span>Otomatik Failover Aktif</span>
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                      Birincil Canlı Ses Motoru
+                    </label>
+                    <select
+                      value={realtimeEngine}
+                      onChange={(e) => setRealtimeEngine(e.target.value)}
+                      className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-white focus:outline-none"
+                    >
+                      <option value="gemini_live">Google Gemini Multimodal Live (Native Audio)</option>
+                      <option value="openai_realtime">OpenAI Realtime API (GPT-4o Realtime Native)</option>
+                      <option value="deepgram_cartesia">Deepgram Nova-3 STT + Cartesia Sonic 2 TTS</option>
+                      <option value="deepgram_elevenlabs">Deepgram Nova-3 STT + ElevenLabs Flash v2.5</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                      OpenAI Realtime Ses Karakteri (Birincil / Failover)
+                    </label>
+                    <select
+                      value={openaiRealtimeVoice}
+                      onChange={(e) => setOpenaiRealtimeVoice(e.target.value)}
+                      className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-white focus:outline-none"
+                    >
+                      <option value="coral">Coral (Doğal / Samimi)</option>
+                      <option value="shimmer">Shimmer (Akıcı Kadın)</option>
+                      <option value="alloy">Alloy (Dengeli Kurumsal)</option>
+                      <option value="ash">Ash (Net Erkek)</option>
+                      <option value="verse">Verse (Dinamik)</option>
+                      <option value="sage">Sage (Sakin / Profesyonel)</option>
+                      <option value="echo">Echo (Tok Erkek)</option>
+                      <option value="ballad">Ballad (Yumuşak)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                      Cartesia Sonic 2 Voice ID (Opsiyonel)
+                    </label>
+                    <input
+                      type="text"
+                      value={cartesiaVoiceId}
+                      onChange={(e) => setCartesiaVoiceId(e.target.value)}
+                      placeholder="Boşsa çok dilli varsayılan Sonic 2 sesi kullanılır"
+                      className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-800 dark:text-white focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                      Deepgram Nova-3 STT Dili
+                    </label>
+                    <select
+                      value={deepgramLanguage}
+                      onChange={(e) => setDeepgramLanguage(e.target.value)}
+                      className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-white focus:outline-none"
+                    >
+                      <option value="tr">Türkçe (tr)</option>
+                      <option value="multi">Çok Dilli Otomatik Algılama (multi)</option>
+                      <option value="en">İngilizce (en)</option>
+                      <option value="de">Almanca (de)</option>
+                      <option value="ar">Arapça (ar)</option>
+                      <option value="ru">Rusça (ru)</option>
+                    </select>
+                  </div>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
