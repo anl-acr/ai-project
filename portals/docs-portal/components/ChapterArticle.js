@@ -620,6 +620,147 @@ export default function ChapterArticle({ chapter, printMode = false }) {
                 {sec.body}
               </p>
 
+              {sec.archDiagram && (
+                <div className="print-avoid-break rounded-2xl border border-slate-800 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 p-5 text-white space-y-4 overflow-x-auto">
+                  <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-800">
+                    <div>
+                      <div className="text-[10px] font-black uppercase tracking-widest text-indigo-400">
+                        {sec.archDiagram.eyebrow || "MİMARİ ŞEMA"}
+                      </div>
+                      <div className="text-sm sm:text-base font-black text-white">
+                        {sec.archDiagram.title}
+                      </div>
+                    </div>
+                    {sec.archDiagram.badges && sec.archDiagram.badges.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {sec.archDiagram.badges.map((b, bIdx) => (
+                          <span
+                            key={bIdx}
+                            className="px-2.5 py-1 rounded-lg bg-indigo-500/20 border border-indigo-400/30 text-[10px] font-mono font-bold text-indigo-200"
+                          >
+                            {b}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-2.5">
+                    {(sec.archDiagram.tiers || []).map((tier, tIdx) => {
+                      const toneMap = {
+                        sky: "border-sky-500/40 bg-sky-500/10 text-sky-300",
+                        indigo: "border-indigo-500/40 bg-indigo-500/10 text-indigo-300",
+                        emerald: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300",
+                        amber: "border-amber-500/40 bg-amber-500/10 text-amber-300",
+                        rose: "border-rose-500/40 bg-rose-500/10 text-rose-300",
+                        purple: "border-purple-500/40 bg-purple-500/10 text-purple-300",
+                      };
+                      const toneCls = toneMap[tier.tone] || toneMap.indigo;
+                      return (
+                        <div key={tIdx} className="space-y-2">
+                          <div className={`rounded-xl border p-3.5 ${toneCls}`}>
+                            <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
+                              <span className="text-[11px] font-black uppercase tracking-wider">
+                                {tier.label}
+                              </span>
+                              {tier.meta && (
+                                <span className="text-[10px] font-mono text-slate-300 bg-slate-950/60 px-2 py-0.5 rounded">
+                                  {tier.meta}
+                                </span>
+                              )}
+                            </div>
+                            <div
+                              className={`grid gap-2.5 ${
+                                (tier.nodes || []).length >= 4
+                                  ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-4"
+                                  : (tier.nodes || []).length === 3
+                                  ? "grid-cols-1 sm:grid-cols-3"
+                                  : (tier.nodes || []).length === 2
+                                  ? "grid-cols-1 sm:grid-cols-2"
+                                  : "grid-cols-1"
+                              }`}
+                            >
+                              {(tier.nodes || []).map((node, nIdx) => (
+                                <div
+                                  key={nIdx}
+                                  className="rounded-lg bg-slate-950/85 border border-slate-700/80 p-3 space-y-1"
+                                >
+                                  <div className="flex items-center justify-between gap-1.5">
+                                    <span className="text-xs font-extrabold text-white">
+                                      {node.name}
+                                    </span>
+                                    {node.badge && (
+                                      <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shrink-0">
+                                        {node.badge}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {node.ports && (
+                                    <div className="text-[10px] font-mono text-sky-300">
+                                      {node.ports}
+                                    </div>
+                                  )}
+                                  {node.desc && (
+                                    <div className="text-[11px] text-slate-300 leading-snug">
+                                      {node.desc}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          {tier.arrowToNext && (
+                            <div className="flex items-center justify-center gap-2 py-0.5">
+                              <svg width="16" height="18" viewBox="0 0 16 18" className="text-indigo-400 shrink-0" aria-hidden="true">
+                                <path d="M8 0v14M3 10l5 6 5-6" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                              <span className="text-[10px] font-mono font-bold text-slate-300 bg-slate-800/90 border border-slate-700 px-2.5 py-0.5 rounded-full">
+                                {tier.arrowToNext}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {sec.table && sec.table.headers && sec.table.rows && (
+                <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="bg-slate-100 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-[10px] font-black uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                        {sec.table.headers.map((h, hIdx) => (
+                          <th key={hIdx} className="px-3.5 py-2.5">
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                      {sec.table.rows.map((row, rIdx) => (
+                        <tr key={rIdx} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40">
+                          {row.map((cell, cIdx) => (
+                            <td
+                              key={cIdx}
+                              className={`px-3.5 py-2.5 leading-relaxed ${
+                                cIdx === 0
+                                  ? "font-extrabold text-slate-900 dark:text-white"
+                                  : "text-slate-700 dark:text-slate-300"
+                              }`}
+                            >
+                              {cell}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
               {sec.steps && sec.steps.length > 0 && (
                 <ol className="space-y-2.5 pt-1">
                   {sec.steps.map((step, sIdx) => (

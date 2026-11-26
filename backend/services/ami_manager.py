@@ -1178,19 +1178,48 @@ async def get_ami_manager() -> Manager:
                 pass
             manager_instance = None
 
-        # Verify AMI socket is responsive (not deadlocked) before connecting panoramisk
-        banner_ok = await asyncio.to_thread(_probe_ami_banner_sync, 1.8)
-        if not banner_ok and os.path.exists("/etc/asterisk"):
-            recovered = await asyncio.to_thread(ensure_asterisk_alive_sync, False)
-            if not recovered:
-                return None
+        # Opt-in HA Asterisk pool failover via ASTERISK_NODES="10.10.30.11:5038,10.10.30.12:5038"
+        raw_nodes = (os.getenv("ASTERISK_NODES") or "").strip()
+        target_host = os.getenv("AMI_HOST", AMI_HOST)
+        target_port = int(os.getenv("AMI_PORT", AMI_PORT))
+        if raw_nodes:
+            node_candidates = []
+            for item in raw_nodes.split(","):
+                item = item.strip()
+                if not item:
+                    continue
+                if ":" in item:
+                    h_part, p_part = item.rsplit(":", 1)
+                    try:
+                        node_candidates.append((h_part.strip(), int(p_part.strip())))
+                    except Exception:
+                        node_candidates.append((h_part.strip(), target_port))
+                else:
+                    node_candidates.append((item, target_port))
+            for cand_h, cand_p in node_candidates:
+                try:
+                    import socket as _sock
+                    with _sock.create_connection((cand_h, cand_p), timeout=1.5) as _s:
+                        _banner = _s.recv(64)
+                        if b"Asterisk Call Manager" in _banner:
+                            target_host, target_port = cand_h, cand_p
+                            break
+                except Exception:
+                    continue
+        else:
+            # Verify AMI socket is responsive (not deadlocked) before connecting panoramisk
+            banner_ok = await asyncio.to_thread(_probe_ami_banner_sync, 1.8)
+            if not banner_ok and os.path.exists("/etc/asterisk"):
+                recovered = await asyncio.to_thread(ensure_asterisk_alive_sync, False)
+                if not recovered:
+                    return None
 
-        print(f"[AMI] Connecting to Asterisk AMI at {AMI_HOST}:{AMI_PORT}...")
+        print(f"[AMI] Connecting to Asterisk AMI at {target_host}:{target_port}...")
         try:
             live_ami_secret = os.getenv("AMI_SECRET") or AMI_SECRET
             mgr = Manager(
-                host=os.getenv("AMI_HOST", AMI_HOST),
-                port=int(os.getenv("AMI_PORT", AMI_PORT)),
+                host=target_host,
+                port=target_port,
                 username=os.getenv("AMI_USER", AMI_USER),
                 secret=live_ami_secret,
                 loop=asyncio.get_event_loop()

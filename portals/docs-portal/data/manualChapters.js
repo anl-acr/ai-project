@@ -9,6 +9,7 @@ import { CHAPTERS_RAPORLAR } from "./chapters/06_raporlar";
 import { CHAPTERS_YONETIM_A } from "./chapters/07a_ayarlar";
 import { CHAPTERS_YONETIM_B } from "./chapters/07b_sistem";
 import { CHAPTERS_TEKNIK_MIMARI } from "./chapters/08_teknik_mimari";
+import { CHAPTERS_YUKSEK_ERISILEBILIRLIK } from "./chapters/09_yuksek_erisilebilirlik";
 
 import { EDIT_GUIDES_PART1 } from "./editGuides/part1_baslangic_operasyon_ai";
 import { EDIT_GUIDES_PART2 } from "./editGuides/part2_santral_core";
@@ -26,9 +27,9 @@ const ALL_EDIT_GUIDES = {
 
 export const MANUAL_META = {
   product: "Nornia Enterprise AI PBX",
-  version: "v3.11.1",
+  version: "v3.12.0",
   updatedAt: "26 Kasım 2026",
-  totalPages: 107,
+  totalPages: 110,
   fullPdfPath: "/pdfs/nornia-kullanim-kilavuzu-tam.pdf"
 };
 
@@ -86,6 +87,12 @@ export const MANUAL_GROUPS = [
     title: "Teknik Mimari & Sistem Dokümantasyonu",
     subtitle: "Çalışan tüm servisler, port/bağlantı haritası, SIP/WebRTC/AMI çağrı akışı, AudioSocket AI, Canlı Çeviri, Tünel ve PostgreSQL",
     color: "indigo"
+  },
+  {
+    id: "yuksek-erisilebilirlik",
+    title: "Yüksek Erişilebilirlik & Coğrafi Yedeklilik (Spark • Midgard • Odin)",
+    subtitle: "Nornia Spark (Tek Sunucu Docker HA), Nornia Midgard (Kamailio + RTPEngine + 2×Asterisk SIP-HA), Nornia Odin (Coğrafi Yedekli Kurumsal Bulut) ve Air-Gapped ISO rehberi",
+    color: "emerald"
   }
 ];
 
@@ -100,7 +107,8 @@ const RAW_CHAPTERS = [
   ...CHAPTERS_RAPORLAR,
   ...CHAPTERS_YONETIM_A,
   ...CHAPTERS_YONETIM_B,
-  ...CHAPTERS_TEKNIK_MIMARI
+  ...CHAPTERS_TEKNIK_MIMARI,
+  ...CHAPTERS_YUKSEK_ERISILEBILIRLIK
 ];
 
 export const MANUAL_CHAPTERS = RAW_CHAPTERS.map((ch, idx) => {

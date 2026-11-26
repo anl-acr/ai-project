@@ -43,7 +43,7 @@ def build_html() -> str:
     shot_runa_desktop = img_data_uri(WEB_PUBLIC / "screenshots" / "runa-desktop-real.jpg")
     shot_callflow = img_data_uri(WEB_PUBLIC / "screenshots" / "26-call-flow.jpg")
 
-    def footer(page_num: int, total: int = 10) -> str:
+    def footer(page_num: int, total: int = 11) -> str:
         return f"""
         <div class="page-footer">
           <div class="pf-left">
@@ -1277,7 +1277,139 @@ def build_html() -> str:
 </section>
 
 <!-- ======================================================================
-     SAYFA 10 — HEMEN BAŞLAYIN & İLETİŞİM (KAPANIŞ)
+     SAYFA 10 — YÜKSEK ERİŞİLEBİLİRLİK & COĞRAFİ YEDEKLİLİK (SPARK • MIDGARD • ODIN)
+     ====================================================================== -->
+<section class="page">
+  <div class="prism-bar"></div>
+  <div class="content">
+    <span class="eyebrow">İş Sürekliliği • Yüksek Erişilebilirlik &amp; Coğrafi Yedeklilik</span>
+    <h2 class="sec-title">Her Ölçekte Sıfır Kesinti: Nornia Spark, Midgard ve Odin</h2>
+    <p class="sec-sub">
+      Santraliniz bir işletmenin can damarıdır. Nornia; tek sunucuda sıfır kesintili güncelleme sunan
+      konteyner mimarisinden, tüm bir veri merkezinin devre dışı kalmasına karşı koruma sağlayan
+      coğrafi yedekli bulut kümesine kadar üç hazır kurumsal mimari sunar.
+    </p>
+
+    <!-- 3 Named HA Edition Cards -->
+    <div class="grid-3" style="margin-top: 13px; gap: 10px;">
+      <!-- SPARK -->
+      <div class="card" style="padding: 13px; display: flex; flex-direction: column; justify-content: space-between;">
+        <div>
+          <div class="pill-tag" style="margin-bottom: 6px;">Seçenek 1 • Tek Sunucu HA</div>
+          <div class="card-title" style="font-size: 11.4pt; color: #0f172a;">Nornia Spark</div>
+          <div style="font-size: 7.8pt; color: #475569; margin-top: 2px; font-weight: 600;">
+            Always-Up Docker Yüksek Erişilebilirlik
+          </div>
+          <ul class="feat-list" style="margin-top: 9px; gap: 5.5px;">
+            <li style="font-size: 8pt;"><span class="check" style="width:13px;height:13px;font-size:7.5pt;">✓</span><span><strong>2× Backend + 2× Frontend</strong> Aktif-Aktif HAProxy arkasında.</span></li>
+            <li style="font-size: 8pt;"><span class="check" style="width:13px;height:13px;font-size:7.5pt;">✓</span><span><strong>Sıfır Kesintili Güncelleme:</strong> Canlı oturumlar kopmadan yeni sürüm geçişi.</span></li>
+            <li style="font-size: 8pt;"><span class="check" style="width:13px;height:13px;font-size:7.5pt;">✓</span><span>Redis 7 küme senkronu, PostgreSQL 16 ve MinIO S3 ses kayıt kasası.</span></li>
+            <li style="font-size: 8pt;"><span class="check" style="width:13px;height:13px;font-size:7.5pt;">✓</span><span><strong>Air-Gapped ISO:</strong> İnternetsiz sahada tek medyadan otomatik kurulum.</span></li>
+          </ul>
+        </div>
+        <div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid #e2e8f0; font-size: 7.6pt; color: #334155;">
+          <strong>Min:</strong> 4 vCPU / 8 GB RAM • <strong>Önerilen:</strong> 8 vCPU / 16 GB
+        </div>
+      </div>
+
+      <!-- MIDGARD -->
+      <div class="card indigo" style="padding: 13px; border: 2px solid #4f46e5; display: flex; flex-direction: column; justify-content: space-between;">
+        <div>
+          <div class="pill-tag" style="background: #1e1b4b; color: #ffffff; margin-bottom: 6px;">Seçenek 2 • Tam SIP-HA</div>
+          <div class="card-title" style="font-size: 11.4pt; color: #1e1b4b;">Nornia Midgard</div>
+          <div style="font-size: 7.8pt; color: #4338ca; margin-top: 2px; font-weight: 600;">
+            Kamailio + RTPEngine + 2× Asterisk
+          </div>
+          <ul class="feat-list" style="margin-top: 9px; gap: 5.5px;">
+            <li style="font-size: 8pt;"><span class="check" style="width:13px;height:13px;font-size:7.5pt;">✓</span><span>Nornia Spark&apos;ın tüm uygulama ve arayüz yedekliliği dahildir.</span></li>
+            <li style="font-size: 8pt;"><span class="check" style="width:13px;height:13px;font-size:7.5pt;">✓</span><span><strong>Kamailio SIP/WSS Edge:</strong> 5 saniyede otomatik Asterisk failover.</span></li>
+            <li style="font-size: 8pt;"><span class="check" style="width:13px;height:13px;font-size:7.5pt;">✓</span><span><strong>RTPEngine Medya Proxy:</strong> WebRTC DTLS-SRTP yükünü hafifletir, NAT sorunlarını çözer.</span></li>
+            <li style="font-size: 8pt;"><span class="check" style="width:13px;height:13px;font-size:7.5pt;">✓</span><span><strong>2× Aktif-Aktif Asterisk</strong> + otomatik AMI failover &amp; Air-Gapped ISO.</span></li>
+          </ul>
+        </div>
+        <div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid #c7d2fe; font-size: 7.6pt; color: #1e1b4b;">
+          <strong>Min:</strong> 6 vCPU / 12 GB RAM • <strong>Önerilen:</strong> 8–12 vCPU / 16–24 GB
+        </div>
+      </div>
+
+      <!-- ODIN -->
+      <div class="card dark" style="padding: 13px; display: flex; flex-direction: column; justify-content: space-between;">
+        <div>
+          <div class="pill-tag" style="background: rgba(56,189,248,0.18); color: #7dd3fc; border: 1px solid rgba(56,189,248,0.35); margin-bottom: 6px;">Seçenek 3 • Enterprise Geo-DR</div>
+          <div class="card-title" style="font-size: 11.4pt; color: #ffffff;">Nornia Odin</div>
+          <div style="font-size: 7.8pt; color: #94a3b8; margin-top: 2px; font-weight: 600;">
+            Çoklu Sunucu &amp; Coğrafi Yedeklilik (%99.99)
+          </div>
+          <ul class="feat-list" style="margin-top: 9px; gap: 5.5px;">
+            <li style="font-size: 8pt; color: #e2e8f0;"><span class="check" style="width:13px;height:13px;font-size:7.5pt;background:#0ea5e9;">✓</span><span><strong>2 Veri Merkezi + Witness Quorum:</strong> Split-Brain sıfır, tam DC koruması.</span></li>
+            <li style="font-size: 8pt; color: #e2e8f0;"><span class="check" style="width:13px;height:13px;font-size:7.5pt;background:#0ea5e9;">✓</span><span><strong>Çift İçi-DC PostgreSQL Patroni (RPO=0)</strong> + coğrafi replika.</span></li>
+            <li style="font-size: 8pt; color: #e2e8f0;"><span class="check" style="width:13px;height:13px;font-size:7.5pt;background:#0ea5e9;">✓</span><span><strong>Ayrıştırılmış Harici Asterisk Havuzu</strong> &amp; Keepalived Floating VIP.</span></li>
+            <li style="font-size: 8pt; color: #e2e8f0;"><span class="check" style="width:13px;height:13px;font-size:7.5pt;background:#0ea5e9;">✓</span><span><strong>MinIO Geo-S3 File Server</strong> &amp; Multi-HQ taşra şube failover.</span></li>
+          </ul>
+        </div>
+        <div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.15); font-size: 7.6pt; color: #cbd5e1;">
+          <strong>Ölçek:</strong> 7–13 Sunucu • 1.000–5.000+ Eşzamanlı Çağrı
+        </div>
+      </div>
+    </div>
+
+    <!-- Compact Comparison Table -->
+    <div style="margin-top: 13px; border: 1px solid #cbd5e1; border-radius: 12px; overflow: hidden;">
+      <table style="width: 100%; border-collapse: collapse; font-size: 7.9pt;">
+        <thead>
+          <tr style="background: #0f172a; color: #ffffff; text-align: left;">
+            <th style="padding: 7px 10px; font-weight: 800;">Karşılaştırma Kriteri</th>
+            <th style="padding: 7px 10px; font-weight: 800;">Nornia Spark</th>
+            <th style="padding: 7px 10px; font-weight: 800; color: #a5b4fc;">Nornia Midgard</th>
+            <th style="padding: 7px 10px; font-weight: 800; color: #7dd3fc;">Nornia Odin</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="background: #ffffff; border-bottom: 1px solid #e2e8f0;">
+            <td style="padding: 6.5px 10px; font-weight: 700; color: #0f172a;">Mimari Topoloji</td>
+            <td style="padding: 6.5px 10px; color: #334155;">Tek Sunucu (8 Konteyner)</td>
+            <td style="padding: 6.5px 10px; color: #334155;">Tek Sunucu (11 Konteyner)</td>
+            <td style="padding: 6.5px 10px; color: #334155;">Çoklu Sunucu • 2+1 Veri Merkezi</td>
+          </tr>
+          <tr style="background: #f8fafc; border-bottom: 1px solid #e2e8f0;">
+            <td style="padding: 6.5px 10px; font-weight: 700; color: #0f172a;">SIP / WebRTC Yedekliliği</td>
+            <td style="padding: 6.5px 10px; color: #334155;">HAProxy WSS + 1× Asterisk</td>
+            <td style="padding: 6.5px 10px; color: #334155;">Kamailio + RTPEngine + 2× Asterisk</td>
+            <td style="padding: 6.5px 10px; color: #334155;">VIP Edge + Harici Asterisk Havuzu</td>
+          </tr>
+          <tr style="background: #ffffff; border-bottom: 1px solid #e2e8f0;">
+            <td style="padding: 6.5px 10px; font-weight: 700; color: #0f172a;">Veritabanı &amp; Ses Kaydı</td>
+            <td style="padding: 6.5px 10px; color: #334155;">PG 16 + Yerel MinIO S3</td>
+            <td style="padding: 6.5px 10px; color: #334155;">PG 16 + Yerel MinIO S3</td>
+            <td style="padding: 6.5px 10px; color: #334155;">Patroni RPO=0 + Geo-S3 File Server</td>
+          </tr>
+          <tr style="background: #f8fafc;">
+            <td style="padding: 6.5px 10px; font-weight: 700; color: #0f172a;">Kesinti Koruması &amp; ISO</td>
+            <td style="padding: 6.5px 10px; color: #047857; font-weight: 700;">Uygulama &amp; Güncelleme • ISO Hazır</td>
+            <td style="padding: 6.5px 10px; color: #4338ca; font-weight: 700;">Uygulama + SIP/Ses • ISO Hazır</td>
+            <td style="padding: 6.5px 10px; color: #0369a1; font-weight: 700;">Tam Veri Merkezi &amp; Coğrafi DR • ISO</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Bottom Highlight -->
+    <div class="card" style="margin-top: 12px; background: #eff6ff; border-color: #bfdbfe; padding: 11px 14px;">
+      <div style="font-family: 'Plus Jakarta Sans', sans-serif; font-size: 9.4pt; font-weight: 800; color: #1e3a8a;">
+        Taşra Şube Hayatta Kalma (Multi-HQ) &amp; Derin Sağlık Kontrolü Güvencesi
+      </div>
+      <div style="font-size: 8.2pt; color: #1e40af; margin-top: 3px; line-height: 1.46;">
+        Nornia Odin ile entegre çalışan <strong>Çok-Şubeli Dağıtık Santral</strong> mimarisi sayesinde taşra şubeleriniz,
+        birincil merkez veri merkezi devre dışı kaldığında saniyeler içinde coğrafi yedek merkeze bağlanır; iki merkezle de
+        internet kesilse dahi şube içi ve dış hat çağrılarını yerel olarak kesintisiz sürdürür.
+      </div>
+    </div>
+  </div>
+  {footer(10)}
+</section>
+
+<!-- ======================================================================
+     SAYFA 11 — HEMEN BAŞLAYIN & İLETİŞİM (KAPANIŞ)
      ====================================================================== -->
 <section class="page cover-bg">
   <div class="prism-bar"></div>

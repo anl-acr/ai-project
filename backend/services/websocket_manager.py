@@ -30,8 +30,8 @@ class ConnectionManager:
             if not self.active_connections[call_id]:
                 del self.active_connections[call_id]
 
-    async def broadcast_transcript(self, call_id: str, speaker: str, text: str):
-        """Sends new transcript turn to all subscribed agent panels."""
+    async def broadcast_transcript(self, call_id: str, speaker: str, text: str, publish_remote: bool = True):
+        """Sends new transcript turn to all subscribed agent panels (and peer HA nodes via Redis if enabled)."""
         if call_id in self.active_connections:
             message = {
                 "type": "transcript",
@@ -44,6 +44,16 @@ class ConnectionManager:
                     await connection.send_json(message)
                 except Exception:
                     pass
+        if publish_remote:
+            try:
+                from backend.services.cluster_bus import CHANNEL_WS_TRANSCRIPT, is_cluster_enabled, publish_event
+                if is_cluster_enabled():
+                    await publish_event(
+                        CHANNEL_WS_TRANSCRIPT,
+                        {"call_id": call_id, "speaker": speaker, "text": text},
+                    )
+            except Exception:
+                pass
 
     async def connect_omnichannel(self, websocket: WebSocket, tenant_id: str = "tenant-default"):
         await websocket.accept()
@@ -52,7 +62,7 @@ class ConnectionManager:
     def disconnect_omnichannel(self, websocket: WebSocket):
         self.omnichannel_connections.pop(websocket, None)
 
-    async def broadcast_omnichannel_event(self, event: dict, tenant_id: Optional[str] = None):
+    async def broadcast_omnichannel_event(self, event: dict, tenant_id: Optional[str] = None, publish_remote: bool = True):
         """Sends a JSON event ONLY to connected omnichannel clients belonging to the same tenant."""
         ev_tid = _norm_ws_tid(
             tenant_id
@@ -69,6 +79,16 @@ class ConnectionManager:
                 to_remove.append(connection)
         for dead in to_remove:
             self.omnichannel_connections.pop(dead, None)
+        if publish_remote:
+            try:
+                from backend.services.cluster_bus import CHANNEL_WS_OMNICHANNEL, is_cluster_enabled, publish_event
+                if is_cluster_enabled():
+                    await publish_event(
+                        CHANNEL_WS_OMNICHANNEL,
+                        {"event": event, "tenant_id": ev_tid},
+                    )
+            except Exception:
+                pass
 
 
 # Singleton manager

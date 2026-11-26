@@ -400,6 +400,7 @@ async def get_federation_node_config(request: Request):
             "site_code": str(raw.get("site_code") or "hq"),
             "site_name": str(raw.get("site_name") or "Genel Merkez"),
             "hq_url": str(raw.get("hq_url") or ""),
+            "hq_backup_urls": [str(u).strip().rstrip("/") for u in (raw.get("hq_backup_urls") or []) if str(u).strip()],
             "pairing_token": str(raw.get("pairing_token") or ""),
             "local_lan_ip": str(raw.get("local_lan_ip") or detected_lan),
             "detected_local_ip": detected_lan,
@@ -430,6 +431,15 @@ async def save_federation_node_config(request: Request, payload: Dict[str, Any] 
         "site_code": re.sub(r"[^a-zA-Z0-9_-]", "", str(payload.get("site_code") or cur.get("site_code") or "hq").strip()) or "hq",
         "site_name": str(payload.get("site_name") or cur.get("site_name") or "Genel Merkez").strip(),
         "hq_url": str(payload.get("hq_url") if "hq_url" in payload else cur.get("hq_url") or "").strip().rstrip("/"),
+        "hq_backup_urls": [
+            str(u).strip().rstrip("/")
+            for u in (
+                payload.get("hq_backup_urls")
+                if "hq_backup_urls" in payload
+                else (cur.get("hq_backup_urls") or [])
+            )
+            if str(u).strip()
+        ],
         "pairing_token": str(payload.get("pairing_token") if "pairing_token" in payload else cur.get("pairing_token") or "").strip(),
         "local_lan_ip": str(payload.get("local_lan_ip") if "local_lan_ip" in payload else cur.get("local_lan_ip") or "").strip(),
         "wireguard_ip": str(payload.get("wireguard_ip") if "wireguard_ip" in payload else cur.get("wireguard_ip") or "").strip(),
@@ -1051,23 +1061,48 @@ async def run_edge_sync_cycle(force_media: bool = False) -> Dict[str, Any]:
 
     try:
         verify_tls = not bool(node.get("allow_self_signed")) and os.getenv("NORNIA_ALLOW_INSECURE_TLS", "0") != "1"
+        hq_candidates = [hq_url]
+        for b_url in (node.get("hq_backup_urls") or []):
+            clean_b = str(b_url or "").strip().rstrip("/")
+            if clean_b and clean_b not in hq_candidates:
+                hq_candidates.append(clean_b)
+        env_backups = (os.getenv("NORNIA_FEDERATION_HQ_BACKUP_URLS") or "").strip()
+        if env_backups:
+            for b_url in env_backups.split(","):
+                clean_b = b_url.strip().rstrip("/")
+                if clean_b and clean_b not in hq_candidates:
+                    hq_candidates.append(clean_b)
+
         async with httpx.AsyncClient(timeout=10.0, verify=verify_tls) as client:
-            hb_res = await client.post(
-                f"{hq_url}/api/federation/heartbeat",
-                headers=headers,
-                json={
-                    "local_lan_ip": node.get("local_lan_ip") or "",
-                    "wireguard_ip": node.get("wireguard_ip") or "",
-                    "applied_config_version": int(node.get("last_config_version_applied") or 0),
-                    "pending_cdr_count": len(pend_meta),
-                    "pending_media_count": len(pend_media),
-                    "pending_media_mb": pend_mb,
-                },
-            )
-            if hb_res.status_code != 200:
-                node["last_sync_error"] = f"Merkez yanıt kodu: HTTP {hb_res.status_code}"
+            hb_res = None
+            last_hb_err = None
+            hb_payload = {
+                "local_lan_ip": node.get("local_lan_ip") or "",
+                "wireguard_ip": node.get("wireguard_ip") or "",
+                "applied_config_version": int(node.get("last_config_version_applied") or 0),
+                "pending_cdr_count": len(pend_meta),
+                "pending_media_count": len(pend_media),
+                "pending_media_mb": pend_mb,
+            }
+            for cand_hq in hq_candidates:
+                try:
+                    resp = await client.post(
+                        f"{cand_hq}/api/federation/heartbeat",
+                        headers=headers,
+                        json=hb_payload,
+                    )
+                    if resp.status_code == 200:
+                        hq_url = cand_hq
+                        hb_res = resp
+                        break
+                    last_hb_err = f"HTTP {resp.status_code} ({cand_hq})"
+                except Exception as cand_exc:
+                    last_hb_err = f"{cand_exc} ({cand_hq})"
+                    continue
+            if hb_res is None:
+                node["last_sync_error"] = f"Merkez yanıt vermedi: {last_hb_err or 'offline'}"
                 settings_db["federation_node"] = node
-                return {"status": "offline", "http_status": hb_res.status_code}
+                return {"status": "offline", "detail": last_hb_err or "offline"}
 
             hb_data = hb_res.json()
             if isinstance(hb_data.get("media_sync_policy"), dict):

@@ -1,0 +1,219 @@
+# ==============================================================================
+# NORNIA SPARK — Single-Host Always-Up Docker HA Stack (Edition 1)
+# Components:
+#   - HAProxy (80/443/8089/8000/9092) with 3s /api/system/ready healthchecks
+#   - 2x Nornia Backend (FastAPI + AudioSocket Active-Active)
+#   - 2x Nornia Frontend (Next.js Active-Active)
+#   - Redis 7 (Cluster Pub/Sub + Leader Lock + Cache)
+#   - PostgreSQL 16 + pgvector (Primary ACID DB)
+#   - MinIO S3 (Local S3-Compatible Recording Vault)
+#   - 1x Asterisk + Nornia Media Agent (network_mode: host for SIP/RTP)
+# ==============================================================================
+name: nornia-spark
+
+x-backend-env: &backend-env
+  DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-pbx_user}:${POSTGRES_PASSWORD:-nornia_ha_pass}@nornia-postgres:5432/${POSTGRES_DB:-ai_pbx}
+  SYNC_DATABASE_URL: postgresql://${POSTGRES_USER:-pbx_user}:${POSTGRES_PASSWORD:-nornia_ha_pass}@nornia-postgres:5432/${POSTGRES_DB:-ai_pbx}
+  REDIS_URL: redis://:${REDIS_PASSWORD:-nornia_redis_pass}@nornia-redis:6379/0
+  AMI_HOST: ${HOST_GATEWAY_IP:-172.28.0.1}
+  AMI_PORT: "5038"
+  AMI_USER: ${AMI_USER:-ai_backend_user}
+  AMI_SECRET: ${AMI_SECRET:-backend_secure_key_99}
+  NORNIA_SESSION_SECRET: ${NORNIA_SESSION_SECRET}
+  NORNIA_INTERNAL_API_TOKEN: ${NORNIA_INTERNAL_API_TOKEN}
+  NORNIA_TRUSTED_INTERNAL_CIDRS: "127.0.0.1/32,172.16.0.0/12,10.0.0.0/8"
+  NORNIA_API_INTERNAL_URL: "http://127.0.0.1:8000"
+  NORNIA_AUDIOSOCKET_INTERNAL_ADDR: "127.0.0.1:9092"
+  S3_ENDPOINT: "http://nornia-minio:9000"
+  S3_ACCESS_KEY: ${MINIO_ROOT_USER:-nornia_s3}
+  S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-nornia_s3_secret_key}
+  S3_BUCKET: ${S3_BUCKET:-nornia-recordings}
+  S3_VERIFY_TLS: "0"
+  TZ: Europe/Istanbul
+
+services:
+  nornia-postgres:
+    image: pgvector/pgvector:pg16
+    container_name: nornia-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pbx_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nornia_ha_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-ai_pbx}
+      TZ: Europe/Istanbul
+    volumes:
+      - spark_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pbx_user} -d ${POSTGRES_DB:-ai_pbx}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - nornia-net
+
+  nornia-redis:
+    image: redis:7-alpine
+    container_name: nornia-redis
+    restart: always
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-nornia_redis_pass}"]
+    volumes:
+      - spark_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-nornia_redis_pass}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - nornia-net
+
+  nornia-minio:
+    image: minio/minio:latest
+    container_name: nornia-minio
+    restart: always
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-nornia_s3}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-nornia_s3_secret_key}
+    volumes:
+      - spark_minio:/data
+    ports:
+      - "127.0.0.1:9001:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - nornia-net
+
+  nornia-backend-1:
+    build:
+      context: ../..
+      dockerfile: deploy/ha/Dockerfile.backend
+    image: nornia/backend:${NORNIA_VERSION:-latest}
+    container_name: nornia-backend-1
+    restart: always
+    depends_on:
+      nornia-postgres:
+        condition: service_healthy
+      nornia-redis:
+        condition: service_healthy
+    environment:
+      <<: *backend-env
+      NORNIA_NODE_ID: "spark-backend-1"
+    volumes:
+      - spark_asterisk_etc:/etc/asterisk
+      - spark_recordings:/opt/ai-project/recordings
+      - spark_uploads:/opt/ai-project/uploads
+      - spark_spool:/var/spool/asterisk/monitor
+    networks:
+      - nornia-net
+
+  nornia-backend-2:
+    build:
+      context: ../..
+      dockerfile: deploy/ha/Dockerfile.backend
+    image: nornia/backend:${NORNIA_VERSION:-latest}
+    container_name: nornia-backend-2
+    restart: always
+    depends_on:
+      nornia-postgres:
+        condition: service_healthy
+      nornia-redis:
+        condition: service_healthy
+    environment:
+      <<: *backend-env
+      NORNIA_NODE_ID: "spark-backend-2"
+    volumes:
+      - spark_asterisk_etc:/etc/asterisk
+      - spark_recordings:/opt/ai-project/recordings
+      - spark_uploads:/opt/ai-project/uploads
+      - spark_spool:/var/spool/asterisk/monitor
+    networks:
+      - nornia-net
+
+  nornia-frontend-1:
+    build:
+      context: ../..
+      dockerfile: deploy/ha/Dockerfile.frontend
+    image: nornia/frontend:${NORNIA_VERSION:-latest}
+    container_name: nornia-frontend-1
+    restart: always
+    depends_on:
+      - nornia-backend-1
+    networks:
+      - nornia-net
+
+  nornia-frontend-2:
+    build:
+      context: ../..
+      dockerfile: deploy/ha/Dockerfile.frontend
+    image: nornia/frontend:${NORNIA_VERSION:-latest}
+    container_name: nornia-frontend-2
+    restart: always
+    depends_on:
+      - nornia-backend-2
+    networks:
+      - nornia-net
+
+  nornia-haproxy:
+    image: haproxy:2.9-alpine
+    container_name: nornia-haproxy
+    restart: always
+    depends_on:
+      - nornia-backend-1
+      - nornia-backend-2
+      - nornia-frontend-1
+      - nornia-frontend-2
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8089:8089"
+      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:9092:9092"
+      - "127.0.0.1:8404:8404"
+    volumes:
+      - ./haproxy-spark.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - ${NORNIA_CERTS_DIR:-/etc/nornia/certs}:/etc/haproxy/certs:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - nornia-net
+
+  nornia-asterisk:
+    build:
+      context: ../..
+      dockerfile: deploy/ha/Dockerfile.asterisk
+    image: nornia/asterisk:${NORNIA_VERSION:-latest}
+    container_name: nornia-asterisk
+    restart: always
+    network_mode: host
+    environment:
+      REDIS_URL: redis://:${REDIS_PASSWORD:-nornia_redis_pass}@127.0.0.1:6379/0
+      S3_ENDPOINT: "http://127.0.0.1:9000"
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER:-nornia_s3}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-nornia_s3_secret_key}
+      S3_BUCKET: ${S3_BUCKET:-nornia-recordings}
+      S3_VERIFY_TLS: "0"
+      TZ: Europe/Istanbul
+    volumes:
+      - spark_asterisk_etc:/etc/asterisk
+      - spark_spool:/var/spool/asterisk/monitor
+      - ${NORNIA_CERTS_DIR:-/etc/nornia/certs}:/etc/asterisk/keys:ro
+
+volumes:
+  spark_pgdata:
+  spark_redis:
+  spark_minio:
+  spark_asterisk_etc:
+  spark_recordings:
+  spark_uploads:
+  spark_spool:
+
+networks:
+  nornia-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+          gateway: 172.28.0.1

@@ -526,6 +526,7 @@ _PUBLIC_EXACT_PATHS = {
     "/api/version",
     "/api/settings/version",
     "/api/system/health",
+    "/api/system/ready",
     "/api/downloads/desktop-info",
     "/api/webhooks/telegram",
     "/api/webhooks/meta",
@@ -609,8 +610,34 @@ def is_direct_loopback_request(request: Any) -> bool:
     """
     Returns True ONLY when the TCP peer is 127.0.0.1 / ::1 AND the request was NOT
     reverse-proxied by Nginx or Nornia Connect RAS tunnel.
+    In HA cluster deployments (Nornia Spark / Midgard / Odin), opt-in env vars
+    NORNIA_INTERNAL_API_TOKEN or NORNIA_TRUSTED_INTERNAL_CIDRS allow decoupled
+    Asterisk / Media nodes on the private Docker/VLAN/WireGuard network to reach
+    internal dialplan endpoints securely.
     """
     peer = request.client.host if request.client else ""
+
+    # Opt-in HA shared secret header (only active if NORNIA_INTERNAL_API_TOKEN is set)
+    expected_internal_tok = (os.getenv("NORNIA_INTERNAL_API_TOKEN") or "").strip()
+    if expected_internal_tok:
+        provided_tok = (request.headers.get("x-nornia-internal-token") or "").strip()
+        if provided_tok and hmac.compare_digest(provided_tok, expected_internal_tok):
+            return True
+
+    # Opt-in HA trusted private subnet CIDRs (e.g. Docker bridge / WireGuard VLAN)
+    trusted_cidrs = (os.getenv("NORNIA_TRUSTED_INTERNAL_CIDRS") or "").strip()
+    if trusted_cidrs and peer:
+        # Never trust requests forwarded from public internet proxies
+        if not request.headers.get("x-ras-forwarded") and not request.headers.get("x-nornia-ras-tunnel"):
+            try:
+                peer_ip = ipaddress.ip_address(peer)
+                for cidr in trusted_cidrs.split(","):
+                    cidr_clean = cidr.strip()
+                    if cidr_clean and peer_ip in ipaddress.ip_network(cidr_clean, strict=False):
+                        return True
+            except Exception:
+                pass
+
     if peer not in ("127.0.0.1", "::1", "localhost"):
         return False
     # Nginx & Nornia Connect RAS proxy always set forwarding headers

@@ -2939,6 +2939,13 @@ call_flip_trigger => {call_flip_code},self/both,Gosub(call_flip_trigger_sub,s,1)
     except Exception as e_snd:
         print(f"[Sync Script] Türkçe ses kopyalama uyarısı: {e_snd}")
 
+    _ha_api_url = (os.getenv("NORNIA_API_INTERNAL_URL") or "").strip().rstrip("/")
+    if _ha_api_url and _ha_api_url != "http://127.0.0.1:8000":
+        ext_content = ext_content.replace("http://127.0.0.1:8000", _ha_api_url)
+    _ha_as_addr = (os.getenv("NORNIA_AUDIOSOCKET_INTERNAL_ADDR") or "").strip()
+    if _ha_as_addr and _ha_as_addr != "127.0.0.1:9092":
+        ext_content = ext_content.replace("127.0.0.1:9092", _ha_as_addr)
+
     for path in ["/etc/asterisk/extensions_custom.conf", os.path.join(PROJECT_ROOT, "asterisk_config", "extensions_custom.conf")]:
         try:
             with open(path, "w", encoding="utf-8") as f:

@@ -1,0 +1,37 @@
+# ==============================================================================
+# Nornia Enterprise AI PBX — Stateless Backend Image (FastAPI + AudioSocket)
+# Used by: Nornia Spark • Nornia Midgard • Nornia Odin
+# ==============================================================================
+FROM python:3.11-slim-bookworm
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/opt/ai-project
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ffmpeg \
+    libpq5 \
+    ca-certificates \
+    tzdata \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt/ai-project
+
+COPY backend/requirements.txt /opt/ai-project/backend/requirements.txt
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r /opt/ai-project/backend/requirements.txt
+
+COPY backend /opt/ai-project/backend
+
+RUN mkdir -p /opt/ai-project/recordings \
+             /opt/ai-project/uploads/announcements \
+             /opt/ai-project/asterisk_config \
+             /opt/ai-project/backups
+
+EXPOSE 8000 9092
+
+HEALTHCHECK --interval=10s --timeout=3s --start-period=25s --retries=3 \
+    CMD curl -fsS http://127.0.0.1:8000/api/system/ready || exit 1
+
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--proxy-headers", "--forwarded-allow-ips=*"]

@@ -1,0 +1,265 @@
+# ==============================================================================
+# NORNIA MIDGARD — Single-Host Full SIP-HA Docker Stack (Edition 2)
+# Adds Kamailio SIP/WSS Edge + RTPEngine + 2x Active-Active Asterisk (:5062/:5064)
+# on top of Nornia Spark for true zero-drop SIP & WebRTC high availability!
+# ==============================================================================
+name: nornia-midgard
+
+x-backend-env: &backend-env
+  DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-pbx_user}:${POSTGRES_PASSWORD:-nornia_ha_pass}@nornia-postgres:5432/${POSTGRES_DB:-ai_pbx}
+  SYNC_DATABASE_URL: postgresql://${POSTGRES_USER:-pbx_user}:${POSTGRES_PASSWORD:-nornia_ha_pass}@nornia-postgres:5432/${POSTGRES_DB:-ai_pbx}
+  REDIS_URL: redis://:${REDIS_PASSWORD:-nornia_redis_pass}@nornia-redis:6379/0
+  ASTERISK_NODES: "${HOST_GATEWAY_IP:-172.29.0.1}:5038,${HOST_GATEWAY_IP:-172.29.0.1}:5039"
+  AMI_HOST: ${HOST_GATEWAY_IP:-172.29.0.1}
+  AMI_PORT: "5038"
+  AMI_USER: ${AMI_USER:-ai_backend_user}
+  AMI_SECRET: ${AMI_SECRET:-backend_secure_key_99}
+  NORNIA_SESSION_SECRET: ${NORNIA_SESSION_SECRET}
+  NORNIA_INTERNAL_API_TOKEN: ${NORNIA_INTERNAL_API_TOKEN}
+  NORNIA_TRUSTED_INTERNAL_CIDRS: "127.0.0.1/32,172.16.0.0/12,10.0.0.0/8"
+  NORNIA_API_INTERNAL_URL: "http://127.0.0.1:8000"
+  NORNIA_AUDIOSOCKET_INTERNAL_ADDR: "127.0.0.1:9092"
+  S3_ENDPOINT: "http://nornia-minio:9000"
+  S3_ACCESS_KEY: ${MINIO_ROOT_USER:-nornia_s3}
+  S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-nornia_s3_secret_key}
+  S3_BUCKET: ${S3_BUCKET:-nornia-recordings}
+  S3_VERIFY_TLS: "0"
+  TZ: Europe/Istanbul
+
+services:
+  nornia-postgres:
+    image: pgvector/pgvector:pg16
+    container_name: nornia-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pbx_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nornia_ha_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-ai_pbx}
+      TZ: Europe/Istanbul
+    volumes:
+      - midgard_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pbx_user} -d ${POSTGRES_DB:-ai_pbx}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - nornia-net
+
+  nornia-redis:
+    image: redis:7-alpine
+    container_name: nornia-redis
+    restart: always
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-nornia_redis_pass}"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - midgard_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-nornia_redis_pass}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - nornia-net
+
+  nornia-minio:
+    image: minio/minio:latest
+    container_name: nornia-minio
+    restart: always
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-nornia_s3}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-nornia_s3_secret_key}
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - midgard_minio:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - nornia-net
+
+  nornia-backend-1:
+    build:
+      context: ../..
+      dockerfile: deploy/ha/Dockerfile.backend
+    image: nornia/backend:${NORNIA_VERSION:-latest}
+    container_name: nornia-backend-1
+    restart: always
+    depends_on:
+      nornia-postgres:
+        condition: service_healthy
+      nornia-redis:
+        condition: service_healthy
+    environment:
+      <<: *backend-env
+      NORNIA_NODE_ID: "midgard-backend-1"
+    volumes:
+      - midgard_asterisk_shared:/etc/asterisk
+      - midgard_recordings:/opt/ai-project/recordings
+      - midgard_uploads:/opt/ai-project/uploads
+      - midgard_spool:/var/spool/asterisk/monitor
+    networks:
+      - nornia-net
+
+  nornia-backend-2:
+    build:
+      context: ../..
+      dockerfile: deploy/ha/Dockerfile.backend
+    image: nornia/backend:${NORNIA_VERSION:-latest}
+    container_name: nornia-backend-2
+    restart: always
+    depends_on:
+      nornia-postgres:
+        condition: service_healthy
+      nornia-redis:
+        condition: service_healthy
+    environment:
+      <<: *backend-env
+      NORNIA_NODE_ID: "midgard-backend-2"
+    volumes:
+      - midgard_asterisk_shared:/etc/asterisk
+      - midgard_recordings:/opt/ai-project/recordings
+      - midgard_uploads:/opt/ai-project/uploads
+      - midgard_spool:/var/spool/asterisk/monitor
+    networks:
+      - nornia-net
+
+  nornia-frontend-1:
+    build:
+      context: ../..
+      dockerfile: deploy/ha/Dockerfile.frontend
+    image: nornia/frontend:${NORNIA_VERSION:-latest}
+    container_name: nornia-frontend-1
+    restart: always
+    depends_on:
+      - nornia-backend-1
+    networks:
+      - nornia-net
+
+  nornia-frontend-2:
+    build:
+      context: ../..
+      dockerfile: deploy/ha/Dockerfile.frontend
+    image: nornia/frontend:${NORNIA_VERSION:-latest}
+    container_name: nornia-frontend-2
+    restart: always
+    depends_on:
+      - nornia-backend-2
+    networks:
+      - nornia-net
+
+  nornia-haproxy:
+    image: haproxy:2.9-alpine
+    container_name: nornia-haproxy
+    restart: always
+    depends_on:
+      - nornia-backend-1
+      - nornia-backend-2
+      - nornia-frontend-1
+      - nornia-frontend-2
+    ports:
+      - "80:80"
+      - "443:443"
+      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:9092:9092"
+      - "127.0.0.1:8404:8404"
+    volumes:
+      - ./haproxy-midgard.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - ${NORNIA_CERTS_DIR:-/etc/nornia/certs}:/etc/haproxy/certs:ro
+    networks:
+      - nornia-net
+
+  # Edge WebRTC & SIP Media Proxy (DTLS-SRTP <-> RTP)
+  nornia-rtpengine:
+    image: drachtio/rtpengine:latest
+    container_name: nornia-rtpengine
+    restart: always
+    network_mode: host
+    command: >
+      rtpengine
+      --interface=${PUBLIC_IP:-127.0.0.1}
+      --listen-ng=127.0.0.1:22222
+      --port-min=20000
+      --port-max=30000
+      --log-level=5
+      --foreground
+
+  # Edge SIP & WebRTC WSS Load Balancer (Ports 5060 UDP/TCP + 8089 WSS)
+  nornia-kamailio:
+    image: ghcr.io/kamailio/kamailio:5.8-bullseye
+    container_name: nornia-kamailio
+    restart: always
+    network_mode: host
+    depends_on:
+      - nornia-rtpengine
+    volumes:
+      - ./kamailio-midgard.cfg:/etc/kamailio/kamailio.cfg:ro
+      - ./dispatcher-midgard.list:/etc/kamailio/dispatcher.list:ro
+      - ${NORNIA_CERTS_DIR:-/etc/nornia/certs}:/etc/kamailio/certs:ro
+
+  # Active Asterisk Media Node 1 (Internal SIP :5062, AMI :5038)
+  nornia-asterisk-1:
+    build:
+      context: ../..
+      dockerfile: deploy/ha/Dockerfile.asterisk
+    image: nornia/asterisk:${NORNIA_VERSION:-latest}
+    container_name: nornia-asterisk-1
+    restart: always
+    network_mode: host
+    environment:
+      ASTERISK_NODE_ROLE: "midgard-ast-1"
+      REDIS_URL: redis://:${REDIS_PASSWORD:-nornia_redis_pass}@127.0.0.1:6379/0
+      S3_ENDPOINT: "http://127.0.0.1:9000"
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER:-nornia_s3}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-nornia_s3_secret_key}
+      S3_BUCKET: ${S3_BUCKET:-nornia-recordings}
+      S3_VERIFY_TLS: "0"
+    volumes:
+      - midgard_asterisk_shared:/etc/asterisk
+      - midgard_spool:/var/spool/asterisk/monitor
+      - ${NORNIA_CERTS_DIR:-/etc/nornia/certs}:/etc/asterisk/keys:ro
+
+  # Active Asterisk Media Node 2 (Internal SIP :5064, AMI :5039)
+  nornia-asterisk-2:
+    build:
+      context: ../..
+      dockerfile: deploy/ha/Dockerfile.asterisk
+    image: nornia/asterisk:${NORNIA_VERSION:-latest}
+    container_name: nornia-asterisk-2
+    restart: always
+    network_mode: host
+    environment:
+      ASTERISK_NODE_ROLE: "midgard-ast-2"
+      REDIS_URL: redis://:${REDIS_PASSWORD:-nornia_redis_pass}@127.0.0.1:6379/0
+      S3_ENDPOINT: "http://127.0.0.1:9000"
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER:-nornia_s3}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-nornia_s3_secret_key}
+      S3_BUCKET: ${S3_BUCKET:-nornia-recordings}
+      S3_VERIFY_TLS: "0"
+    volumes:
+      - ${NORNIA_MIDGARD_AST2_ETC:-/etc/nornia/asterisk-2}:/etc/asterisk
+      - midgard_spool:/var/spool/asterisk/monitor
+      - ${NORNIA_CERTS_DIR:-/etc/nornia/certs}:/etc/asterisk/keys:ro
+
+volumes:
+  midgard_pgdata:
+  midgard_redis:
+  midgard_minio:
+  midgard_asterisk_shared:
+  midgard_recordings:
+  midgard_uploads:
+  midgard_spool:
+
+networks:
+  nornia-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.29.0.0/16
+          gateway: 172.29.0.1

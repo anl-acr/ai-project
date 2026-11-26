@@ -1,0 +1,47 @@
+# ==============================================================================
+# Nornia Enterprise AI PBX — Decoupled Asterisk + Nornia Media Agent Image
+# Used by: Nornia Spark • Nornia Midgard • Nornia Odin (External Media Pool)
+# ==============================================================================
+FROM debian:bookworm-slim
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONPATH=/opt/ai-project
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    asterisk \
+    asterisk-core-sounds-en \
+    asterisk-modules \
+    curl \
+    ffmpeg \
+    python3 \
+    python3-pip \
+    python3-httpx \
+    python3-redis \
+    ca-certificates \
+    tzdata \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt/ai-project
+COPY backend/services/object_storage_service.py /opt/ai-project/backend/services/object_storage_service.py
+COPY backend/scripts/nornia_media_agent.py /opt/ai-project/backend/scripts/nornia_media_agent.py
+RUN touch /opt/ai-project/backend/__init__.py /opt/ai-project/backend/services/__init__.py
+
+RUN cat <<'EOF' > /usr/local/bin/nornia-asterisk-entrypoint.sh
+#!/usr/bin/env bash
+set -euo pipefail
+
+mkdir -p /var/spool/asterisk/monitor /etc/asterisk/keys /var/log/asterisk /var/run/asterisk
+chown -R asterisk:asterisk /var/spool/asterisk /var/log/asterisk /var/run/asterisk || true
+
+# Start Nornia Media Agent (S3 recording uploader + Redis reload listener) in background
+python3 /opt/ai-project/backend/scripts/nornia_media_agent.py &
+
+# Launch Asterisk in foreground for Docker supervision
+exec /usr/sbin/asterisk -f -U asterisk -G asterisk -vvv
+EOF
+RUN chmod +x /usr/local/bin/nornia-asterisk-entrypoint.sh
+
+HEALTHCHECK --interval=10s --timeout=3s --start-period=15s --retries=3 \
+    CMD asterisk -rx "core show uptime" >/dev/null 2>&1 || exit 1
+
+ENTRYPOINT ["/usr/local/bin/nornia-asterisk-entrypoint.sh"]

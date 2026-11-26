@@ -1,0 +1,6 @@
+# ==============================================================================
+# Nornia Midgard — Kamailio Dispatcher Pool (Set 1: Active-Active 2x Asterisk)
+# Format: <setid> <destination> <flags> <priority> <attrs>
+# ==============================================================================
+1 sip:127.0.0.1:5062 0 0 weight=50;maxload=500
+1 sip:127.0.0.1:5064 0 0 weight=50;maxload=500

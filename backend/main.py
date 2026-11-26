@@ -299,6 +299,31 @@ async def on_startup_telemetry():
             print(f"[Startup] Hotel/PMS worker init warning: {_e_hpms}")
     except Exception as e_fed:
         print(f"[Federation Worker Startup Info]: {e_fed}")
+    try:
+        from backend.services.cluster_bus import is_cluster_enabled, start_cluster_subscriber
+        if is_cluster_enabled():
+            async def _on_cluster_transcript(cid: str, spk: str, txt: str):
+                await ws_manager.broadcast_transcript(cid, spk, txt, publish_remote=False)
+
+            async def _on_cluster_omni(ev: dict, tid: Optional[str]):
+                await ws_manager.broadcast_omnichannel_event(ev, tenant_id=tid, publish_remote=False)
+
+            def _on_cluster_settings_reload():
+                try:
+                    fresh = load_settings()
+                    if isinstance(fresh, dict):
+                        settings_db.clear()
+                        settings_db.update(fresh)
+                except Exception:
+                    pass
+
+            start_cluster_subscriber(
+                on_ws_transcript=_on_cluster_transcript,
+                on_ws_omnichannel=_on_cluster_omni,
+                on_settings_reload=_on_cluster_settings_reload,
+            )
+    except Exception as e_cb:
+        print(f"[ClusterBus Startup Warning]: {e_cb}")
 
 # SEC-04: Strict CORS policy (no wildcard origin with allow_credentials=True)
 _EXTRA_CORS_ORIGINS = [
@@ -663,6 +688,16 @@ async def get_recording_file(filename: str, user_info: dict = Depends(get_user_i
                 return FileResponse(fetched_fp, media_type="audio/wav")
         except Exception as sftp_err:
             print(f"[Recording SFTP Fetch Error]: {sftp_err}")
+
+    # 5. Opt-in HA Object Storage (MinIO/S3) fallback when S3_ENDPOINT is configured
+    try:
+        from backend.services.object_storage_service import is_s3_enabled, fetch_recording_bytes_async
+        if is_s3_enabled():
+            s3_bytes = await fetch_recording_bytes_async(safe_name)
+            if s3_bytes:
+                return Response(content=s3_bytes, media_type="audio/wav")
+    except Exception as s3_err:
+        print(f"[Recording S3 Fetch Error]: {s3_err}")
 
     raise HTTPException(status_code=404, detail="Ses kaydı dosyası sunucuda bulunamadı.")
 
@@ -3433,6 +3468,12 @@ def save_settings(settings):
     if isinstance(existing_mem, dict) and existing_mem is not settings:
         existing_mem.clear()
         existing_mem.update(settings)
+
+    try:
+        from backend.services.cluster_bus import publish_settings_invalidation_sync
+        publish_settings_invalidation_sync()
+    except Exception:
+        pass
 
 settings_db = load_settings(force_reload=True, persist=True)
 
@@ -7383,6 +7424,13 @@ atxfer => *2
 rec_pause_toggle => {rec_pause_code},self/both,Gosub(rec_pause_sub,s,1)
 call_flip_trigger => {call_flip_code},self/both,Gosub(call_flip_trigger_sub,s,1)
 """
+
+    _ha_api_url = (os.getenv("NORNIA_API_INTERNAL_URL") or "").strip().rstrip("/")
+    if _ha_api_url and _ha_api_url != "http://127.0.0.1:8000":
+        conf_content = conf_content.replace("http://127.0.0.1:8000", _ha_api_url)
+    _ha_as_addr = (os.getenv("NORNIA_AUDIOSOCKET_INTERNAL_ADDR") or "").strip()
+    if _ha_as_addr and _ha_as_addr != "127.0.0.1:9092":
+        conf_content = conf_content.replace("127.0.0.1:9092", _ha_as_addr)
 
     config_dir = ASTERISK_CONFIG_DIR
     os.makedirs(config_dir, exist_ok=True)
@@ -50163,6 +50211,57 @@ async def get_system_health():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/system/ready")
+async def get_system_readiness():
+    """
+    Deep HA Readiness Probe for HAProxy / Geo-DNS / Keepalived healthchecks
+    (Nornia Spark, Nornia Midgard, Nornia Odin).
+    Verifies PostgreSQL read/write capability (not in read-only standby recovery),
+    optional Redis cluster bus reachability, and Asterisk AMI state.
+    Returns HTTP 200 when ready to serve live traffic, or HTTP 503 if degraded.
+    """
+    from fastapi.responses import JSONResponse
+    from backend.services.cluster_bus import NODE_ID, ping_redis_async
+    from backend.services.ami_manager import manager_instance
+
+    checks = {
+        "node_id": NODE_ID,
+        "db_connected": False,
+        "db_writable": False,
+        "redis": "disabled",
+        "ami_connected": bool(manager_instance and getattr(manager_instance, "_connected", False)),
+    }
+    errors = []
+
+    try:
+        async with AsyncSessionLocal() as session:
+            row = (await session.execute(text("SELECT NOT pg_is_in_recovery()"))).scalar()
+            checks["db_connected"] = True
+            checks["db_writable"] = bool(row)
+            if not checks["db_writable"]:
+                errors.append("postgres_in_recovery_readonly")
+    except Exception as db_exc:
+        errors.append(f"postgres_unreachable:{db_exc}")
+
+    redis_ok = await ping_redis_async()
+    if redis_ok is True:
+        checks["redis"] = "ok"
+    elif redis_ok is False:
+        checks["redis"] = "down"
+        errors.append("redis_unreachable")
+
+    require_ami = os.getenv("NORNIA_READY_REQUIRE_AMI", "0") == "1"
+    if require_ami and not checks["ami_connected"]:
+        errors.append("ami_disconnected")
+
+    if errors:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "not_ready", "checks": checks, "errors": errors},
+        )
+    return {"status": "ready", "checks": checks}
 
 # ==============================================================================
 # EXTERNAL POSTGRESQL SERVER & OFF-SITE DATABASE BACKUP / RESTORE ENGINE
