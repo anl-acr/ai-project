@@ -2694,6 +2694,46 @@ export default function Home() {
             window.history.replaceState({}, "", cleanUrl);
           }
         }
+
+        // 0b. Check for Enterprise SSO (OIDC / SAML 2.0) one-time exchange code (?sso_code=...)
+        const enterpriseSsoCode = urlParams.get("sso_code");
+        if (enterpriseSsoCode) {
+          try {
+            const exRes = await fetch(`${protocol}//${backendHost}/api/auth/sso/exchange`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({ sso_code: enterpriseSsoCode })
+            });
+            if (exRes.ok) {
+              const exData = await exRes.json();
+              if (exData.access_token) {
+                setAuthToken(exData.access_token, true);
+              }
+              const exUid = String(exData.user?.id || exData.user?.extension || exData.user?.username || "");
+              if (exUid) {
+                localStorage.setItem("is_logged_in", "true");
+                localStorage.setItem("current_user_id", exUid);
+                sessionStorage.setItem("is_logged_in", "true");
+                sessionStorage.setItem("current_user_id", exUid);
+                if (exData.tenant_id) {
+                  localStorage.setItem("active_tenant_id", exData.tenant_id);
+                  setActiveTenantId(exData.tenant_id);
+                }
+                if (exData.user) {
+                  currentUserData = exData.user;
+                }
+              }
+            }
+          } catch (e) {
+            console.warn("Enterprise SSO exchange error:", e);
+          } finally {
+            urlParams.delete("sso_code");
+            const cleanSearch = urlParams.toString();
+            const cleanUrl = `${window.location.pathname}${cleanSearch ? `?${cleanSearch}` : ""}`;
+            window.history.replaceState({}, "", cleanUrl);
+          }
+        }
       }
 
       // 1. Synchronous storage check FIRST

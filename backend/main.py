@@ -8701,6 +8701,7 @@ async def sync_active_directory_users_endpoint(request: Request, payload: dict =
     from backend.services.enterprise_integrations_service import (
         get_merged_ad_config,
         generate_sample_ad_directory_users,
+        fetch_live_ad_directory_users,
     )
     cfg = get_merged_ad_config(settings_db)
     if isinstance(payload, dict) and isinstance(payload.get("config"), dict):
@@ -8708,22 +8709,46 @@ async def sync_active_directory_users_endpoint(request: Request, payload: dict =
 
     dry_run = bool(payload.get("dry_run", False))
     selected_usernames = set(payload.get("usernames") or [])
-    discovered = generate_sample_ad_directory_users(cfg, settings_db.get("users") or [])
+    existing_users = settings_db.get("users") or []
+
+    if bool(cfg.get("simulation_mode", False)):
+        discovered = generate_sample_ad_directory_users(cfg, existing_users)
+    else:
+        try:
+            discovered = await asyncio.to_thread(fetch_live_ad_directory_users, cfg, existing_users, 1000)
+        except Exception as ldap_err:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Canlı LDAP/LDAPS dizin senkronizasyonu başarısız: {ldap_err}",
+            )
+
     if selected_usernames:
         discovered = [u for u in discovered if u.get("username") in selected_usernames]
 
     now_iso = datetime.datetime.utcnow().isoformat() + "Z"
     created_count = 0
     updated_count = 0
+    disabled_count = 0
 
     if not dry_run and bool(cfg.get("auto_create_users", True)):
-        users_list = list(settings_db.get("users") or [])
+        users_list = list(existing_users)
         existing_by_uname = {str(u.get("username") or "").strip().lower(): u for u in users_list if isinstance(u, dict)}
+        discovered_unames = set()
         for ad_u in discovered:
             uname_l = str(ad_u.get("username") or "").strip().lower()
+            if not uname_l:
+                continue
+            discovered_unames.add(uname_l)
             if uname_l in existing_by_uname:
                 existing_by_uname[uname_l]["department"] = ad_u.get("department") or existing_by_uname[uname_l].get("department")
+                if ad_u.get("full_name"):
+                    existing_by_uname[uname_l]["full_name"] = ad_u["full_name"]
+                if ad_u.get("email"):
+                    existing_by_uname[uname_l]["email"] = ad_u["email"]
+                if ad_u.get("dn"):
+                    existing_by_uname[uname_l]["ad_dn"] = ad_u["dn"]
                 existing_by_uname[uname_l]["ad_synced"] = True
+                existing_by_uname[uname_l]["is_active"] = True
                 updated_count += 1
             else:
                 new_id = max([int(u.get("id")) for u in users_list if str(u.get("id") or "").isdigit()] + [10]) + 1
@@ -8735,11 +8760,20 @@ async def sync_active_directory_users_endpoint(request: Request, payload: dict =
                     "extension": ad_u["suggested_extension"],
                     "role": ad_u["suggested_role"],
                     "department": ad_u.get("department") or "",
+                    "ad_dn": ad_u.get("dn") or "",
                     "is_active": True,
                     "ad_synced": True,
+                    "auth_source": "ldap",
                     "tenant_id": "tenant-default",
                 })
                 created_count += 1
+
+        if bool(cfg.get("disable_removed_users", True)) and not selected_usernames:
+            for u in users_list:
+                if isinstance(u, dict) and u.get("ad_synced") and str(u.get("username") or "").strip().lower() not in discovered_unames:
+                    if u.get("is_active") is not False:
+                        u["is_active"] = False
+                        disabled_count += 1
         settings_db["users"] = users_list
 
     cfg["last_sync_at"] = now_iso
@@ -24606,8 +24640,62 @@ async def auth_login_endpoint(request: Request, response: Response, payload: Aut
     password_ok = False
     needs_rehash = False
 
+    # 0. Live Active Directory / LDAP / LDAPS Authentication (when enabled and not in simulation mode)
+    try:
+        from backend.services.enterprise_integrations_service import get_merged_ad_config, authenticate_ldap_user
+        ad_cfg = get_merged_ad_config(settings_db)
+        if bool(ad_cfg.get("enabled")) and not bool(ad_cfg.get("simulation_mode", False)) and lower_u != "admin":
+            ldap_ok, ldap_profile, _ldap_reason = await asyncio.to_thread(
+                authenticate_ldap_user, ad_cfg, clean_user, clean_pass
+            )
+            if ldap_ok and isinstance(ldap_profile, dict):
+                l_uname = str(ldap_profile.get("username") or "").strip().lower()
+                l_email = str(ldap_profile.get("email") or "").strip().lower()
+                for u in all_users:
+                    u_un = str(u.get("username") or "").strip().lower()
+                    u_em = str(u.get("email") or "").strip().lower()
+                    if (l_uname and u_un == l_uname) or (l_email and u_em == l_email):
+                        matched_user = u
+                        password_ok = True
+                        break
+                if not matched_user and bool(ad_cfg.get("auto_create_users", True)):
+                    users_list = list(settings_db.get("users") or [])
+                    used_exts = {str(u.get("extension") or "").strip() for u in users_list if isinstance(u, dict)}
+                    next_ext = int(ad_cfg.get("extension_start_range") or 1050)
+                    while str(next_ext) in used_exts:
+                        next_ext += 1
+                    new_id = max([int(u.get("id")) for u in users_list if str(u.get("id") or "").isdigit()] + [10]) + 1
+                    new_u = {
+                        "id": new_id,
+                        "username": ldap_profile.get("username") or clean_user,
+                        "full_name": ldap_profile.get("full_name") or clean_user,
+                        "email": ldap_profile.get("email") or "",
+                        "extension": str(next_ext) if bool(ad_cfg.get("auto_assign_extension", True)) else "",
+                        "role": str(ad_cfg.get("default_role") or "agent"),
+                        "department": ldap_profile.get("department") or "",
+                        "ad_dn": ldap_profile.get("dn") or "",
+                        "is_active": True,
+                        "ad_synced": True,
+                        "auth_source": "ldap",
+                        "tenant_id": login_target_tenant or "tenant-default",
+                    }
+                    users_list.append(new_u)
+                    settings_db["users"] = users_list
+                    save_settings(settings_db)
+                    matched_user = new_u
+                    password_ok = True
+            elif not bool(ad_cfg.get("allow_local_fallback", True)):
+                record_login_failure(client_ip, clean_user)
+                raise HTTPException(status_code=401, detail="Active Directory / LDAP kimlik doğrulaması başarısız.")
+    except HTTPException:
+        raise
+    except Exception as _ldap_exc:
+        print(f"[Auth LDAP Warning]: {_ldap_exc}")
+
     # 1. Match against real users (SystemUser + settings.json)
     for u in all_users:
+        if password_ok:
+            break
         cands = {
             str(u.get("username") or "").strip().lower(),
             str(u.get("email") or "").strip().lower(),
@@ -24842,6 +24930,345 @@ async def verify_root_sso_login_endpoint(request: Request, response: Response, p
             "is_nornia_root": True,
         },
     }
+
+
+# ==============================================================================
+# ENTERPRISE SSO ENDPOINTS — OPENID CONNECT (OIDC / OAUTH 2.0) & SAML 2.0 SP
+# ==============================================================================
+
+def _build_external_base_url(request: Request) -> str:
+    proto = (request.headers.get("x-forwarded-proto") or request.url.scheme or "https").split(",")[0].strip()
+    host = (request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc or "localhost:8000").split(",")[0].strip()
+    return f"{proto}://{host}".rstrip("/")
+
+
+def _resolve_or_provision_sso_user(identity: dict, proto_cfg: dict, tenant_id: str = "tenant-default") -> dict:
+    from backend.services.sso_auth_service import resolve_sso_role
+
+    email = str(identity.get("email") or "").strip().lower()
+    uname = str(identity.get("username") or "").strip()
+    uname_l = uname.lower()
+    full_name = str(identity.get("full_name") or uname or email).strip()
+    groups = identity.get("groups") if isinstance(identity.get("groups"), list) else []
+
+    all_users = _collect_all_users_for_auth(target_tenant=tenant_id)
+    matched = None
+    for u in all_users:
+        u_em = str(u.get("email") or "").strip().lower()
+        u_un = str(u.get("username") or "").strip().lower()
+        if (email and u_em == email) or (uname_l and u_un == uname_l):
+            matched = u
+            break
+
+    mapped_role = resolve_sso_role(
+        groups,
+        proto_cfg.get("group_role_mapping"),
+        default_role=str(proto_cfg.get("default_role") or "agent"),
+    )
+
+    if matched is not None:
+        if matched.get("is_active") is False:
+            raise ValueError("Bu kurumsal hesap santralde pasif durumdadır.")
+        return matched
+
+    if not bool(proto_cfg.get("auto_create_users", True)):
+        raise ValueError(f"Kullanıcı ({email or uname}) Nornia'da bulunamadı ve otomatik hesap oluşturma (JIT) kapalı.")
+
+    users_list = list(settings_db.get("users") or [])
+    used_exts = {str(u.get("extension") or "").strip() for u in users_list if isinstance(u, dict)}
+    next_ext = int(proto_cfg.get("extension_start_range") or 1050)
+    while str(next_ext) in used_exts:
+        next_ext += 1
+    new_id = max([int(u.get("id")) for u in users_list if str(u.get("id") or "").isdigit()] + [10]) + 1
+    new_u = {
+        "id": new_id,
+        "username": uname or (email.split("@")[0] if "@" in email else f"sso_{new_id}"),
+        "full_name": full_name,
+        "email": email,
+        "extension": str(next_ext) if bool(proto_cfg.get("auto_assign_extension", True)) else "",
+        "role": mapped_role,
+        "is_active": True,
+        "sso_synced": True,
+        "auth_source": str(identity.get("protocol") or "sso"),
+        "tenant_id": tenant_id or "tenant-default",
+    }
+    users_list.append(new_u)
+    settings_db["users"] = users_list
+    save_settings(settings_db)
+    return new_u
+
+
+@app.get("/api/settings/sso")
+async def get_enterprise_sso_settings(request: Request):
+    from backend.services.sso_auth_service import get_merged_sso_config, sanitize_sso_config_for_ui
+
+    base_url = _build_external_base_url(request)
+    cfg = get_merged_sso_config(settings_db)
+    return {
+        "status": "success",
+        "config": sanitize_sso_config_for_ui(cfg),
+        "endpoints": {
+            "oidc_callback_url": f"{base_url}/api/auth/oidc/callback",
+            "oidc_login_url": f"{base_url}/api/auth/oidc/login",
+            "saml_acs_url": f"{base_url}/api/auth/saml/acs",
+            "saml_metadata_url": f"{base_url}/api/auth/saml/metadata",
+            "saml_default_entity_id": f"{base_url}/api/auth/saml/metadata",
+            "saml_login_url": f"{base_url}/api/auth/saml/login",
+        },
+    }
+
+
+@app.post("/api/settings/sso")
+async def save_enterprise_sso_settings(request: Request, payload: dict = Body(default={})):
+    from backend.services.sso_auth_service import get_merged_sso_config, sanitize_sso_config_for_ui
+
+    cur = get_merged_sso_config(settings_db)
+    if isinstance(payload.get("oidc"), dict):
+        incoming_oidc = dict(payload["oidc"])
+        sec = str(incoming_oidc.get("client_secret") or "")
+        if sec.startswith("••••") or sec == "":
+            if cur["oidc"].get("client_secret") and sec.startswith("••••"):
+                incoming_oidc["client_secret"] = cur["oidc"]["client_secret"]
+        incoming_oidc.pop("client_secret_configured", None)
+        cur["oidc"].update(incoming_oidc)
+
+    if isinstance(payload.get("saml"), dict):
+        cur["saml"].update(payload["saml"])
+
+    if "allow_local_login" in payload:
+        cur["allow_local_login"] = bool(payload["allow_local_login"])
+
+    settings_db["enterprise_sso"] = cur
+    save_settings(settings_db)
+
+    try:
+        await log_event(
+            user_id=resolve_audit_user_label(request.headers.get("X-User-ID") or "admin"),
+            action="UPDATE_SSO_SETTINGS",
+            module="Enterprise SSO",
+            details={
+                "summary": f"Kurumsal SSO ayarları güncellendi (OIDC: {'Aktif' if cur['oidc'].get('enabled') else 'Pasif'}, SAML 2.0: {'Aktif' if cur['saml'].get('enabled') else 'Pasif'})"
+            },
+        )
+    except Exception:
+        pass
+
+    return {"status": "success", "config": sanitize_sso_config_for_ui(cur)}
+
+
+@app.post("/api/settings/sso/test-oidc")
+async def test_oidc_discovery_endpoint(payload: dict = Body(default={})):
+    from backend.services.sso_auth_service import discover_oidc_metadata
+
+    src = str(payload.get("discovery_url") or payload.get("issuer_url") or "").strip()
+    verify_tls = bool(payload.get("verify_tls", True))
+    try:
+        doc = await discover_oidc_metadata(src, verify_tls=verify_tls)
+        return {
+            "status": "success",
+            "message": f"OIDC Discovery başarılı ({doc.get('issuer') or src}). Tüm uç noktalar doğrulandı.",
+            "discovered": {
+                "issuer_url": doc.get("issuer") or "",
+                "authorization_endpoint": doc.get("authorization_endpoint") or "",
+                "token_endpoint": doc.get("token_endpoint") or "",
+                "userinfo_endpoint": doc.get("userinfo_endpoint") or "",
+                "jwks_uri": doc.get("jwks_uri") or "",
+                "scopes_supported": doc.get("scopes_supported") or [],
+            },
+        }
+    except Exception as exc:
+        return {"status": "error", "message": f"OIDC Discovery hatası: {exc}"}
+
+
+@app.get("/api/auth/sso/providers")
+async def get_public_sso_providers_endpoint():
+    from backend.services.sso_auth_service import get_public_sso_providers
+
+    return get_public_sso_providers(settings_db)
+
+
+@app.get("/api/auth/oidc/login")
+async def oidc_login_redirect_endpoint(request: Request, tenant: str = "tenant-default", origin: str = ""):
+    from fastapi.responses import RedirectResponse
+    from backend.services.sso_auth_service import get_merged_sso_config, build_oidc_authorization_url
+
+    base_url = _build_external_base_url(request)
+    redirect_uri = f"{base_url}/api/auth/oidc/callback"
+    cfg = get_merged_sso_config(settings_db)
+    try:
+        auth_url = await build_oidc_authorization_url(
+            cfg["oidc"],
+            redirect_uri=redirect_uri,
+            tenant_id=tenant or "tenant-default",
+            frontend_origin=origin or base_url,
+        )
+        return RedirectResponse(url=auth_url, status_code=302)
+    except Exception as exc:
+        err_q = urllib.parse.urlencode({"sso_error": str(exc)})
+        return RedirectResponse(url=f"{(origin or base_url).rstrip('/')}/?{err_q}", status_code=302)
+
+
+@app.get("/api/auth/oidc/callback")
+async def oidc_callback_endpoint(
+    request: Request,
+    code: str = "",
+    state: str = "",
+    error: str = "",
+    error_description: str = "",
+):
+    from fastapi.responses import RedirectResponse
+    from backend.services.sso_auth_service import (
+        get_merged_sso_config,
+        exchange_and_verify_oidc_callback,
+        issue_sso_exchange_code,
+    )
+
+    base_url = _build_external_base_url(request)
+    if error:
+        err_q = urllib.parse.urlencode({"sso_error": error_description or error})
+        return RedirectResponse(url=f"{base_url}/?{err_q}", status_code=302)
+
+    cfg = get_merged_sso_config(settings_db)
+    try:
+        identity, st_obj = await exchange_and_verify_oidc_callback(cfg["oidc"], code=code, state=state)
+        target_origin = (st_obj.get("frontend_origin") or base_url).rstrip("/")
+        tenant_id = st_obj.get("tenant_id") or "tenant-default"
+        matched_user = _resolve_or_provision_sso_user(identity, cfg["oidc"], tenant_id=tenant_id)
+        uid_val = str(matched_user.get("id") or matched_user.get("extension") or matched_user.get("username"))
+        exch = issue_sso_exchange_code(
+            user_id=uid_val,
+            username=str(matched_user.get("username") or identity.get("username") or ""),
+            tenant_id=str(matched_user.get("tenant_id") or tenant_id),
+            protocol="oidc",
+        )
+        return RedirectResponse(url=f"{target_origin}/?sso_code={urllib.parse.quote(exch)}", status_code=302)
+    except Exception as exc:
+        err_q = urllib.parse.urlencode({"sso_error": f"OIDC giriş hatası: {exc}"})
+        return RedirectResponse(url=f"{base_url}/?{err_q}", status_code=302)
+
+
+@app.get("/api/auth/saml/metadata")
+async def saml_sp_metadata_endpoint(request: Request):
+    from backend.services.sso_auth_service import get_merged_sso_config, build_saml_sp_metadata_xml
+
+    base_url = _build_external_base_url(request)
+    acs_url = f"{base_url}/api/auth/saml/acs"
+    default_entity = f"{base_url}/api/auth/saml/metadata"
+    cfg = get_merged_sso_config(settings_db)
+    xml_text = build_saml_sp_metadata_xml(cfg["saml"], acs_url=acs_url, default_entity_id=default_entity)
+    return Response(content=xml_text, media_type="application/samlmetadata+xml")
+
+
+@app.get("/api/auth/saml/login")
+async def saml_login_redirect_endpoint(request: Request, tenant: str = "tenant-default", origin: str = ""):
+    from fastapi.responses import RedirectResponse
+    from backend.services.sso_auth_service import get_merged_sso_config, build_saml_authn_redirect_url
+
+    base_url = _build_external_base_url(request)
+    acs_url = f"{base_url}/api/auth/saml/acs"
+    default_entity = f"{base_url}/api/auth/saml/metadata"
+    cfg = get_merged_sso_config(settings_db)
+    try:
+        redirect_url = build_saml_authn_redirect_url(
+            cfg["saml"],
+            acs_url=acs_url,
+            default_entity_id=default_entity,
+            tenant_id=tenant or "tenant-default",
+            frontend_origin=origin or base_url,
+        )
+        return RedirectResponse(url=redirect_url, status_code=302)
+    except Exception as exc:
+        err_q = urllib.parse.urlencode({"sso_error": str(exc)})
+        return RedirectResponse(url=f"{(origin or base_url).rstrip('/')}/?{err_q}", status_code=302)
+
+
+@app.post("/api/auth/saml/acs")
+async def saml_acs_callback_endpoint(request: Request):
+    from fastapi.responses import RedirectResponse
+    from backend.services.sso_auth_service import (
+        get_merged_sso_config,
+        parse_and_verify_saml_response,
+        issue_sso_exchange_code,
+    )
+
+    base_url = _build_external_base_url(request)
+    default_entity = f"{base_url}/api/auth/saml/metadata"
+    cfg = get_merged_sso_config(settings_db)
+    try:
+        form = await request.form()
+        saml_b64 = str(form.get("SAMLResponse") or "").strip()
+        relay_state = str(form.get("RelayState") or "").strip()
+        identity, req_ctx = parse_and_verify_saml_response(
+            cfg["saml"],
+            saml_response_b64=saml_b64,
+            relay_state=relay_state,
+            default_entity_id=default_entity,
+        )
+        target_origin = (req_ctx.get("frontend_origin") or base_url).rstrip("/")
+        tenant_id = req_ctx.get("tenant_id") or "tenant-default"
+        matched_user = _resolve_or_provision_sso_user(identity, cfg["saml"], tenant_id=tenant_id)
+        uid_val = str(matched_user.get("id") or matched_user.get("extension") or matched_user.get("username"))
+        exch = issue_sso_exchange_code(
+            user_id=uid_val,
+            username=str(matched_user.get("username") or identity.get("username") or ""),
+            tenant_id=str(matched_user.get("tenant_id") or tenant_id),
+            protocol="saml",
+        )
+        return RedirectResponse(url=f"{target_origin}/?sso_code={urllib.parse.quote(exch)}", status_code=302)
+    except Exception as exc:
+        err_q = urllib.parse.urlencode({"sso_error": f"SAML 2.0 giriş hatası: {exc}"})
+        return RedirectResponse(url=f"{base_url}/?{err_q}", status_code=302)
+
+
+@app.post("/api/auth/sso/exchange")
+async def exchange_enterprise_sso_code_endpoint(request: Request, response: Response, payload: dict = Body(...)):
+    from backend.services.sso_auth_service import consume_sso_exchange_code
+    from backend.services.auth_service import create_session_token, set_session_cookie, sanitize_user_for_client
+
+    code = str(payload.get("sso_code") or "").strip()
+    entry = consume_sso_exchange_code(code)
+    if not entry:
+        raise HTTPException(status_code=401, detail="SSO tek kullanımlık kodu geçersiz veya süresi dolmuş.")
+
+    tenant_val = str(entry.get("tenant_id") or "tenant-default")
+    uid_target = str(entry.get("user_id") or "")
+    all_users = _collect_all_users_for_auth(target_tenant=tenant_val)
+    matched = next(
+        (u for u in all_users if str(u.get("id") or u.get("extension") or u.get("username")) == uid_target),
+        None,
+    )
+    if not matched:
+        raise HTTPException(status_code=404, detail="SSO kullanıcısı bulunamadı.")
+
+    role_val = str(matched.get("role") or "agent")
+    sess_token = create_session_token(
+        user_id=uid_target,
+        role=role_val,
+        tenant_id=tenant_val,
+        is_root=False,
+        remember_me=True,
+    )
+    set_session_cookie(response, sess_token, request, remember_me=True)
+
+    try:
+        await log_event(
+            user_id=str(matched.get("username") or uid_target),
+            action="ENTERPRISE_SSO_LOGIN",
+            module="Enterprise SSO",
+            details={"summary": f"Kurumsal SSO ({str(entry.get('protocol') or 'sso').upper()}) ile giriş yapıldı."},
+        )
+    except Exception:
+        pass
+
+    return {
+        "status": "ok",
+        "access_token": sess_token,
+        "token_type": "Bearer",
+        "tenant_id": tenant_val,
+        "protocol": entry.get("protocol") or "sso",
+        "user": sanitize_user_for_client(matched, include_sip_password=False),
+    }
+
 
 @app.get("/api/settings/ai-providers/elevenlabs-voices")
 async def get_elevenlabs_voices(user_info: dict = Depends(get_user_info)):

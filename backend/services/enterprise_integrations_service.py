@@ -31,7 +31,8 @@ DEFAULT_ACTIVE_DIRECTORY_CONFIG: Dict[str, Any] = {
     "default_queue": "",
     "disable_removed_users": True,
     "allow_local_fallback": True,
-    "simulation_mode": True,
+    "verify_tls": False,
+    "simulation_mode": False,
     "last_sync_at": None,
     "last_sync_status": None,
     "last_sync_count": 0,
@@ -259,14 +260,271 @@ def generate_sample_ad_directory_users(cfg: Dict[str, Any], existing_users: List
     return out
 
 
+def _ldap_attr_str(entry: Any, attr_name: str) -> str:
+    if not attr_name:
+        return ""
+    try:
+        if hasattr(entry, attr_name):
+            val = getattr(entry, attr_name).value
+        else:
+            val = entry[attr_name].value
+        if isinstance(val, list):
+            val = val[0] if val else ""
+        if isinstance(val, bytes):
+            return val.decode("utf-8", errors="ignore").strip()
+        return str(val or "").strip()
+    except Exception:
+        return ""
+
+
+def _ldap_attr_list(entry: Any, attr_name: str) -> List[str]:
+    if not attr_name:
+        return []
+    try:
+        if hasattr(entry, attr_name):
+            val = getattr(entry, attr_name).value
+        else:
+            val = entry[attr_name].value
+        if isinstance(val, list):
+            return [str(v).strip() for v in val if v]
+        if val:
+            return [str(val).strip()]
+    except Exception:
+        pass
+    return []
+
+
+def _open_ldap_connection(cfg: Dict[str, Any], bind_user: Optional[str] = None, bind_pass: Optional[str] = None):
+    """
+    Opens a real LDAP v3 / LDAPS (636) / LDAP+StartTLS connection using ldap3.
+    Raises ImportError if ldap3 is not installed or ValueError/Exception on bind failure.
+    """
+    import ldap3  # type: ignore
+
+    host = str(cfg.get("server_host") or "").strip()
+    if not host:
+        raise ValueError("Active Directory / LDAP sunucu adresi (server_host) boş.")
+    use_ssl = bool(cfg.get("use_ssl", False))
+    use_starttls = bool(cfg.get("use_starttls", False)) and not use_ssl
+    port = int(cfg.get("server_port") or (636 if use_ssl else 389))
+    verify_tls = bool(cfg.get("verify_tls", False))
+
+    tls_cfg = None
+    if use_ssl or use_starttls:
+        tls_cfg = ldap3.Tls(
+            validate=ssl.CERT_REQUIRED if verify_tls else ssl.CERT_NONE,
+            version=ssl.PROTOCOL_TLS_CLIENT if verify_tls else ssl.PROTOCOL_TLS,
+        )
+
+    server = ldap3.Server(
+        host,
+        port=port,
+        use_ssl=use_ssl,
+        tls=tls_cfg,
+        get_info=ldap3.NONE,
+        connect_timeout=5,
+    )
+
+    user_dn = bind_user if bind_user is not None else str(cfg.get("bind_dn") or "").strip()
+    pw = bind_pass if bind_pass is not None else str(cfg.get("bind_password") or "")
+
+    conn = ldap3.Connection(
+        server,
+        user=user_dn or None,
+        password=pw or None,
+        auto_bind=False,
+        receive_timeout=8,
+        raise_exceptions=False,
+    )
+    if not conn.open():
+        raise ConnectionError(f"LDAP sunucusuna ({host}:{port}) TCP bağlantısı açılamadı.")
+    if use_starttls:
+        if not conn.start_tls():
+            conn.unbind()
+            raise ConnectionError(f"LDAP StartTLS el sıkışması başarısız: {conn.last_error}")
+    if not conn.bind():
+        err_msg = conn.result.get("description") or conn.last_error or "invalidCredentials"
+        conn.unbind()
+        raise PermissionError(f"LDAP Bind kimlik doğrulaması başarısız ({err_msg}).")
+    return conn
+
+
+def fetch_live_ad_directory_users(
+    cfg: Dict[str, Any],
+    existing_users: List[Dict[str, Any]],
+    size_limit: int = 500,
+) -> List[Dict[str, Any]]:
+    """Queries live Active Directory / OpenLDAP / FreeIPA directory users via ldap3."""
+    import ldap3  # type: ignore
+
+    attr_user = str(cfg.get("attr_username") or "sAMAccountName").strip()
+    attr_name = str(cfg.get("attr_full_name") or "displayName").strip()
+    attr_email = str(cfg.get("attr_email") or "mail").strip()
+    attr_phone = str(cfg.get("attr_phone") or "telephoneNumber").strip()
+    attr_dept = str(cfg.get("attr_department") or "department").strip()
+
+    search_base = str(cfg.get("user_search_base") or cfg.get("base_dn") or "").strip()
+    if not search_base:
+        raise ValueError("Arama tabanı (user_search_base veya base_dn) boş.")
+
+    search_filter = str(cfg.get("user_search_filter") or "(objectClass=person)").strip()
+    attrs = list({attr_user, attr_name, attr_email, attr_phone, attr_dept, "cn", "uid", "userPrincipalName", "title", "memberOf"})
+
+    start_ext = int(cfg.get("extension_start_range") or 1050)
+    used_exts = {str(u.get("extension") or "").strip() for u in (existing_users or []) if isinstance(u, dict)}
+    existing_emails = {str(u.get("email") or "").strip().lower(): u for u in (existing_users or []) if isinstance(u, dict) and u.get("email")}
+    existing_unames = {str(u.get("username") or "").strip().lower(): u for u in (existing_users or []) if isinstance(u, dict) and u.get("username")}
+
+    conn = _open_ldap_connection(cfg)
+    try:
+        conn.search(
+            search_base=search_base,
+            search_filter=search_filter,
+            search_scope=ldap3.SUBTREE,
+            attributes=attrs,
+            size_limit=size_limit,
+        )
+        next_ext = start_ext
+        out: List[Dict[str, Any]] = []
+        domain = str(cfg.get("domain_name") or "kurum.local").strip()
+
+        for entry in conn.entries:
+            sam = _ldap_attr_str(entry, attr_user) or _ldap_attr_str(entry, "uid") or _ldap_attr_str(entry, "cn")
+            if not sam:
+                continue
+            full_name = _ldap_attr_str(entry, attr_name) or _ldap_attr_str(entry, "cn") or sam
+            email = (_ldap_attr_str(entry, attr_email) or _ldap_attr_str(entry, "userPrincipalName") or f"{sam}@{domain}").lower()
+            phone = _ldap_attr_str(entry, attr_phone)
+            dept = _ldap_attr_str(entry, attr_dept)
+            title = _ldap_attr_str(entry, "title")
+            groups = _ldap_attr_list(entry, "memberOf")
+            dn = str(getattr(entry, "entry_dn", "") or "")
+
+            matched = existing_unames.get(sam.lower()) or existing_emails.get(email.lower())
+            if matched:
+                assigned_ext = str(matched.get("extension") or "")
+                sync_state = "existing"
+            else:
+                while str(next_ext) in used_exts:
+                    next_ext += 1
+                assigned_ext = str(next_ext)
+                used_exts.add(assigned_ext)
+                next_ext += 1
+                sync_state = "new"
+
+            out.append({
+                "username": sam,
+                "full_name": full_name,
+                "email": email,
+                "phone": phone,
+                "department": dept,
+                "title": title,
+                "dn": dn,
+                "groups": groups,
+                "suggested_extension": assigned_ext,
+                "suggested_role": str(cfg.get("default_role") or "agent"),
+                "sync_state": sync_state,
+                "ad_status": "Enabled",
+            })
+        return out
+    finally:
+        try:
+            conn.unbind()
+        except Exception:
+            pass
+
+
+def authenticate_ldap_user(
+    cfg: Dict[str, Any],
+    username: str,
+    password: str,
+) -> tuple:
+    """
+    Authenticates a user live against Active Directory / OpenLDAP / FreeIPA via LDAP/LDAPS Bind.
+    Returns: (ok: bool, ad_profile: Optional[dict], reason: str)
+    """
+    if not cfg or not cfg.get("enabled") or cfg.get("simulation_mode"):
+        return False, None, "ldap_disabled"
+    clean_u = str(username or "").strip()
+    if not clean_u or not password:
+        return False, None, "empty_credentials"
+
+    try:
+        import ldap3  # type: ignore
+        from ldap3.utils.conv import escape_filter_chars  # type: ignore
+    except ImportError:
+        return False, None, "ldap3_not_installed"
+
+    attr_user = str(cfg.get("attr_username") or "sAMAccountName").strip()
+    attr_name = str(cfg.get("attr_full_name") or "displayName").strip()
+    attr_email = str(cfg.get("attr_email") or "mail").strip()
+    attr_dept = str(cfg.get("attr_department") or "department").strip()
+    attr_phone = str(cfg.get("attr_phone") or "telephoneNumber").strip()
+    domain = str(cfg.get("domain_name") or "").strip()
+    search_base = str(cfg.get("user_search_base") or cfg.get("base_dn") or "").strip()
+
+    user_dn = ""
+    profile: Dict[str, Any] = {
+        "username": clean_u.split("@")[0] if "@" in clean_u else clean_u,
+        "full_name": clean_u,
+        "email": clean_u.lower() if "@" in clean_u else (f"{clean_u}@{domain}".lower() if domain else ""),
+        "department": "",
+        "phone": "",
+        "groups": [],
+    }
+
+    # Step 1: Lookup user DN via service account bind if configured
+    if str(cfg.get("bind_dn") or "").strip() and search_base:
+        try:
+            svc_conn = _open_ldap_connection(cfg)
+            try:
+                esc_u = escape_filter_chars(clean_u)
+                user_filter = f"(|({attr_user}={esc_u})(userPrincipalName={esc_u})(mail={esc_u})(uid={esc_u}))"
+                svc_conn.search(
+                    search_base=search_base,
+                    search_filter=user_filter,
+                    search_scope=ldap3.SUBTREE,
+                    attributes=[attr_user, attr_name, attr_email, attr_dept, attr_phone, "cn", "memberOf"],
+                    size_limit=2,
+                )
+                if svc_conn.entries:
+                    ent = svc_conn.entries[0]
+                    user_dn = str(getattr(ent, "entry_dn", "") or "")
+                    profile["username"] = _ldap_attr_str(ent, attr_user) or profile["username"]
+                    profile["full_name"] = _ldap_attr_str(ent, attr_name) or _ldap_attr_str(ent, "cn") or profile["username"]
+                    profile["email"] = (_ldap_attr_str(ent, attr_email) or profile["email"]).lower()
+                    profile["department"] = _ldap_attr_str(ent, attr_dept)
+                    profile["phone"] = _ldap_attr_str(ent, attr_phone)
+                    profile["groups"] = _ldap_attr_list(ent, "memberOf")
+                    profile["dn"] = user_dn
+            finally:
+                svc_conn.unbind()
+        except Exception as lookup_err:
+            return False, None, f"ldap_service_lookup_failed:{lookup_err}"
+
+    # Fallback UPN bind for Microsoft AD if user DN wasn't resolved by service account
+    bind_identity = user_dn or (clean_u if ("@" in clean_u or "=" in clean_u) else (f"{clean_u}@{domain}" if domain else clean_u))
+    if not bind_identity:
+        return False, None, "user_not_found_in_ldap"
+
+    # Step 2: Live user credential verification via LDAP/LDAPS Bind
+    try:
+        user_conn = _open_ldap_connection(cfg, bind_user=bind_identity, bind_pass=password)
+        user_conn.unbind()
+        return True, profile, "ok"
+    except PermissionError:
+        return False, None, "invalid_ldap_credentials"
+    except Exception as bind_err:
+        return False, None, f"ldap_bind_error:{bind_err}"
+
+
 def test_ad_connection(cfg: Dict[str, Any], existing_users: List[Dict[str, Any]]) -> Dict[str, Any]:
     host = str(cfg.get("server_host") or "").strip()
     port = int(cfg.get("server_port") or (636 if cfg.get("use_ssl") else 389))
-    sim = bool(cfg.get("simulation_mode", True))
-
-    sample_users = generate_sample_ad_directory_users(cfg, existing_users)
+    sim = bool(cfg.get("simulation_mode", False))
 
     if sim:
+        sample_users = generate_sample_ad_directory_users(cfg, existing_users)
         return {
             "status": "success",
             "mode": "simulation",
@@ -275,7 +533,7 @@ def test_ad_connection(cfg: Dict[str, Any], existing_users: List[Dict[str, Any]]
             "protocol": "LDAPS (TLS 1.3)" if cfg.get("use_ssl") else ("LDAP + StartTLS" if cfg.get("use_starttls") else "LDAP v3"),
             "base_dn": cfg.get("base_dn") or "DC=kurum,DC=local",
             "discovered_users_count": len(sample_users),
-            "message": f"Active Directory ({host or 'dc01.kurum.local'}:{port}) doğrulama testi başarılı! Dizin ağacında {len(sample_users)} aktif kullanıcı bulundu.",
+            "message": f"[Demo Modu] Active Directory ({host or 'dc01.kurum.local'}:{port}) örnek doğrulama başarılı ({len(sample_users)} örnek kullanıcı).",
             "preview_users": sample_users,
         }
 
@@ -286,30 +544,57 @@ def test_ad_connection(cfg: Dict[str, Any], existing_users: List[Dict[str, Any]]
         }
 
     t0 = time.time()
+    proto_label = "LDAPS (SSL/TLS)" if cfg.get("use_ssl") else ("LDAP + StartTLS" if cfg.get("use_starttls") else "LDAP v3")
+
+    # Attempt real ldap3 Bind + Search first
     try:
-        sock = socket.create_connection((host, port), timeout=3.0)
-        if cfg.get("use_ssl"):
-            ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
-            sock = ctx.wrap_socket(sock, server_hostname=host)
-        sock.close()
+        live_users = fetch_live_ad_directory_users(cfg, existing_users, size_limit=100)
         latency_ms = max(1, int((time.time() - t0) * 1000))
         return {
             "status": "success",
-            "mode": "live",
+            "mode": "live_ldap3",
             "latency_ms": latency_ms,
             "server": f"{host}:{port}",
-            "protocol": "LDAPS (SSL/TLS)" if cfg.get("use_ssl") else "LDAP v3",
-            "base_dn": cfg.get("base_dn") or "",
-            "discovered_users_count": len(sample_users),
-            "message": f"{host}:{port} Active Directory sunucusuna TCP/LDAP erişimi doğrulandı ({latency_ms} ms).",
-            "preview_users": sample_users,
+            "protocol": proto_label,
+            "base_dn": cfg.get("user_search_base") or cfg.get("base_dn") or "",
+            "discovered_users_count": len(live_users),
+            "message": f"{host}:{port} ({proto_label}) canlı LDAP Bind & sorgu doğrulandı ({latency_ms} ms) — {len(live_users)} kullanıcı listelendi.",
+            "preview_users": live_users,
         }
+    except ImportError:
+        # Fallback TCP/TLS check with clear hint to install ldap3
+        try:
+            sock = socket.create_connection((host, port), timeout=3.0)
+            if cfg.get("use_ssl"):
+                ctx = ssl.create_default_context()
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+                sock = ctx.wrap_socket(sock, server_hostname=host)
+            sock.close()
+            latency_ms = max(1, int((time.time() - t0) * 1000))
+            return {
+                "status": "warning",
+                "mode": "tcp_only",
+                "latency_ms": latency_ms,
+                "server": f"{host}:{port}",
+                "protocol": proto_label,
+                "base_dn": cfg.get("base_dn") or "",
+                "discovered_users_count": 0,
+                "message": f"{host}:{port} portuna TCP/TLS erişimi var ({latency_ms} ms) ancak canlı Bind için sunucuda `pip install ldap3` kurulmalıdır.",
+                "preview_users": [],
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "mode": "live",
+                "server": f"{host}:{port}",
+                "message": f"LDAP sunucusuna ({host}:{port}) erişilemedi: {str(e)}",
+            }
     except Exception as e:
         return {
             "status": "error",
-            "mode": "live",
+            "mode": "live_ldap3",
             "server": f"{host}:{port}",
-            "message": f"Active Directory sunucusuna ({host}:{port}) erişilemedi: {str(e)}. (Canlı sunucu olmadan test etmek için 'Demo / Simülasyon Modu'nu açık bırakabilirsiniz.)",
+            "protocol": proto_label,
+            "message": f"Canlı LDAP/LDAPS bağlantı/Bind hatası ({host}:{port}): {str(e)}",
         }

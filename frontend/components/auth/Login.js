@@ -22,6 +22,8 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
   const [isLoading, setIsLoading] = useState(false);
   const [localDeviceKey, setLocalDeviceKey] = useState("");
   const [deviceKeyCopied, setDeviceKeyCopied] = useState(false);
+  const [ssoProviders, setSsoProviders] = useState([]);
+  const [ssoUrlError, setSsoUrlError] = useState("");
 
   useEffect(() => {
     setLocalDeviceKey(getDeviceKeySync());
@@ -39,9 +41,29 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
           setTenantCode(qTenant);
           setShowTenantInput(true);
         }
+        const qSsoErr = (params.get("sso_error") || "").trim();
+        if (qSsoErr) {
+          setSsoUrlError(qSsoErr);
+          params.delete("sso_error");
+          const cleanQ = params.toString();
+          window.history.replaceState({}, "", `${window.location.pathname}${cleanQ ? `?${cleanQ}` : ""}`);
+        }
       } catch (e) {}
     }
-  }, []);
+    // Load active enterprise SSO providers (OIDC / SAML 2.0)
+    (async () => {
+      try {
+        const base = getApiBaseUrl(backendHost);
+        const res = await fetch(`${base}/api/auth/sso/providers`);
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data?.providers)) {
+            setSsoProviders(data.providers);
+          }
+        }
+      } catch (_) {}
+    })();
+  }, [backendHost]);
 
   // 2FA States
   const [is2FA, setIs2FA] = useState(false);
@@ -1041,6 +1063,47 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
                   </>
                 )}
               </button>
+            )}
+            {!isForgotMode && !is2FA && ssoUrlError && (
+              <div className="p-3 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/60 text-rose-700 dark:text-rose-300 text-xs font-semibold rounded-xl flex items-start gap-2">
+                <AlertCircle size={15} className="shrink-0 mt-0.5" />
+                <span>{ssoUrlError}</span>
+              </div>
+            )}
+
+            {!isForgotMode && !is2FA && ssoProviders.length > 0 && (
+              <div className="pt-2 space-y-2.5">
+                <div className="relative flex items-center justify-center">
+                  <div className="border-t border-slate-200 dark:border-slate-700/80 w-full" />
+                  <span className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-white/90 dark:bg-slate-900/90 shrink-0">
+                    veya Kurumsal SSO
+                  </span>
+                  <div className="border-t border-slate-200 dark:border-slate-700/80 w-full" />
+                </div>
+                <div className="space-y-2">
+                  {ssoProviders.map((prov) => (
+                    <button
+                      key={`${prov.protocol}-${prov.preset}`}
+                      type="button"
+                      onClick={() => {
+                        const base = getApiBaseUrl(backendHost);
+                        const origin = typeof window !== "undefined" ? window.location.origin : "";
+                        const q = new URLSearchParams();
+                        if (tenantCode) q.set("tenant", tenantCode);
+                        if (origin) q.set("origin", origin);
+                        window.location.href = `${base}${prov.login_path}?${q.toString()}`;
+                      }}
+                      className="w-full py-3 px-4 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/80 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-100 text-xs font-extrabold flex items-center justify-center gap-2.5 shadow-xs transition-all cursor-pointer"
+                    >
+                      <KeyRound size={15} className={text} />
+                      <span>{prov.label}</span>
+                      <span className="px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700 text-[9px] font-mono uppercase text-slate-500 dark:text-slate-300">
+                        {prov.protocol === "oidc" ? "OIDC" : "SAML 2.0"}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
             )}
           </form>
           </div>

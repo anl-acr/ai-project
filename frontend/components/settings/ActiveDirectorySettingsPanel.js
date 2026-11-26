@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { useTheme } from "../../utils/theme";
 import { getApiBaseUrl, tenantFetch } from "../../utils/apiHost";
+import EnterpriseSsoTabs from "./EnterpriseSsoTabs";
 
 const PROVIDER_OPTIONS = [
   { id: "microsoft_ad", label: "Microsoft Active Directory", subtitle: "Windows Server Domain Controller", badge: "Kurumsal Standart" },
@@ -115,10 +116,13 @@ export default function ActiveDirectorySettingsPanel({ backendHost = "localhost:
     default_role: "agent",
     disable_removed_users: true,
     allow_local_fallback: true,
-    simulation_mode: true,
+    verify_tls: false,
+    simulation_mode: false,
     last_sync_at: null,
     last_sync_count: 0,
   });
+
+  const [activeAuthTab, setActiveAuthTab] = useState("ldap"); // ldap | oidc | saml
 
   const [previewUsers, setPreviewUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -238,6 +242,35 @@ export default function ActiveDirectorySettingsPanel({ backendHost = "localhost:
 
   return (
     <div className="space-y-6">
+      {/* Protocol Switcher Tabs: LDAP/LDAPS | OIDC (OAuth 2.0) | SAML 2.0 */}
+      <div className="p-1.5 rounded-2xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 inline-flex flex-wrap gap-1.5">
+        {[
+          { id: "ldap", label: "Active Directory / LDAP-LDAPS" },
+          { id: "oidc", label: "OpenID Connect (OIDC / OAuth 2.0)" },
+          { id: "saml", label: "SAML 2.0 (ADFS / Entra / Okta)" },
+        ].map((tab) => {
+          const isAct = activeAuthTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveAuthTab(tab.id)}
+              className={`px-4 py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
+                isAct
+                  ? `${bg} text-white shadow-sm`
+                  : "text-slate-600 dark:text-slate-300 hover:bg-white/70 dark:hover:bg-slate-800"
+              }`}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {activeAuthTab !== "ldap" ? (
+        <EnterpriseSsoTabs mode={activeAuthTab} backendHost={backendHost} />
+      ) : (
+      <>
       {/* Header Banner */}
       <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div className="flex items-start gap-3.5">
@@ -683,6 +716,8 @@ export default function ActiveDirectorySettingsPanel({ backendHost = "localhost:
           </table>
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 }
