@@ -45,7 +45,7 @@ SUPPORTED_PHONE_MODELS: Dict[str, List[str]] = {
         "V62", "V64", "V65",
     ],
     "Cisco": [
-        "7821", "7841", "8811", "8841", "8851", "8861",
+        "3905", "7821", "7841", "8811", "8841", "8851", "8861",
     ],
 }
 
@@ -178,6 +178,7 @@ PHONE_MODEL_CATALOG: List[Dict[str, Any]] = [
     {"brand": "Fanvil", "model": "V65", "label": "Fanvil V65 (10 Tuş × 4 Sayfa = 40 DSS • V-Serisi)", "screen": "color", "layout": "split", "dss_per_page": 10, "dss_pages": 4, "max_dss": 40, "soft_keys": 4, "expansion_model": "Fanvil-E20", "max_expansions": 4},
     # --- CISCO ---
     {"brand": "Cisco", "model": "7821", "label": "Cisco IP Phone 7821 (2 Hat • Monokrom)", "screen": "mono", "layout": "left_only", "dss_per_page": 2, "dss_pages": 1, "max_dss": 2, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Cisco", "model": "3905", "label": "Cisco IP Phone 3905 (1 Hat • Monokrom SIP)", "screen": "mono", "layout": "left_only", "dss_per_page": 0, "dss_pages": 0, "max_dss": 0, "soft_keys": 0, "expansion_model": None, "max_expansions": 0},
     {"brand": "Cisco", "model": "7841", "label": "Cisco IP Phone 7841 (4 Hat • Monokrom Gigabit)", "screen": "mono", "layout": "left_only", "dss_per_page": 4, "dss_pages": 1, "max_dss": 4, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
     {"brand": "Cisco", "model": "8811", "label": "Cisco IP Phone 8811 (10 Tuş • Monokrom)", "screen": "mono", "layout": "split", "dss_per_page": 10, "dss_pages": 1, "max_dss": 10, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
     {"brand": "Cisco", "model": "8841", "label": "Cisco IP Phone 8841 (10 Tuş • Renkli 5\" LCD)", "screen": "color", "layout": "split", "dss_per_page": 10, "dss_pages": 1, "max_dss": 10, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
@@ -2521,6 +2522,7 @@ def generate_provisioning_config(
     if "cisco" in b_low:
         req_fn_low = str(requested_filename or "").strip().lower()
         model_low = str(model or "").strip().lower()
+        is_cp3905 = ("3905" in model_low or "3911" in model_low)
         is_sep_enterprise = (
             (req_fn_low.startswith("sep") and req_fn_low.endswith(".cnf.xml"))
             or (
@@ -2530,46 +2532,52 @@ def generate_provisioning_config(
                 and "spa" not in model_low
                 and (
                     int(sip_port or 5060) == 5160
-                    or any(m in model_low for m in ("7811", "7821", "7841", "7861", "8811", "8841", "8845", "8851", "8861", "7940", "7941", "7942", "7945", "7960", "7961", "7962", "7965", "7975"))
+                    or any(m in model_low for m in ("3905", "3911", "7811", "7821", "7841", "7861", "8811", "8841", "8845", "8851", "8861", "7940", "7941", "7942", "7945", "7960", "7961", "7962", "7965", "7975"))
                 )
             )
         )
 
         if is_sep_enterprise:
-            # Transport: 1=TCP, 2=UDP, 4=TCP+UDP (Cisco 78xx/88xx Enterprise)
-            cisco_tr_code = "1" if tr_up == "TCP" else ("3" if tr_up == "TLS" else "2")
+            # Transport: 1=TCP, 2=UDP, 3=TLS. CP-3905 is most reliable over UDP (2) with PJSIP & Tunnel!
+            if is_cp3905:
+                cisco_tr_code = "2"
+            else:
+                cisco_tr_code = "1" if tr_up == "TCP" else ("3" if tr_up == "TLS" else "2")
+            # PJSIP (port 5060 / Tunnel) MUST use direct host in <proxy>, whereas chan_sip (5160 cisco_usecallmanager) uses USECALLMANAGER
+            cisco_line_proxy = "USECALLMANAGER" if int(sip_port or 5060) == 5160 else html.escape(pbx_host)
             # WAN/Tunnel mode uses NAT traversal + keepalive
             is_wan_mode = str(connection_mode or "").strip().lower() == "wan"
             nat_flag = "true" if is_wan_mode else "false"
             sep_lines: List[str] = []
-            btn_idx = 2
-            for k in dss_list[:10]:
-                ktype = str(k.get("type") or "none")
-                klbl = html.escape(str(k.get("label") or ""))
-                kval = html.escape(str(k.get("value") or ""))
-                if int(k.get("key_index") or 1) == 1 and ktype == "line":
-                    continue
-                if ktype == "blf" and kval:
-                    sep_lines.append(
-                        f'      <line button="{btn_idx}">\n'
-                        f'        <featureID>21</featureID>\n'
-                        f'        <featureLabel>{klbl or kval}</featureLabel>\n'
-                        f'        <speedDialNumber>{kval}</speedDialNumber>\n'
-                        f'        <contact>{kval}</contact>\n'
-                        f'        <featureOptionMask>1</featureOptionMask>\n'
-                        f'      </line>'
-                    )
-                    btn_idx += 1
-                elif ktype in ("speed_dial", "park", "intercom", "voicemail", "forward") and (kval or ktype == "voicemail"):
-                    eff_v = kval or "*97"
-                    sep_lines.append(
-                        f'      <line button="{btn_idx}">\n'
-                        f'        <featureID>2</featureID>\n'
-                        f'        <featureLabel>{klbl or eff_v}</featureLabel>\n'
-                        f'        <speedDialNumber>{eff_v}</speedDialNumber>\n'
-                        f'      </line>'
-                    )
-                    btn_idx += 1
+            if not is_cp3905:
+                btn_idx = 2
+                for k in dss_list[:10]:
+                    ktype = str(k.get("type") or "none")
+                    klbl = html.escape(str(k.get("label") or ""))
+                    kval = html.escape(str(k.get("value") or ""))
+                    if int(k.get("key_index") or 1) == 1 and ktype == "line":
+                        continue
+                    if ktype == "blf" and kval:
+                        sep_lines.append(
+                            f'      <line button="{btn_idx}">\n'
+                            f'        <featureID>21</featureID>\n'
+                            f'        <featureLabel>{klbl or kval}</featureLabel>\n'
+                            f'        <speedDialNumber>{kval}</speedDialNumber>\n'
+                            f'        <contact>{kval}</contact>\n'
+                            f'        <featureOptionMask>1</featureOptionMask>\n'
+                            f'      </line>'
+                        )
+                        btn_idx += 1
+                    elif ktype in ("speed_dial", "park", "intercom", "voicemail", "forward") and (kval or ktype == "voicemail"):
+                        eff_v = kval or "*97"
+                        sep_lines.append(
+                            f'      <line button="{btn_idx}">\n'
+                            f'        <featureID>2</featureID>\n'
+                            f'        <featureLabel>{klbl or eff_v}</featureLabel>\n'
+                            f'        <speedDialNumber>{eff_v}</speedDialNumber>\n'
+                            f'      </line>'
+                        )
+                        btn_idx += 1
 
             extra_lines_xml = "\n".join(sep_lines)
             mac_upper = mac_hex.upper() if mac_hex else f"{ext_s}"
@@ -2670,7 +2678,7 @@ def generate_provisioning_config(
       <line button="1">
         <featureID>9</featureID>
         <featureLabel>{html.escape(line_label)}</featureLabel>
-        <proxy>USECALLMANAGER</proxy>
+        <proxy>{cisco_line_proxy}</proxy>
         <port>{sip_port}</port>
         <name>{html.escape(sip_u)}</name>
         <displayName>{html.escape(disp_name)}</displayName>
