@@ -18268,7 +18268,9 @@ async def _resolve_cisco_ip_only_file(filename: str, client_ip: str = "127.0.0.1
 
 @app.get("/dialplan.xml")
 @app.get("/XMLDefault.cnf.xml")
+@app.get("/xmldefault.cnf.xml")
 @app.get("/SEP{mac_part}.cnf.xml")
+@app.get("/sep{mac_part}.cnf.xml")
 @app.get("/spa{mac_part}.xml")
 @app.get("/spa{mac_part}.cfg")
 async def serve_cisco_ip_only_root_provision(request: Request, mac_part: str = ""):

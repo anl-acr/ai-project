@@ -570,9 +570,13 @@ async def _handle_tunneled_http_request(tunnel_ws: Any, msg: Dict[str, Any]):
     headers_in = dict(msg.get("headers") or {})
     body_b64 = msg.get("body_b64") or ""
 
-    # Route /api/*, /uploads/*, /docs, /openapi.json directly to FastAPI Backend (127.0.0.1:8000)
+    # Route /api/*, /uploads/*, Cisco root provisioning files (/SEP*, /spa*, /dialplan.xml, /XMLDefault.cnf.xml), /sdk/* directly to FastAPI Backend (127.0.0.1:8000)
     # Route everything else to Next.js Frontend (127.0.0.1:3000)
-    if path.startswith(("/api/", "/uploads/", "/settings/", "/calls/", "/webhooks/", "/webhook/", "/docs", "/openapi.json")):
+    _path_low = path.lower()
+    if (
+        path.startswith(("/api/", "/uploads/", "/settings/", "/calls/", "/webhooks/", "/webhook/", "/docs", "/openapi.json", "/sdk/"))
+        or _path_low.startswith(("/sep", "/spa", "/dialplan.xml", "/xmldefault.cnf.xml"))
+    ):
         target_base = "http://127.0.0.1:8000"
     else:
         target_base = "http://127.0.0.1:3000"
