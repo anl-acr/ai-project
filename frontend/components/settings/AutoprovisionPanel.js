@@ -28,10 +28,14 @@ import {
   Wifi,
   ChevronDown,
   Cpu,
+  FolderOpen,
+  Terminal,
 } from "lucide-react";
 import * as XLSX from "../../utils/excelHelper";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import PhoneFirmwareTab from "./PhoneFirmwareTab";
+import TftpDirectoryTab from "./TftpDirectoryTab";
+import TftpLogTab from "./TftpLogTab";
 import ProvisionConfigInspectorModal from "./ProvisionConfigInspectorModal";
 import { useTheme } from "../../utils/theme";
 import { resolvePhonePhotoSpec } from "../../utils/deskphonePhotoCatalog";
@@ -63,8 +67,12 @@ function detectBrandFromMacInput(rawMac) {
 export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
   const { bg, hover, text, border, ring, lightBg, borderLight } = useTheme();
 
-  const [activeTab, setActiveTab] = useState("devices"); // "devices" | "firmware"
+  const [activeTab, setActiveTab] = useState("devices"); // "devices" | "firmware" | "directory" | "logs"
   const [fwSummary, setFwSummary] = useState({ packageCount: 0, pendingCount: 0 });
+  const [tftpDirCount, setTftpDirCount] = useState(null);
+  const [tftpLogCount, setTftpLogCount] = useState(0);
+  const [jumpDirFilename, setJumpDirFilename] = useState("");
+  const tabRefs = useRef({});
   const [devices, setDevices] = useState([]);
   const [modelCatalog, setModelCatalog] = useState([]);
   const [userSipDevicesMap, setUserSipDevicesMap] = useState({});
@@ -683,27 +691,58 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
           </div>
         </div>
         <div className="flex items-center gap-2.5 flex-wrap">
-          {/* Tab Switcher: Masa Telefonları / Firmware Yönetimi */}
-          <div className="inline-flex items-center p-1 rounded-xl bg-slate-100 dark:bg-slate-800/90 border border-slate-200/70 dark:border-slate-700/70">
+          {/* Tab Switcher: Cihazlar / Firmware Yönetimi / Dizin / Log */}
+          <div
+            role="tablist"
+            aria-label="Oto Provizyon Sekmeleri"
+            onKeyDown={(e) => {
+              const order = ["devices", "firmware", "directory", "logs"];
+              const idx = order.indexOf(activeTab);
+              if (idx === -1) return;
+              let nextIdx = -1;
+              if (e.key === "ArrowRight") nextIdx = (idx + 1) % order.length;
+              else if (e.key === "ArrowLeft") nextIdx = (idx - 1 + order.length) % order.length;
+              else if (e.key === "Home") nextIdx = 0;
+              else if (e.key === "End") nextIdx = order.length - 1;
+              if (nextIdx >= 0) {
+                e.preventDefault();
+                const nextId = order[nextIdx];
+                setActiveTab(nextId);
+                tabRefs.current[nextId]?.focus();
+                tabRefs.current[nextId]?.scrollIntoView({ block: "nearest", inline: "nearest" });
+              }
+            }}
+            className="inline-flex items-center flex-nowrap overflow-x-auto max-w-full p-1 rounded-xl bg-slate-100 dark:bg-slate-800/90 border border-slate-200/70 dark:border-slate-700/70"
+          >
             <button
+              ref={(el) => { tabRefs.current.devices = el; }}
+              id="autoprov-tab-devices"
               type="button"
+              role="tab"
+              aria-selected={activeTab === "devices"}
+              tabIndex={activeTab === "devices" ? 0 : -1}
               onClick={() => setActiveTab("devices")}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-extrabold transition-all cursor-pointer ${
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-extrabold transition-all cursor-pointer shrink-0 whitespace-nowrap border-b-2 ${
                 activeTab === "devices"
-                  ? `${bg} text-white shadow-sm`
-                  : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
+                  ? `${bg} text-white shadow-sm border-white/70`
+                  : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white border-transparent"
               }`}
             >
               <Smartphone size={13} />
               <span>Cihazlar ({devices.length})</span>
             </button>
             <button
+              ref={(el) => { tabRefs.current.firmware = el; }}
+              id="autoprov-tab-firmware"
               type="button"
+              role="tab"
+              aria-selected={activeTab === "firmware"}
+              tabIndex={activeTab === "firmware" ? 0 : -1}
               onClick={() => setActiveTab("firmware")}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-extrabold transition-all cursor-pointer ${
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-extrabold transition-all cursor-pointer shrink-0 whitespace-nowrap border-b-2 ${
                 activeTab === "firmware"
-                  ? `${bg} text-white shadow-sm`
-                  : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
+                  ? `${bg} text-white shadow-sm border-white/70`
+                  : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white border-transparent"
               }`}
             >
               <Cpu size={13} />
@@ -711,6 +750,51 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
               {fwSummary.pendingCount > 0 && (
                 <span className="ml-0.5 px-1.5 py-0.2 rounded-full bg-amber-500 text-white text-[9px] font-black">
                   {fwSummary.pendingCount}
+                </span>
+              )}
+            </button>
+            <button
+              ref={(el) => { tabRefs.current.directory = el; }}
+              id="autoprov-tab-directory"
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "directory"}
+              tabIndex={activeTab === "directory" ? 0 : -1}
+              onClick={() => setActiveTab("directory")}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-extrabold transition-all cursor-pointer shrink-0 whitespace-nowrap border-b-2 ${
+                activeTab === "directory"
+                  ? `${bg} text-white shadow-sm border-white/70`
+                  : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white border-transparent"
+              }`}
+            >
+              <FolderOpen size={13} />
+              <span>Dizin{tftpDirCount !== null ? ` (${tftpDirCount})` : ""}</span>
+            </button>
+            <button
+              ref={(el) => { tabRefs.current.logs = el; }}
+              id="autoprov-tab-logs"
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "logs"}
+              tabIndex={activeTab === "logs" ? 0 : -1}
+              onClick={() => setActiveTab("logs")}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-extrabold transition-all cursor-pointer shrink-0 whitespace-nowrap border-b-2 ${
+                activeTab === "logs"
+                  ? `${bg} text-white shadow-sm border-white/70`
+                  : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white border-transparent"
+              }`}
+            >
+              <Terminal size={13} />
+              <span>Log</span>
+              {tftpLogCount > 0 && (
+                <span
+                  className={`ml-0.5 px-1.5 py-0.2 rounded-full text-[9px] font-black ${
+                    activeTab === "logs"
+                      ? "bg-white/25 text-white"
+                      : "bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200"
+                  }`}
+                >
+                  {tftpLogCount}
                 </span>
               )}
             </button>
@@ -784,13 +868,37 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
       </div>
 
       {activeTab === "firmware" ? (
-        <PhoneFirmwareTab
-          backendHost={backendHost}
-          getAuthHeaders={getAuthHeaders}
-          onSummaryChange={setFwSummary}
-        />
+        <div role="tabpanel" aria-labelledby="autoprov-tab-firmware">
+          <PhoneFirmwareTab
+            backendHost={backendHost}
+            getAuthHeaders={getAuthHeaders}
+            onSummaryChange={setFwSummary}
+          />
+        </div>
+      ) : activeTab === "directory" ? (
+        <div role="tabpanel" aria-labelledby="autoprov-tab-directory">
+          <TftpDirectoryTab
+            backendHost={backendHost}
+            getAuthHeaders={getAuthHeaders}
+            initialFilename={jumpDirFilename}
+            onInitialFilenameConsumed={() => setJumpDirFilename("")}
+            onCountChange={setTftpDirCount}
+          />
+        </div>
+      ) : activeTab === "logs" ? (
+        <div role="tabpanel" aria-labelledby="autoprov-tab-logs">
+          <TftpLogTab
+            backendHost={backendHost}
+            getAuthHeaders={getAuthHeaders}
+            onOpenFileInDirectory={(fname) => {
+              setJumpDirFilename(fname || "");
+              setActiveTab("directory");
+            }}
+            onTotalCountChange={setTftpLogCount}
+          />
+        </div>
       ) : (
-      <>
+      <div role="tabpanel" aria-labelledby="autoprov-tab-devices" className="space-y-5">
 
       {/* LAN / WAN Provisioning Server URL & Local IP Card */}
       {netConfig && (
@@ -1211,7 +1319,7 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
             </div>
           )}
       </div>
-      </>
+      </div>
       )}
 
       {/* Provisioning File Inspector Modal (Last Snapshot + Live Preview) */}

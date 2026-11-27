@@ -130,6 +130,16 @@ class _TftpTransferState:
                     f"{self.client_addr[0]}:{self.client_addr[1]}",
                     flush=True,
                 )
+                self.parent._emit_event(
+                    event="COMPLETED",
+                    filename=self.filename,
+                    client_ip=self.client_addr[0],
+                    client_port=self.client_addr[1],
+                    status_code=200,
+                    size_bytes=len(self.payload),
+                    blocks=self.total_blocks,
+                    detail=f"Transfer tamamlandı ({len(self.payload)} B, {self.total_blocks} blok)",
+                )
                 self.close()
                 return
             self.block_num += 1
@@ -145,10 +155,23 @@ class _TftpTransferState:
 
 
 class NorniaTftpServerProtocol(asyncio.DatagramProtocol):
-    def __init__(self, resolver: Callable[[str, str], Awaitable[Optional[bytes]]]):
+    def __init__(
+        self,
+        resolver: Callable[[str, str], Awaitable[Optional[bytes]]],
+        on_event: Optional[Callable[[dict], None]] = None,
+    ):
         self.resolver = resolver
+        self.on_event = on_event
         self.transport: Optional[asyncio.DatagramTransport] = None
         self.transfers: Dict[Tuple[str, int], _TftpTransferState] = {}
+
+    def _emit_event(self, **kwargs) -> None:
+        if not self.on_event:
+            return
+        try:
+            self.on_event(kwargs)
+        except Exception:
+            pass
 
     def connection_made(self, transport: asyncio.DatagramTransport) -> None:
         self.transport = transport
@@ -178,6 +201,16 @@ class NorniaTftpServerProtocol(asyncio.DatagramProtocol):
         raw_name, _mode, opts = _parse_rrq(data)
         safe_name = os.path.basename(raw_name.replace("\\", "/")).strip()
         if not safe_name or ".." in raw_name:
+            self._emit_event(
+                event="RRQ_ERR",
+                filename=raw_name,
+                client_ip=addr[0],
+                client_port=addr[1],
+                status_code=403,
+                size_bytes=0,
+                blocks=0,
+                detail="Geçersiz dosya yolu reddedildi",
+            )
             if self.transport:
                 self.transport.sendto(_build_error_pkt(ERR_ACCESS_VIOLATION, "Invalid filename"), addr)
             return
@@ -196,10 +229,30 @@ class NorniaTftpServerProtocol(asyncio.DatagramProtocol):
             payload = await self.resolver(filename, client_ip)
         except Exception as exc:
             print(f"[TFTP Prov] Resolver error for {filename} ({client_ip}): {exc}", flush=True)
+            self._emit_event(
+                event="RRQ_ERR",
+                filename=filename,
+                client_ip=client_ip,
+                client_port=addr[1],
+                status_code=500,
+                size_bytes=0,
+                blocks=0,
+                detail=f"Çözümleme hatası: {exc}",
+            )
             payload = None
 
         if payload is None:
             print(f"[TFTP Prov] Not found: {filename} -> {client_ip}:{addr[1]}", flush=True)
+            self._emit_event(
+                event="RRQ_404",
+                filename=filename,
+                client_ip=client_ip,
+                client_port=addr[1],
+                status_code=404,
+                size_bytes=0,
+                blocks=0,
+                detail="Dosya TFTP dizininde bulunamadı",
+            )
             if self.transport:
                 self.transport.sendto(_build_error_pkt(ERR_FILE_NOT_FOUND, f"Not found: {filename}"), addr)
             return
@@ -221,6 +274,16 @@ class NorniaTftpServerProtocol(asyncio.DatagramProtocol):
             old_tr.close()
 
         print(f"[TFTP Prov] Serving {filename} ({len(payload)} B, blksize={blksize}) -> {client_ip}:{addr[1]}", flush=True)
+        self._emit_event(
+            event="RRQ_OK",
+            filename=filename,
+            client_ip=client_ip,
+            client_port=addr[1],
+            status_code=200,
+            size_bytes=len(payload),
+            blocks=(len(payload) // blksize) + 1,
+            detail=f"Gönderiliyor ({len(payload)} B, blksize={blksize})",
+        )
         tr = _TftpTransferState(
             parent=self,
             client_addr=addr,
@@ -238,6 +301,7 @@ async def start_tftp_provisioning_server(
     resolver: Callable[[str, str], Awaitable[Optional[bytes]]],
     host: str = "0.0.0.0",
     port: Optional[int] = None,
+    on_event: Optional[Callable[[dict], None]] = None,
 ) -> bool:
     """Starts the built-in UDP TFTP server (default port 69). Fails gracefully if port unavailable."""
     global _tftp_transport
@@ -250,7 +314,7 @@ async def start_tftp_provisioning_server(
     loop = asyncio.get_running_loop()
     try:
         transport, _ = await loop.create_datagram_endpoint(
-            lambda: NorniaTftpServerProtocol(resolver),
+            lambda: NorniaTftpServerProtocol(resolver, on_event=on_event),
             local_addr=(host, bind_port),
         )
         _tftp_transport = transport

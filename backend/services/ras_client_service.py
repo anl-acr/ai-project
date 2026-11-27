@@ -574,8 +574,8 @@ async def _handle_tunneled_http_request(tunnel_ws: Any, msg: Dict[str, Any]):
     # Route everything else to Next.js Frontend (127.0.0.1:3000)
     _path_low = path.lower()
     if (
-        path.startswith(("/api/", "/uploads/", "/settings/", "/calls/", "/webhooks/", "/webhook/", "/docs", "/openapi.json", "/sdk/"))
-        or _path_low.startswith(("/sep", "/spa", "/dialplan.xml", "/xmldefault.cnf.xml"))
+        path.startswith(("/api/", "/uploads/", "/settings/", "/calls/", "/webhooks/", "/webhook/", "/docs", "/openapi.json", "/sdk/", "/tftp-root/"))
+        or _path_low.startswith(("/sep", "/spa", "/dialplan.xml", "/xmldefault.cnf.xml", "/xmldefault.xml"))
     ):
         target_base = "http://127.0.0.1:8000"
     else:

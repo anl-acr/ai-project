@@ -331,7 +331,20 @@ async def on_startup_telemetry():
             res = await _resolve_cisco_ip_only_file(fname, client_ip=cip)
             return res[0] if res else None
 
-        await start_tftp_provisioning_server(_tftp_resolver)
+        def _on_local_tftp_event(ev: dict):
+            _record_tftp_live_event(
+                filename=str(ev.get("filename") or ""),
+                client_ip=str(ev.get("client_ip") or ""),
+                status_code=int(ev.get("status_code") or 200),
+                size_bytes=int(ev.get("size_bytes") or 0),
+                event=str(ev.get("event") or "RRQ_OK"),
+                source="Local TFTP",
+                detail=str(ev.get("detail") or ""),
+                blocks=int(ev.get("blocks") or 0),
+                protocol="TFTP",
+            )
+
+        await start_tftp_provisioning_server(_tftp_resolver, on_event=_on_local_tftp_event)
     except Exception as e_tftp:
         print(f"[TFTP Prov Startup Warning]: {e_tftp}")
 
@@ -361,8 +374,8 @@ async def auto_api_prefix_middleware(request: Request, call_next):
     path = request.scope.get("path", "")
     _p_low = path.lower()
     _skip_auto_api = (
-        path.startswith(("/api", "/uploads", "/static", "/sdk/"))
-        or _p_low.startswith(("/sep", "/spa", "/dialplan.xml", "/xmldefault.cnf.xml"))
+        path.startswith(("/api", "/uploads", "/static", "/sdk/", "/tftp-root/"))
+        or _p_low.startswith(("/sep", "/spa", "/dialplan.xml", "/xmldefault.cnf.xml", "/xmldefault.xml"))
     )
     if path and not _skip_auto_api:
         request.scope["path"] = "/api" + path
@@ -18329,31 +18342,255 @@ def _find_registered_tenant_token_for_mac(mac_hex: str) -> Tuple[Optional[str], 
     return found_tid, tok
 
 
+TFTP_LIVE_LOGS: List[Dict[str, Any]] = []
+TFTP_IP_TO_MAC_CACHE: Dict[str, str] = {}
+_TFTP_LOG_SEQ: int = 0
+
+_TFTP_TEXT_EXTENSIONS = {
+    ".xml", ".cfg", ".cnf", ".csv", ".txt", ".loads", ".json", ".ini", ".conf", ".log", ".dat",
+}
+_TFTP_ALLOWED_UPLOAD_EXTENSIONS = {
+    ".loads", ".sbn", ".zz", ".bin", ".rom", ".z", ".zip", ".tar", ".cop", ".sgn",
+    ".xml", ".cfg", ".csv", ".jar", ".raw", ".pcm", ".tlv", ".cnf", ".txt", ".dat", ".img", ".gz",
+}
+
+
+def get_tftp_root_dir() -> str:
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    root = os.path.join(base_dir, "data", "tftp_root")
+    os.makedirs(root, exist_ok=True)
+    return root
+
+
+def _is_tftp_text_filename(filename: str) -> bool:
+    low = str(filename or "").strip().lower()
+    if low.endswith(".cnf.xml"):
+        return True
+    _, ext = os.path.splitext(low)
+    return ext in _TFTP_TEXT_EXTENSIONS
+
+
+def _find_disk_file_case_insensitive(directory: str, filename: str) -> Optional[str]:
+    safe_bn = os.path.basename(str(filename or "").strip())
+    if not safe_bn or ".." in safe_bn or "/" in safe_bn or "\\" in safe_bn:
+        return None
+    if not os.path.isdir(directory):
+        return None
+    exact_path = os.path.join(directory, safe_bn)
+    if os.path.isfile(exact_path):
+        return exact_path
+    target_low = safe_bn.lower()
+    try:
+        for entry in os.listdir(directory):
+            full = os.path.join(directory, entry)
+            if os.path.isfile(full) and entry.lower() == target_low:
+                return full
+    except Exception:
+        pass
+    return None
+
+
+def _find_firmware_file_by_name(filename: str) -> Optional[str]:
+    safe_bn = os.path.basename(str(filename or "").strip())
+    if not safe_bn or ".." in safe_bn:
+        return None
+    try:
+        from backend.services.firmware_service import get_firmware_storage_root
+        fw_root = get_firmware_storage_root()
+        if not os.path.isdir(fw_root):
+            return None
+        target_low = safe_bn.lower()
+        for root_d, _dirs, files in os.walk(fw_root):
+            for fn in files:
+                if fn.lower() == target_low:
+                    return os.path.join(root_d, fn)
+        # Also match original_filename stored in settings_db["phone_firmwares"]
+        for fw in (settings_db.get("phone_firmwares") or []):
+            if not isinstance(fw, dict):
+                continue
+            orig_fn = os.path.basename(str(fw.get("original_filename") or "")).strip()
+            stored_rel = str(fw.get("stored_path") or "").strip()
+            if orig_fn and orig_fn.lower() == target_low and stored_rel:
+                cand = stored_rel if os.path.isabs(stored_rel) else os.path.join(fw_root, stored_rel)
+                if os.path.isfile(cand):
+                    return cand
+    except Exception:
+        pass
+    return None
+
+
+def _extract_any_mac_from_tftp_filename(filename: str) -> str:
+    fn_low = os.path.basename(str(filename or "").strip()).lower()
+    for pat in (
+        r"(?:ctlsep|itlsep|sep|spa|cfg)([0-9a-f]{12})(?:\.[a-z0-9.]+)?$",
+        r"^([0-9a-f]{12})(?:\.[a-z0-9.]+)?$",
+        r"([0-9a-f]{12})",
+    ):
+        m = re.search(pat, fn_low)
+        if m:
+            return m.group(1).lower()
+    return ""
+
+
+def _resolve_tftp_device_meta(mac_hex: str = "", client_ip: str = "") -> Dict[str, str]:
+    from backend.services.autoprovision_service import normalize_mac_address
+    mh = re.sub(r"[^a-f0-9]", "", str(mac_hex or "").lower())
+    cip = str(client_ip or "").strip()
+    if not mh and cip and cip in TFTP_IP_TO_MAC_CACHE:
+        mh = TFTP_IP_TO_MAC_CACHE[cip]
+
+    info = {"mac": "", "mac_hex": mh, "extension": "", "device_name": "", "brand": "", "model": "", "tenant_id": "tenant-default"}
+    if len(mh) == 12:
+        info["mac"] = ":".join(mh[i:i+2] for i in range(0, 12, 2)).upper()
+
+    # Match against autoprovision & user sip_devices
+    try:
+        for ap in (settings_db.get("autoprovision") or []):
+            if not isinstance(ap, dict):
+                continue
+            ap_colon, ap_hex = normalize_mac_address(ap.get("mac") or "")
+            ap_ip = str(ap.get("ip") or "").strip()
+            if (mh and ap_hex == mh) or (not mh and cip and ap_ip == cip):
+                info["mac_hex"] = ap_hex
+                info["mac"] = ap_colon
+                info["extension"] = str(ap.get("extension") or "")
+                info["brand"] = str(ap.get("brand") or "")
+                info["model"] = str(ap.get("model") or "")
+                info["device_name"] = str(ap.get("device_name") or ap.get("name") or f"{info['brand']} {info['model']}".strip())
+                info["tenant_id"] = str(ap.get("tenant_id") or "tenant-default")
+                if cip and ap_hex:
+                    TFTP_IP_TO_MAC_CACHE[cip] = ap_hex
+                return info
+        for u in (settings_db.get("users") or []):
+            if not isinstance(u, dict):
+                continue
+            u_ext = str(u.get("extension") or "").strip()
+            u_tid = str(u.get("tenant_id") or "tenant-default")
+            for sd in (u.get("sip_devices") or []):
+                if not isinstance(sd, dict):
+                    continue
+                sd_colon, sd_hex = normalize_mac_address(sd.get("mac") or "")
+                sd_ip = str(sd.get("ip") or sd.get("live_ip") or "").strip()
+                if (mh and sd_hex == mh) or (not mh and cip and sd_ip == cip):
+                    info["mac_hex"] = sd_hex
+                    info["mac"] = sd_colon
+                    info["extension"] = u_ext
+                    info["brand"] = str(sd.get("brand") or "")
+                    info["model"] = str(sd.get("model") or "")
+                    info["device_name"] = str(sd.get("name") or f"{info['brand']} {info['model']}".strip())
+                    info["tenant_id"] = u_tid
+                    if cip and sd_hex:
+                        TFTP_IP_TO_MAC_CACHE[cip] = sd_hex
+                    return info
+    except Exception:
+        pass
+    if cip and len(mh) == 12:
+        TFTP_IP_TO_MAC_CACHE[cip] = mh
+    return info
+
+
+def _record_tftp_live_event(
+    filename: str,
+    client_ip: str = "",
+    status_code: int = 200,
+    size_bytes: int = 0,
+    event: str = "RRQ_OK",
+    source: str = "TFTP",
+    detail: str = "",
+    blocks: int = 0,
+    protocol: str = "TFTP",
+    mac_hint: str = "",
+    tenant_id: str = "",
+) -> None:
+    global _TFTP_LOG_SEQ
+    try:
+        _TFTP_LOG_SEQ += 1
+        now_dt = datetime.datetime.utcnow() + datetime.timedelta(hours=3)
+        raw_mh = re.sub(r"[^a-f0-9]", "", str(mac_hint or "").lower()) or _extract_any_mac_from_tftp_filename(filename)
+        meta = _resolve_tftp_device_meta(raw_mh, client_ip)
+        rec = {
+            "id": _TFTP_LOG_SEQ,
+            "timestamp": now_dt.strftime("%Y-%m-%d %H:%M:%S"),
+            "time_short": now_dt.strftime("%H:%M:%S"),
+            "filename": os.path.basename(str(filename or "").strip()),
+            "client_ip": str(client_ip or "").strip(),
+            "mac": meta.get("mac") or "",
+            "mac_hex": meta.get("mac_hex") or "",
+            "extension": meta.get("extension") or "",
+            "device_name": meta.get("device_name") or "",
+            "brand": meta.get("brand") or "",
+            "model": meta.get("model") or "",
+            "tenant_id": tenant_id or meta.get("tenant_id") or "tenant-default",
+            "status_code": int(status_code),
+            "size_bytes": int(size_bytes or 0),
+            "blocks": int(blocks or 0),
+            "event": str(event or "RRQ_OK"),
+            "source": str(source or "TFTP"),
+            "protocol": str(protocol or "TFTP"),
+            "detail": str(detail or ""),
+        }
+        TFTP_LIVE_LOGS.insert(0, rec)
+        if len(TFTP_LIVE_LOGS) > 500:
+            del TFTP_LIVE_LOGS[500:]
+    except Exception:
+        pass
+
+
 async def _resolve_cisco_ip_only_file(filename: str, client_ip: str = "127.0.0.1", request: Optional[Request] = None) -> Optional[Tuple[bytes, str]]:
     """
-    Resolves Cisco Enterprise / MPP / SPA provisioning files requested via raw IP
-    (TFTP UDP 69 or HTTP root /SEP<MAC>.cnf.xml, /spa<mac>.xml, /dialplan.xml, /XMLDefault.cnf.xml).
-    Strictly rejects unregistered MAC addresses.
+    Resolves TFTP / IP-only provisioning, Cisco firmware, and auxiliary files:
+      1) Uploaded files in `backend/data/tftp_root/` (firmware .loads/.sbn/.zz, TzDataCSV.csv, custom XMLs)
+      2) Uploaded firmware repository files in `backend/data/firmware/`
+      3) Built-in virtual Cisco/Yealink system files (`dialplan.xml`, `XMLDefault.cnf.xml`, `XMLDefault.xml`, `y0000000000xx.cfg`)
+      4) Registered device provisioning configs (`SEP<MAC>.cnf.xml`, `spa<MAC>.xml`, `<mac>.cfg`, `cfg<mac>.xml`)
     """
     from backend.services.autoprovision_service import (
         extract_mac_from_provision_filename,
         generate_cisco_dialplan_xml,
         generate_cisco_xml_default,
+        generate_yealink_common_boot_cfg,
         resolve_provisioning_endpoints,
     )
     fn_clean = os.path.basename(str(filename or "").strip())
     fn_low = fn_clean.lower()
 
+    # 1. User-uploaded TFTP root files (allows custom XMLDefault.cnf.xml, TzDataCSV.csv, Cisco firmware loads/sbn/zz)
+    disk_tftp = _find_disk_file_case_insensitive(get_tftp_root_dir(), fn_clean)
+    if disk_tftp:
+        try:
+            with open(disk_tftp, "rb") as _ft:
+                data = _ft.read()
+            ctype = "application/xml; charset=utf-8" if fn_low.endswith(".xml") else ("text/plain; charset=utf-8" if _is_tftp_text_filename(fn_clean) else "application/octet-stream")
+            return data, ctype
+        except Exception:
+            pass
+
+    # 2. Central firmware repository files
+    fw_file = _find_firmware_file_by_name(fn_clean)
+    if fw_file:
+        try:
+            with open(fw_file, "rb") as _ff:
+                data = _ff.read()
+            ctype = "text/plain; charset=utf-8" if _is_tftp_text_filename(fn_clean) else "application/octet-stream"
+            return data, ctype
+        except Exception:
+            pass
+
+    # 3. Built-in virtual system files
     if fn_low == "dialplan.xml":
         return generate_cisco_dialplan_xml().encode("utf-8"), "application/xml; charset=utf-8"
 
-    if fn_low == "xmldefault.cnf.xml":
+    if fn_low in ("xmldefault.cnf.xml", "xmldefault.xml"):
         net_ep = resolve_provisioning_endpoints(settings_db, "tenant-default")
         req_mode_q = (request.query_params.get("mode") if request is not None else "") or ""
         pbx_h = (net_ep.get("wan_sip_host") if str(req_mode_q).strip().lower() == "wan" else (net_ep.get("local_ip") or net_ep.get("wan_sip_host"))) or "127.0.0.1"
         def_port = 5160 if os.path.isfile("/usr/lib/asterisk/modules/chan_sip.so") else 5060
         return generate_cisco_xml_default(pbx_h, def_port).encode("utf-8"), "application/xml; charset=utf-8"
 
+    if re.match(r"^y0{8,10}[0-9a-z]{2}\.cfg$", fn_low):
+        return generate_yealink_common_boot_cfg(settings_db).encode("utf-8"), "text/plain; charset=utf-8"
+
+    # 4. Registered device config files
     mac_hex = extract_mac_from_provision_filename(fn_clean)
     if not mac_hex:
         return None
@@ -18393,9 +18630,50 @@ async def _resolve_cisco_ip_only_file(filename: str, client_ip: str = "127.0.0.1
         return None
 
 
+@app.get("/tftp-root/{filename:path}")
+async def serve_tftp_root_proxy_file(filename: str, request: Request):
+    """Unified TFTP root & Hub TFTP proxy endpoint: serves TFTP files/firmware/configs and logs every hit live."""
+    fn_clean = os.path.basename(str(filename or "").replace("\\", "/").strip())
+    client_ip = extract_client_ip(request)
+    tftp_src_q = str(request.query_params.get("tftp_src") or "").strip().lower()
+    ua_s = str(request.headers.get("user-agent") or "")
+    is_hub_tftp = tftp_src_q == "hub" or "cisco-hub-tftp" in ua_s.lower()
+    src_lbl = "Hub TFTP" if is_hub_tftp else "HTTP TFTP"
+    proto_lbl = "TFTP" if is_hub_tftp else "HTTP"
+
+    res = await _resolve_cisco_ip_only_file(fn_clean, client_ip=client_ip, request=request)
+    if not res:
+        _record_tftp_live_event(
+            filename=fn_clean,
+            client_ip=client_ip,
+            status_code=404,
+            size_bytes=0,
+            event="RRQ_404",
+            source=src_lbl,
+            protocol=proto_lbl,
+            detail="Dosya TFTP dizininde bulunamadı",
+        )
+        return Response(content="TFTP_ROOT_HANDLED: Not Found", status_code=404, media_type="text/plain")
+    body, ctype = res
+    _record_tftp_live_event(
+        filename=fn_clean,
+        client_ip=client_ip,
+        status_code=200,
+        size_bytes=len(body),
+        event="RRQ_OK",
+        source=src_lbl,
+        protocol=proto_lbl,
+        blocks=(len(body) // 512) + 1,
+        detail=f"Gönderildi ({len(body)} B)",
+    )
+    return Response(content=body, media_type=ctype)
+
+
 @app.get("/dialplan.xml")
 @app.get("/XMLDefault.cnf.xml")
 @app.get("/xmldefault.cnf.xml")
+@app.get("/XMLDefault.xml")
+@app.get("/xmldefault.xml")
 @app.get("/SEP{mac_part}.cnf.xml")
 @app.get("/sep{mac_part}.cnf.xml")
 @app.get("/spa{mac_part}.xml")
@@ -18404,11 +18682,485 @@ async def serve_cisco_ip_only_root_provision(request: Request, mac_part: str = "
     """Token gerektirmeyen IP-Only HTTP root Cisco provizyon ucu (yalnızca kayıtlı MAC'lere cevap verir)."""
     fn_clean = os.path.basename(request.url.path.lstrip("/"))
     client_ip = extract_client_ip(request)
+    ua_s = str(request.headers.get("user-agent") or "")
+    is_hub_tftp = "cisco-hub-tftp" in ua_s.lower()
+    src_lbl = "Hub TFTP" if is_hub_tftp else "HTTP Root"
+    proto_lbl = "TFTP" if is_hub_tftp else "HTTP"
     res = await _resolve_cisco_ip_only_file(fn_clean, client_ip=client_ip, request=request)
     if not res:
+        _record_tftp_live_event(
+            filename=fn_clean,
+            client_ip=client_ip,
+            status_code=404,
+            size_bytes=0,
+            event="RRQ_404",
+            source=src_lbl,
+            protocol=proto_lbl,
+            detail="Kayıtlı cihaz veya provizyon dosyası bulunamadı",
+        )
         raise HTTPException(status_code=404, detail="Kayıtlı cihaz veya Cisco provizyon dosyası bulunamadı.")
     body, ctype = res
+    _record_tftp_live_event(
+        filename=fn_clean,
+        client_ip=client_ip,
+        status_code=200,
+        size_bytes=len(body),
+        event="RRQ_OK",
+        source=src_lbl,
+        protocol=proto_lbl,
+        blocks=(len(body) // 512) + 1,
+        detail=f"Gönderildi ({len(body)} B)",
+    )
     return Response(content=body, media_type=ctype)
+
+
+# ----------------------------------------------------
+# API Routes: Auto-Provisioning TFTP Directory Explorer & Real-Time TFTP Logs
+# ----------------------------------------------------
+def _build_tftp_device_config_filename(brand: str, model: str, mac_hex: str, sip_driver: str = "pjsip") -> str:
+    b_low = str(brand or "").strip().lower()
+    m_low = str(model or "").strip().lower()
+    mh_low = str(mac_hex or "").strip().lower()
+    mh_up = mh_low.upper()
+    if "cisco" in b_low:
+        if any(tok in m_low for tok in ("mpp", "3pcc", "spa")) and str(sip_driver or "").lower() != "chan_sip":
+            return f"spa{mh_low}.xml"
+        return f"SEP{mh_up}.cnf.xml"
+    if "grandstream" in b_low:
+        return f"cfg{mh_low}.xml"
+    return f"{mh_low}.cfg"
+
+
+@app.get("/api/settings/autoprovision/tftp-directory")
+async def list_tftp_directory_endpoint(user_info: dict = Depends(get_user_info)):
+    from backend.services.autoprovision_service import (
+        generate_cisco_dialplan_xml,
+        generate_cisco_xml_default,
+        generate_yealink_common_boot_cfg,
+        normalize_mac_address,
+        resolve_provisioning_endpoints,
+    )
+    from backend.services.firmware_service import get_firmware_storage_root, fw_belongs_to_tenant
+
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    tftp_dir = get_tftp_root_dir()
+    items: List[Dict[str, Any]] = []
+    seen_tftp_names = set()
+
+    # 1. Uploaded files in backend/data/tftp_root/
+    if os.path.isdir(tftp_dir):
+        for entry in sorted(os.listdir(tftp_dir)):
+            full_p = os.path.join(tftp_dir, entry)
+            if not os.path.isfile(full_p) or entry.startswith("."):
+                continue
+            try:
+                st = os.stat(full_p)
+                dt_str = (datetime.datetime.utcfromtimestamp(st.st_mtime) + datetime.timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
+                items.append({
+                    "id": f"tftp:{entry}",
+                    "filename": entry,
+                    "category": "tftp_file",
+                    "source_label": "TFTP Dizini (Özel / Firmware)",
+                    "size_bytes": int(st.st_size),
+                    "is_text": _is_tftp_text_filename(entry),
+                    "updated_at": dt_str,
+                    "deletable": True,
+                    "mac": "",
+                    "extension": "",
+                    "brand": "Cisco" if entry.lower().startswith(("cp", "sip", "sep", "tz", "xmldefault", "rootfs", "term")) else "",
+                    "model": "",
+                    "device_name": "",
+                    "description": "TFTP kök dizinine yüklenen dosya (tüm telefonlara sunulur)",
+                })
+                seen_tftp_names.add(entry.lower())
+            except Exception:
+                continue
+
+    # 2. Built-in Virtual Cisco / IP-Phone System Files (XMLDefault.cnf.xml, dialplan.xml, y0000000000xx.cfg)
+    net_ep = resolve_provisioning_endpoints(settings_db, target_tenant)
+    wan_host = net_ep.get("wan_sip_host") or net_ep.get("local_ip") or "127.0.0.1"
+    def_port = 5160 if os.path.isfile("/usr/lib/asterisk/modules/chan_sip.so") else 5060
+    virtual_sys_specs = [
+        (
+            "XMLDefault.cnf.xml",
+            generate_cisco_xml_default(wan_host, def_port).encode("utf-8"),
+            "Cisco",
+            "Cisco Enterprise varsayılan ön yükleme (boot) ve CallManager yönlendirme dosyası",
+        ),
+        (
+            "dialplan.xml",
+            generate_cisco_dialplan_xml().encode("utf-8"),
+            "Cisco",
+            "Cisco Enterprise arama planı şablonu (dahili, GSM, sabit hat desenleri)",
+        ),
+        (
+            "y0000000000xx.cfg",
+            generate_yealink_common_boot_cfg(settings_db).encode("utf-8"),
+            "Yealink",
+            "Yealink ortak açılış (common boot) dil, saat dilimi ve NTP profili",
+        ),
+    ]
+    for v_name, v_bytes, v_brand, v_desc in virtual_sys_specs:
+        if v_name.lower() in seen_tftp_names:
+            continue
+        items.append({
+            "id": f"sys:{v_name}",
+            "filename": v_name,
+            "category": "system",
+            "source_label": "Sistem Dosyası (Dinamik)",
+            "size_bytes": len(v_bytes),
+            "is_text": True,
+            "updated_at": "Canlı",
+            "deletable": False,
+            "mac": "",
+            "extension": "",
+            "brand": v_brand,
+            "model": "",
+            "device_name": "",
+            "description": v_desc,
+        })
+
+    # 3. Provisioned Device Config Files (from enriched autoprovision list)
+    enriched_devs = _build_enriched_autoprovision_list(target_tenant)
+    seen_dev_macs = set()
+    for d in enriched_devs:
+        mac_colon, mac_hex = normalize_mac_address(d.get("mac") or "")
+        if not mac_hex or mac_hex in seen_dev_macs:
+            continue
+        seen_dev_macs.add(mac_hex)
+        d_brand = str(d.get("brand") or "").strip()
+        d_model = str(d.get("model") or "").strip()
+        d_ext = str(d.get("extension") or "").strip()
+        d_drv = str(d.get("sip_driver") or "pjsip").strip().lower()
+        d_cfg_fn = _build_tftp_device_config_filename(d_brand, d_model, mac_hex, d_drv)
+        d_user_nm = str(d.get("user_full_name") or d.get("full_name") or "").strip()
+        d_dev_nm = str(d.get("device_name") or f"{d_brand} {d_model}".strip() or mac_colon).strip()
+        items.append({
+            "id": f"dev:{mac_hex}",
+            "filename": d_cfg_fn,
+            "category": "device_config",
+            "source_label": "Oto Provizyon Konfig",
+            "size_bytes": 0,
+            "is_text": True,
+            "updated_at": str(d.get("last_provisioned_at") or "Dinamik"),
+            "deletable": False,
+            "mac": mac_colon,
+            "mac_hex": mac_hex,
+            "extension": d_ext,
+            "brand": d_brand,
+            "model": d_model,
+            "device_name": d_dev_nm,
+            "user_name": d_user_nm,
+            "connection_mode": str(d.get("connection_mode") or "lan").lower(),
+            "description": f"Dahili {d_ext or '-'} • {d_dev_nm}{f' ({d_user_nm})' if d_user_nm else ''}",
+        })
+
+    # 4. Firmware Repository Files (backend/data/firmware/)
+    fw_root = get_firmware_storage_root()
+    for fw in (settings_db.get("phone_firmwares") or []):
+        if not isinstance(fw, dict):
+            continue
+        if not fw_belongs_to_tenant(fw, target_tenant, include_shared_default=True):
+            continue
+        orig_fn = os.path.basename(str(fw.get("original_filename") or fw.get("filename") or "")).strip()
+        if not orig_fn or orig_fn.lower() in seen_tftp_names:
+            continue
+        stored_rel = str(fw.get("stored_path") or "").strip()
+        f_sz = int(fw.get("size_bytes") or 0)
+        if stored_rel:
+            cand_p = stored_rel if os.path.isabs(stored_rel) else os.path.join(fw_root, stored_rel)
+            if os.path.isfile(cand_p):
+                f_sz = int(os.path.getsize(cand_p))
+        items.append({
+            "id": f"fw:{fw.get('id') or orig_fn}",
+            "filename": orig_fn,
+            "category": "firmware",
+            "source_label": "Firmware Deposu",
+            "size_bytes": f_sz,
+            "is_text": _is_tftp_text_filename(orig_fn),
+            "updated_at": str(fw.get("uploaded_at") or ""),
+            "deletable": False,
+            "mac": "",
+            "extension": "",
+            "brand": str(fw.get("brand") or ""),
+            "model": ", ".join(fw.get("models") or []) if isinstance(fw.get("models"), list) else str(fw.get("model") or ""),
+            "device_name": f"v{fw.get('version') or ''}".strip(),
+            "description": f"Firmware paketi ({fw.get('brand') or ''} {fw.get('version') or ''})".strip(),
+        })
+
+    counts = {
+        "total": len(items),
+        "system": sum(1 for x in items if x["category"] == "system"),
+        "device_config": sum(1 for x in items if x["category"] == "device_config"),
+        "tftp_file": sum(1 for x in items if x["category"] == "tftp_file"),
+        "firmware": sum(1 for x in items if x["category"] == "firmware"),
+    }
+    return {
+        "status": "success",
+        "tftp_root_path": tftp_dir,
+        "tftp_port": int(os.getenv("NORNIA_TFTP_PORT", "69")),
+        "counts": counts,
+        "files": items,
+    }
+
+
+@app.get("/api/settings/autoprovision/tftp-directory/content")
+async def read_tftp_directory_file_content(
+    request: Request,
+    filename: str = "",
+    category: str = "",
+    mac: str = "",
+    mode: str = "wan",
+    user_info: dict = Depends(get_user_info),
+):
+    import hashlib as _hl_tftp
+    from backend.services.autoprovision_service import (
+        generate_cisco_dialplan_xml,
+        generate_cisco_xml_default,
+        generate_yealink_common_boot_cfg,
+        normalize_mac_address,
+        resolve_provisioning_endpoints,
+    )
+
+    fn_clean = os.path.basename(str(filename or "").strip())
+    if not fn_clean or ".." in fn_clean:
+        raise HTTPException(status_code=400, detail="Geçersiz dosya adı.")
+
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    eff_mode = "lan" if str(mode or "").strip().lower() == "lan" else "wan"
+    raw_bytes: Optional[bytes] = None
+    source_path = f"/tftp-root/{fn_clean}"
+
+    if category == "tftp_file":
+        fp = _find_disk_file_case_insensitive(get_tftp_root_dir(), fn_clean)
+        if not fp:
+            raise HTTPException(status_code=404, detail="Dosya TFTP dizininde bulunamadı.")
+        with open(fp, "rb") as f:
+            raw_bytes = f.read()
+    elif category == "firmware":
+        fp = _find_firmware_file_by_name(fn_clean)
+        if not fp:
+            raise HTTPException(status_code=404, detail="Firmware dosyası diskte bulunamadı.")
+        with open(fp, "rb") as f:
+            raw_bytes = f.read()
+    elif category == "system":
+        fn_low = fn_clean.lower()
+        if fn_low == "dialplan.xml":
+            raw_bytes = generate_cisco_dialplan_xml().encode("utf-8")
+        elif fn_low in ("xmldefault.cnf.xml", "xmldefault.xml"):
+            net_ep = resolve_provisioning_endpoints(settings_db, target_tenant)
+            pbx_h = (net_ep.get("wan_sip_host") if eff_mode == "wan" else (net_ep.get("local_ip") or net_ep.get("wan_sip_host"))) or "127.0.0.1"
+            def_port = 5160 if os.path.isfile("/usr/lib/asterisk/modules/chan_sip.so") else 5060
+            raw_bytes = generate_cisco_xml_default(pbx_h, def_port).encode("utf-8")
+        elif re.match(r"^y0{8,10}[0-9a-z]{2}\.cfg$", fn_low):
+            raw_bytes = generate_yealink_common_boot_cfg(settings_db).encode("utf-8")
+        else:
+            res = await _resolve_cisco_ip_only_file(fn_clean, client_ip=extract_client_ip(request), request=request)
+            if res:
+                raw_bytes = res[0]
+    elif category == "device_config":
+        _, mac_hex = normalize_mac_address(mac or _extract_any_mac_from_tftp_filename(fn_clean))
+        tid, tok = _find_registered_tenant_token_for_mac(mac_hex) if mac_hex else (None, None)
+        if not tid or not tok:
+            raise HTTPException(status_code=404, detail="Kayıtlı cihaz konfigürasyonu bulunamadı.")
+        resp = await _render_autoprovision_file_for_phone(tok, fn_clean, request, explicit_mode=eff_mode)
+        body = getattr(resp, "body", b"")
+        raw_bytes = body.encode("utf-8") if isinstance(body, str) else bytes(body or b"")
+    else:
+        res = await _resolve_cisco_ip_only_file(fn_clean, client_ip=extract_client_ip(request), request=request)
+        if res:
+            raw_bytes = res[0]
+
+    if raw_bytes is None:
+        raise HTTPException(status_code=404, detail="Dosya bulunamadı.")
+
+    sha256_hex = _hl_tftp.sha256(raw_bytes).hexdigest()
+    size_b = len(raw_bytes)
+    is_binary = not _is_tftp_text_filename(fn_clean)
+    if not is_binary and size_b > 2 * 1024 * 1024:
+        is_binary = True
+    if not is_binary:
+        try:
+            text_val = raw_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            try:
+                text_val = raw_bytes.decode("latin-1")
+                if "\x00" in text_val[:4096]:
+                    is_binary = True
+                    text_val = ""
+            except Exception:
+                is_binary = True
+                text_val = ""
+    else:
+        text_val = ""
+
+    return {
+        "status": "success",
+        "filename": fn_clean,
+        "category": category or "auto",
+        "mode": eff_mode,
+        "source_path": source_path,
+        "size_bytes": size_b,
+        "sha256": sha256_hex,
+        "is_binary": is_binary,
+        "line_count": len(text_val.splitlines()) if text_val else 0,
+        "content": text_val,
+    }
+
+
+@app.get("/api/settings/autoprovision/tftp-directory/download")
+async def download_tftp_directory_file(
+    request: Request,
+    filename: str = "",
+    category: str = "",
+    mac: str = "",
+    mode: str = "wan",
+    user_info: dict = Depends(get_user_info),
+):
+    fn_clean = os.path.basename(str(filename or "").strip())
+    if not fn_clean or ".." in fn_clean:
+        raise HTTPException(status_code=400, detail="Geçersiz dosya adı.")
+
+    if category == "tftp_file":
+        fp = _find_disk_file_case_insensitive(get_tftp_root_dir(), fn_clean)
+        if not fp:
+            raise HTTPException(status_code=404, detail="Dosya bulunamadı.")
+        with open(fp, "rb") as f:
+            raw_bytes = f.read()
+    elif category == "firmware":
+        fp = _find_firmware_file_by_name(fn_clean)
+        if not fp:
+            raise HTTPException(status_code=404, detail="Dosya bulunamadı.")
+        with open(fp, "rb") as f:
+            raw_bytes = f.read()
+    else:
+        res_data = await read_tftp_directory_file_content(
+            request=request, filename=fn_clean, category=category, mac=mac, mode=mode, user_info=user_info
+        )
+        raw_bytes = str(res_data.get("content") or "").encode("utf-8")
+
+    return Response(
+        content=raw_bytes,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{fn_clean}"'},
+    )
+
+
+@app.post("/api/settings/autoprovision/tftp-directory/upload")
+async def upload_tftp_directory_files(
+    files: List[UploadFile] = File(...),
+    user_info: dict = Depends(get_user_info),
+):
+    tftp_dir = get_tftp_root_dir()
+    uploaded = []
+    for up in files:
+        raw_bn = os.path.basename(str(up.filename or "").replace("\\", "/").strip())
+        safe_bn = re.sub(r"[^A-Za-z0-9._-]", "_", raw_bn)
+        if not safe_bn or safe_bn.startswith(".") or ".." in safe_bn:
+            raise HTTPException(status_code=400, detail=f"Geçersiz dosya adı: {raw_bn}")
+        _, ext = os.path.splitext(safe_bn.lower())
+        if ext and ext not in _TFTP_ALLOWED_UPLOAD_EXTENSIONS and not safe_bn.lower().endswith(".cnf.xml"):
+            raise HTTPException(status_code=400, detail=f"Desteklenmeyen dosya uzantısı ({ext}): {safe_bn}")
+        data = await up.read()
+        if len(data) > 200 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail=f"Dosya boyutu 200 MB sınırını aşıyor: {safe_bn}")
+        dest = os.path.join(tftp_dir, safe_bn)
+        with open(dest, "wb") as fout:
+            fout.write(data)
+        uploaded.append({"filename": safe_bn, "size_bytes": len(data)})
+    return {"status": "success", "uploaded": uploaded, "count": len(uploaded)}
+
+
+@app.delete("/api/settings/autoprovision/tftp-directory/file")
+async def delete_tftp_directory_file(
+    filename: str = "",
+    user_info: dict = Depends(get_user_info),
+):
+    fn_clean = os.path.basename(str(filename or "").strip())
+    if not fn_clean or ".." in fn_clean:
+        raise HTTPException(status_code=400, detail="Geçersiz dosya adı.")
+    fp = _find_disk_file_case_insensitive(get_tftp_root_dir(), fn_clean)
+    if not fp:
+        raise HTTPException(status_code=404, detail="Silinecek dosya TFTP dizininde bulunamadı.")
+    os.remove(fp)
+    return {"status": "success", "deleted": fn_clean}
+
+
+@app.get("/api/settings/autoprovision/tftp-logs")
+async def get_tftp_live_logs_endpoint(
+    ip: str = "",
+    mac: str = "",
+    q: str = "",
+    status: str = "all",
+    limit: int = 200,
+    user_info: dict = Depends(get_user_info),
+):
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    ip_f = str(ip or "").strip().lower()
+    mac_f = re.sub(r"[^a-f0-9]", "", str(mac or "").lower())
+    q_f = str(q or "").strip().lower()
+    st_f = str(status or "all").strip().lower()
+    lim = max(10, min(500, int(limit or 200)))
+
+    tenant_logs = [
+        lg for lg in TFTP_LIVE_LOGS
+        if target_tenant in ("all", "global") or lg.get("tenant_id") in (target_tenant, "all", "global", "tenant-default")
+    ]
+    unique_ips = []
+    unique_macs = []
+    for lg in tenant_logs:
+        l_ip = str(lg.get("client_ip") or "").strip()
+        l_mac = str(lg.get("mac") or "").strip()
+        if l_ip and l_ip not in unique_ips:
+            unique_ips.append(l_ip)
+        if l_mac and l_mac not in unique_macs:
+            unique_macs.append(l_mac)
+
+    filtered = []
+    for lg in tenant_logs:
+        if ip_f and ip_f not in str(lg.get("client_ip") or "").lower():
+            continue
+        if mac_f:
+            lg_mh = re.sub(r"[^a-f0-9]", "", str(lg.get("mac_hex") or lg.get("mac") or "").lower())
+            lg_fn_low = str(lg.get("filename") or "").lower()
+            if mac_f not in lg_mh and mac_f not in lg_fn_low:
+                continue
+        if st_f == "ok" and int(lg.get("status_code") or 0) != 200:
+            continue
+        elif st_f == "404" and int(lg.get("status_code") or 0) != 404:
+            continue
+        elif st_f == "error" and int(lg.get("status_code") or 0) < 400:
+            continue
+        if q_f:
+            hay = " ".join([
+                str(lg.get("filename") or ""),
+                str(lg.get("client_ip") or ""),
+                str(lg.get("mac") or ""),
+                str(lg.get("extension") or ""),
+                str(lg.get("device_name") or ""),
+                str(lg.get("detail") or ""),
+                str(lg.get("source") or ""),
+            ]).lower()
+            if q_f not in hay:
+                continue
+        filtered.append(lg)
+        if len(filtered) >= lim:
+            break
+
+    return {
+        "status": "success",
+        "total_count": len(tenant_logs),
+        "filtered_count": len(filtered),
+        "unique_ips": unique_ips[:20],
+        "unique_macs": unique_macs[:20],
+        "logs": filtered,
+    }
+
+
+@app.delete("/api/settings/autoprovision/tftp-logs")
+async def clear_tftp_live_logs_endpoint(user_info: dict = Depends(get_user_info)):
+    TFTP_LIVE_LOGS.clear()
+    return {"status": "success", "cleared": True}
 
 
 # ----------------------------------------------------
