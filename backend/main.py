@@ -15279,6 +15279,9 @@ def _log_autoprovision_hit(
     mac_hex: str = "",
     ext: str = "",
     sip_username: str = "",
+    size_bytes: int = 0,
+    http_method: str = "GET",
+    scheme: str = "http",
 ) -> None:
     try:
         now_tr = (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
@@ -15294,16 +15297,39 @@ def _log_autoprovision_hit(
             "mac": str(mac_hex or "").upper(),
             "extension": str(ext or ""),
             "sip_username": str(sip_username or ""),
+            "size_bytes": int(size_bytes or 0),
+            "http_method": str(http_method or "GET").upper(),
         }
         AUTOPROV_RECENT_LOGS.insert(0, rec)
         if len(AUTOPROV_RECENT_LOGS) > 80:
             del AUTOPROV_RECENT_LOGS[80:]
         print(
-            f"[AUTOPROV] {now_tr} {status_code} mode={rec['mode'] or 'AUTO'} "
+            f"[AUTOPROV] {now_tr} {rec['http_method']} {status_code} mode={rec['mode'] or 'AUTO'} "
             f"ip={rec['client_ip']} file={rec['filename']} ext={rec['extension']} "
             f"sip={rec['sip_username']} ua={rec['user_agent']} -> {rec['detail']}",
             flush=True,
         )
+        # Mirror live HTTP/HTTPS provisioning traffic into unified Provisioning Log tab (skip internal TFTP bridge calls)
+        ua_low = str(user_agent or "").lower()
+        if "cisco-tftp-provisioner" not in ua_low and "cisco-hub-tftp" not in ua_low:
+            proto_up = "HTTPS" if str(scheme or "").lower() == "https" else "HTTP"
+            mode_tag = rec["mode"] or "AUTO"
+            src_lbl = f"{proto_up} {mode_tag}"
+            ev_lbl = "HTTP_OK" if int(status_code) == 200 else (f"HTTP_{int(status_code)}")
+            _record_tftp_live_event(
+                filename=rec["filename"],
+                client_ip=rec["client_ip"],
+                status_code=int(status_code),
+                size_bytes=int(size_bytes or 0),
+                event=ev_lbl,
+                source=src_lbl,
+                protocol=proto_up,
+                detail=rec["detail"],
+                mac_hint=str(mac_hex or ""),
+                tenant_id=rec["tenant_id"],
+                user_agent=rec["user_agent"],
+                http_method=rec["http_method"],
+            )
     except Exception:
         pass
 
@@ -17949,6 +17975,9 @@ async def _render_autoprovision_file_for_phone(
                         mac_hex=dev_mac_hex or mac_hex,
                         ext=ext_s,
                         sip_username=dev_su,
+                        size_bytes=len(content_text.encode("utf-8")),
+                        http_method=str(getattr(request, "method", "GET") or "GET"),
+                        scheme=str(getattr(getattr(request, "url", None), "scheme", "http") or "http"),
                     )
                 return Response(content=content_text, media_type=media_type)
 
@@ -17957,27 +17986,41 @@ async def _render_autoprovision_file_for_phone(
         "Eşleşen MAC / SIP cihazı bulunamadı",
         mode=query_mode,
         mac_hex=mac_hex,
+        http_method=str(getattr(request, "method", "GET") or "GET"),
+        scheme=str(getattr(getattr(request, "url", None), "scheme", "http") or "http"),
     )
     raise HTTPException(status_code=404, detail="Eşleşen SIP cihazı bulunamadı.")
 
 
-@app.get("/api/prov/{token}/lan")
+@app.api_route("/api/prov/{token}/lan", methods=["GET", "HEAD"])
+@app.api_route("/api/prov/{token}/lan/", methods=["GET", "HEAD"])
 async def autoprovision_lan_root_info(token: str, request: Request):
     """Bilgilendirme: Telefonlar bu temel URL altına /<mac>.cfg ekleyerek otomatik istek atar."""
     from backend.services.autoprovision_service import resolve_tenant_by_provisioning_token
+    client_ip = extract_client_ip(request)
+    ua_s = str(request.headers.get("user-agent") or "")[:120]
+    scheme_s = str(getattr(getattr(request, "url", None), "scheme", "http") or "http")
     tenant_id = resolve_tenant_by_provisioning_token(settings_db, token)
     if not tenant_id:
+        _log_autoprovision_hit("tenant-default", "/lan", client_ip, ua_s, 403, "Geçersiz provizyon anahtarı", mode="lan", http_method=request.method, scheme=scheme_s)
         raise HTTPException(status_code=403, detail="Geçersiz provizyon anahtarı.")
+    _log_autoprovision_hit(tenant_id, "/lan (kök URL)", client_ip, ua_s, 200, "Kök provizyon URL yoklaması (dosya adı belirtilmedi)", mode="lan", http_method=request.method, scheme=scheme_s)
     return {"status": "ready", "mode": "lan", "message": "Nornia LAN Oto-Provizyon sunucusu aktif. Telefonlar otomatik olarak /<mac>.cfg veya /cfg<mac>.xml çeker."}
 
 
-@app.get("/api/prov/{token}/wan")
+@app.api_route("/api/prov/{token}/wan", methods=["GET", "HEAD"])
+@app.api_route("/api/prov/{token}/wan/", methods=["GET", "HEAD"])
 async def autoprovision_wan_root_info(token: str, request: Request):
     """Bilgilendirme: Telefonlar bu temel URL altına /<mac>.cfg ekleyerek otomatik istek atar."""
     from backend.services.autoprovision_service import resolve_tenant_by_provisioning_token
+    client_ip = extract_client_ip(request)
+    ua_s = str(request.headers.get("user-agent") or "")[:120]
+    scheme_s = str(getattr(getattr(request, "url", None), "scheme", "http") or "http")
     tenant_id = resolve_tenant_by_provisioning_token(settings_db, token)
     if not tenant_id:
+        _log_autoprovision_hit("tenant-default", "/wan", client_ip, ua_s, 403, "Geçersiz provizyon anahtarı", mode="wan", http_method=request.method, scheme=scheme_s)
         raise HTTPException(status_code=403, detail="Geçersiz provizyon anahtarı.")
+    _log_autoprovision_hit(tenant_id, "/wan (kök URL)", client_ip, ua_s, 200, "Kök provizyon URL yoklaması (dosya adı belirtilmedi)", mode="wan", http_method=request.method, scheme=scheme_s)
     return {"status": "ready", "mode": "wan", "message": "Nornia WAN Oto-Provizyon sunucusu aktif. Telefonlar otomatik olarak /<mac>.cfg veya /cfg<mac>.xml çeker."}
 
 
@@ -18035,6 +18078,20 @@ async def deskphone_action_url_sync_endpoint(
     client_ip = extract_client_ip(request)
     now_tr = (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
     print(f"[DeskPhone ActionURL] ext={ext_clean}, su={su_clean}, brand={brand_clean or '-'}, event={ev_clean}, target={target or '-'}, mac={mac or '-'}, ip={ip or client_ip}")
+    _record_tftp_live_event(
+        filename=f"phone-sync ({ev_clean or 'event'})",
+        client_ip=ip or client_ip,
+        status_code=200,
+        size_bytes=0,
+        event="ACTION_URL",
+        source="Action URL",
+        protocol="ACTION_URL",
+        detail=f"Dahili {ext_clean} • {ev_clean}{f' → {target}' if target else ''}",
+        mac_hint=str(mac or ""),
+        tenant_id=tenant_id,
+        user_agent=str(request.headers.get("user-agent") or "")[:120],
+        http_method=str(request.method or "GET"),
+    )
 
     if ev_clean in ("dnd_on", "dnd_off"):
         dnd_flag = ev_clean == "dnd_on"
@@ -18246,22 +18303,25 @@ async def serve_phone_firmware_gs_auto(token: str, fw_id: str, filename: str, re
     return await _serve_phone_firmware_binary(token, fw_id, filename, request, mode="auto", is_grandstream_dir=True)
 
 
-@app.get("/api/prov/{token}/lan/{filename}")
+@app.api_route("/api/prov/{token}/lan/{filename:path}", methods=["GET", "HEAD"])
 async def serve_sip_device_autoprovision_file_lan(token: str, filename: str, request: Request):
     """Aynı lokasyondaki (LAN) masa telefonları için Local IP'li oto-provizyon dosyası döner."""
-    return await _render_autoprovision_file_for_phone(token, filename, request, explicit_mode="lan")
+    fn_norm = os.path.basename(str(filename or "").replace("\\", "/").strip("/"))
+    return await _render_autoprovision_file_for_phone(token, fn_norm, request, explicit_mode="lan")
 
 
-@app.get("/api/prov/{token}/wan/{filename}")
+@app.api_route("/api/prov/{token}/wan/{filename:path}", methods=["GET", "HEAD"])
 async def serve_sip_device_autoprovision_file_wan(token: str, filename: str, request: Request):
     """Farklı lokasyondaki (WAN / Uzak Şube) masa telefonları için Dış IP'li oto-provizyon dosyası döner."""
-    return await _render_autoprovision_file_for_phone(token, filename, request, explicit_mode="wan")
+    fn_norm = os.path.basename(str(filename or "").replace("\\", "/").strip("/"))
+    return await _render_autoprovision_file_for_phone(token, fn_norm, request, explicit_mode="wan")
 
 
-@app.get("/api/prov/{token}/{filename}")
+@app.api_route("/api/prov/{token}/{filename:path}", methods=["GET", "HEAD"])
 async def serve_sip_device_autoprovision_file(token: str, filename: str, request: Request):
     """Akıllı (Auto / Cihaz Modu) oto-provizyon dosyası sunucusu."""
-    return await _render_autoprovision_file_for_phone(token, filename, request, explicit_mode=None)
+    fn_norm = os.path.basename(str(filename or "").replace("\\", "/").strip("/"))
+    return await _render_autoprovision_file_for_phone(token, fn_norm, request, explicit_mode=None)
 
 
 # ==============================================================================
@@ -18502,6 +18562,8 @@ def _record_tftp_live_event(
     protocol: str = "TFTP",
     mac_hint: str = "",
     tenant_id: str = "",
+    user_agent: str = "",
+    http_method: str = "",
 ) -> None:
     global _TFTP_LOG_SEQ
     try:
@@ -18509,11 +18571,13 @@ def _record_tftp_live_event(
         now_dt = datetime.datetime.utcnow() + datetime.timedelta(hours=3)
         raw_mh = re.sub(r"[^a-f0-9]", "", str(mac_hint or "").lower()) or _extract_any_mac_from_tftp_filename(filename)
         meta = _resolve_tftp_device_meta(raw_mh, client_ip)
+        raw_fn = str(filename or "").strip()
+        disp_fn = raw_fn if raw_fn.startswith("/") or " " in raw_fn else os.path.basename(raw_fn)
         rec = {
             "id": _TFTP_LOG_SEQ,
             "timestamp": now_dt.strftime("%Y-%m-%d %H:%M:%S"),
             "time_short": now_dt.strftime("%H:%M:%S"),
-            "filename": os.path.basename(str(filename or "").strip()),
+            "filename": disp_fn,
             "client_ip": str(client_ip or "").strip(),
             "mac": meta.get("mac") or "",
             "mac_hex": meta.get("mac_hex") or "",
@@ -18528,6 +18592,8 @@ def _record_tftp_live_event(
             "event": str(event or "RRQ_OK"),
             "source": str(source or "TFTP"),
             "protocol": str(protocol or "TFTP"),
+            "user_agent": str(user_agent or "")[:120],
+            "http_method": str(http_method or "").upper(),
             "detail": str(detail or ""),
         }
         TFTP_LIVE_LOGS.insert(0, rec)
@@ -19180,6 +19246,7 @@ async def get_tftp_live_logs_endpoint(
     mac: str = "",
     q: str = "",
     status: str = "all",
+    protocol: str = "all",
     limit: int = 200,
     user_info: dict = Depends(get_user_info),
 ):
@@ -19188,6 +19255,7 @@ async def get_tftp_live_logs_endpoint(
     mac_f = re.sub(r"[^a-f0-9]", "", str(mac or "").lower())
     q_f = str(q or "").strip().lower()
     st_f = str(status or "all").strip().lower()
+    proto_f = str(protocol or "all").strip().lower()
     lim = max(10, min(500, int(limit or 200)))
 
     tenant_logs = [
@@ -19213,6 +19281,15 @@ async def get_tftp_live_logs_endpoint(
             lg_fn_low = str(lg.get("filename") or "").lower()
             if mac_f not in lg_mh and mac_f not in lg_fn_low:
                 continue
+        if proto_f != "all":
+            lg_p = str(lg.get("protocol") or "").lower()
+            lg_s = str(lg.get("source") or "").lower()
+            if proto_f == "http" and lg_p not in ("http", "https") and "http" not in lg_s:
+                continue
+            elif proto_f == "tftp" and lg_p != "tftp" and "tftp" not in lg_s:
+                continue
+            elif proto_f == "action" and lg_p != "action_url" and "action" not in lg_s:
+                continue
         if st_f == "ok" and int(lg.get("status_code") or 0) != 200:
             continue
         elif st_f == "404" and int(lg.get("status_code") or 0) != 404:
@@ -19228,6 +19305,8 @@ async def get_tftp_live_logs_endpoint(
                 str(lg.get("device_name") or ""),
                 str(lg.get("detail") or ""),
                 str(lg.get("source") or ""),
+                str(lg.get("protocol") or ""),
+                str(lg.get("user_agent") or ""),
             ]).lower()
             if q_f not in hay:
                 continue
@@ -19248,6 +19327,7 @@ async def get_tftp_live_logs_endpoint(
 @app.delete("/api/settings/autoprovision/tftp-logs")
 async def clear_tftp_live_logs_endpoint(user_info: dict = Depends(get_user_info)):
     TFTP_LIVE_LOGS.clear()
+    AUTOPROV_RECENT_LOGS.clear()
     return {"status": "success", "cleared": True}
 
 

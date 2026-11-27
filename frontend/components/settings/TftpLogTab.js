@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useId } from "react";
 import {
   Terminal,
   Search,
@@ -25,13 +25,26 @@ function formatBytes(bytes) {
   return `${(n / (1024 * 1024)).toFixed(2)} MB`;
 }
 
+function getSourceBadgeClass(lg) {
+  const p = String(lg?.protocol || "").toUpperCase();
+  const s = String(lg?.source || "").toUpperCase();
+  if (p === "HTTP" || p === "HTTPS" || s.includes("HTTP")) {
+    return "bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300";
+  }
+  if (p === "ACTION_URL" || s.includes("ACTION")) {
+    return "bg-teal-100 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300";
+  }
+  return "bg-violet-100 dark:bg-violet-950/60 text-violet-700 dark:text-violet-300";
+}
+
 export default function TftpLogTab({
   backendHost = "localhost:8000",
   getAuthHeaders,
   onOpenFileInDirectory,
   onTotalCountChange,
 }) {
-  const { bg, hover, text, border, ring, lightBg, borderLight } = useTheme();
+  const { bg, text, ring, lightBg, borderLight } = useTheme();
+  const captionId = useId();
   const API_BASE =
     typeof window !== "undefined"
       ? `${window.location.protocol}//${backendHost}`
@@ -48,6 +61,7 @@ export default function TftpLogTab({
   const [ipFilter, setIpFilter] = useState("");
   const [macFilter, setMacFilter] = useState("");
   const [queryFilter, setQueryFilter] = useState("");
+  const [protocolFilter, setProtocolFilter] = useState("all"); // all | http | tftp | action
   const [statusFilter, setStatusFilter] = useState("all"); // all | ok | 404 | error
 
   // Clear logs confirmation modal
@@ -65,6 +79,7 @@ export default function TftpLogTab({
         if (ipFilter.trim()) qs.set("ip", ipFilter.trim());
         if (macFilter.trim()) qs.set("mac", macFilter.trim());
         if (queryFilter.trim()) qs.set("q", queryFilter.trim());
+        if (protocolFilter !== "all") qs.set("protocol", protocolFilter);
         if (statusFilter !== "all") qs.set("status", statusFilter);
 
         const res = await fetch(`${API_BASE}/api/settings/autoprovision/tftp-logs?${qs.toString()}`, {
@@ -87,7 +102,7 @@ export default function TftpLogTab({
         if (!silent) setLoading(false);
       }
     },
-    [API_BASE, getAuthHeaders, ipFilter, macFilter, queryFilter, statusFilter, onTotalCountChange]
+    [API_BASE, getAuthHeaders, ipFilter, macFilter, queryFilter, protocolFilter, statusFilter, onTotalCountChange]
   );
 
   useEffect(() => {
@@ -123,17 +138,54 @@ export default function TftpLogTab({
     }
   };
 
-  const hasActiveFilters = Boolean(ipFilter.trim() || macFilter.trim() || queryFilter.trim() || statusFilter !== "all");
+  const hasActiveFilters = Boolean(
+    ipFilter.trim() || macFilter.trim() || queryFilter.trim() || protocolFilter !== "all" || statusFilter !== "all"
+  );
 
   const resetFilters = () => {
     setIpFilter("");
     setMacFilter("");
     setQueryFilter("");
+    setProtocolFilter("all");
     setStatusFilter("all");
   };
 
   return (
     <div className="space-y-4">
+      <style jsx>{`
+        .prov-log-wrapper {
+          container-type: inline-size;
+        }
+        @container (width < 600px) {
+          .prov-log-table,
+          .prov-log-table thead,
+          .prov-log-table tbody,
+          .prov-log-table tr,
+          .prov-log-table th,
+          .prov-log-table td {
+            display: block;
+          }
+          .prov-log-table thead {
+            display: none;
+          }
+          .prov-log-table tr {
+            margin-block-end: 0.75rem;
+            border-bottom: 1px solid rgb(226 232 240 / 0.8);
+            padding-block: 0.5rem;
+          }
+          .prov-log-table tbody th {
+            position: sticky;
+            inset-block-start: 0;
+            z-index: 2;
+          }
+          .prov-log-table td:nth-child(2)::before { content: "Durum: "; font-weight: 700; }
+          .prov-log-table td:nth-child(3)::before { content: "Kaynak: "; font-weight: 700; }
+          .prov-log-table td:nth-child(4)::before { content: "IP Adresi: "; font-weight: 700; }
+          .prov-log-table td:nth-child(5)::before { content: "MAC / Cihaz: "; font-weight: 700; }
+          .prov-log-table td:nth-child(6)::before { content: "İstenen Dosya: "; font-weight: 700; }
+          .prov-log-table td:nth-child(7)::before { content: "Boyut / Detay: "; font-weight: 700; }
+        }
+      `}</style>
       {/* Header & Realtime Controls */}
       <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm space-y-3.5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -144,7 +196,7 @@ export default function TftpLogTab({
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <h4 className="text-xs font-extrabold text-slate-900 dark:text-white uppercase tracking-wider">
-                  Gerçek Zamanlı TFTP Trafik İzleme
+                  Gerçek Zamanlı Provizyon Trafik İzleme (HTTP / TFTP)
                 </h4>
                 <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300">
                   <span className={`w-1.5 h-1.5 rounded-full bg-emerald-500 ${isLive ? "animate-ping" : ""}`} />
@@ -155,7 +207,7 @@ export default function TftpLogTab({
                 </span>
               </div>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                Telefonların TFTP (Hub + Yerel UDP 69) üzerinden istediği tüm XML, konfigürasyon ve firmware dosyalarını anlık izleyin.
+                IP telefonların HTTP/HTTPS oto-provizyon, TFTP (UDP 69) ve Action URL üzerinden santrale attığı tüm istekleri (200 OK, 404, 403) anlık izleyin.
               </p>
             </div>
           </div>
@@ -188,7 +240,7 @@ export default function TftpLogTab({
               type="button"
               disabled={totalCount === 0}
               onClick={() => setShowClearConfirm(true)}
-              title="TFTP Log Geçmişini Temizle"
+              title="Provizyon Log Geçmişini Temizle"
               className="h-8 w-8 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-500 hover:text-rose-600 hover:border-rose-300 dark:hover:border-rose-800 flex items-center justify-center transition-colors cursor-pointer disabled:opacity-40"
             >
               <Trash2 size={14} />
@@ -196,9 +248,9 @@ export default function TftpLogTab({
           </div>
         </div>
 
-        {/* Dedicated Filter Inputs: IP, MAC, File/Text, Status */}
+        {/* Dedicated Filter Inputs: IP, MAC, File/Text, Protocol, Status */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
-          <div className="lg:col-span-3 relative">
+          <div className="lg:col-span-2 relative">
             <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">
               IP Adresi Filtresi
             </label>
@@ -233,7 +285,7 @@ export default function TftpLogTab({
                 type="text"
                 value={macFilter}
                 onChange={(e) => setMacFilter(e.target.value)}
-                placeholder="Örn: 68:86:A7:C5:97:66"
+                placeholder="Örn: 0C:38:3E:19:6B:32"
                 className={`w-full text-xs font-mono pl-8 pr-7 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring}`}
               />
               <Cpu size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -250,16 +302,16 @@ export default function TftpLogTab({
             </div>
           </div>
 
-          <div className="lg:col-span-4 relative">
+          <div className="lg:col-span-3 relative">
             <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">
-              Dosya Adı / Metin Ara
+              Dosya / User-Agent Ara
             </label>
             <div className="relative">
               <input
                 type="text"
                 value={queryFilter}
                 onChange={(e) => setQueryFilter(e.target.value)}
-                placeholder="SEP, XMLDefault, dialplan, .loads, TzData..."
+                placeholder="Fanvil, .cfg, SEP, XMLDefault..."
                 className={`w-full text-xs pl-8 pr-7 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring}`}
               />
               <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -274,6 +326,22 @@ export default function TftpLogTab({
                 </button>
               )}
             </div>
+          </div>
+
+          <div className="lg:col-span-2">
+            <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">
+              Protokol
+            </label>
+            <select
+              value={protocolFilter}
+              onChange={(e) => setProtocolFilter(e.target.value)}
+              className={`w-full text-xs px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring}`}
+            >
+              <option value="all">Tümü (HTTP + TFTP)</option>
+              <option value="http">HTTP / HTTPS</option>
+              <option value="tftp">TFTP (UDP 69)</option>
+              <option value="action">Action URL</option>
+            </select>
           </div>
 
           <div className="lg:col-span-2">
@@ -351,10 +419,13 @@ export default function TftpLogTab({
         <div
           tabIndex={0}
           role="region"
-          aria-label="Gerçek Zamanlı TFTP Trafik Logları"
-          className="overflow-auto max-h-[580px] focus:outline-none"
+          aria-labelledby={captionId}
+          className="prov-log-wrapper overflow-auto max-h-[580px] focus:outline-none"
         >
-          <table className="w-full text-left border-separate border-spacing-0 min-w-[780px]">
+          <table className="prov-log-table w-full text-left border-separate border-spacing-0 min-w-[780px]">
+            <caption id={captionId} className="sr-only">
+              Gerçek Zamanlı HTTP ve TFTP Provizyon Trafik Logları
+            </caption>
             <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-950">
               <tr className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 <th scope="col" className="px-3.5 py-2.5 border-b border-slate-200 dark:border-slate-800 whitespace-nowrap">
@@ -387,11 +458,11 @@ export default function TftpLogTab({
                     <Terminal size={28} className="mx-auto text-slate-300 dark:text-slate-700" />
                     <p className="text-xs font-bold text-slate-600 dark:text-slate-300">
                       {hasActiveFilters
-                        ? "Seçilen IP / MAC filtresine uyan TFTP trafiği henüz yok."
-                        : "Henüz TFTP trafik kaydı yakalanmadı."}
+                        ? "Seçilen filtrelere uyan provizyon trafiği henüz yok."
+                        : "Henüz HTTP veya TFTP provizyon trafik kaydı yakalanmadı."}
                     </p>
                     <p className="text-[11px] text-slate-400">
-                      Bir Cisco veya IP telefonu yeniden başlattığınızda tüm TFTP istekleri (200 OK ve 404 dahil) burada anlık olarak akacaktır.
+                      Bir Fanvil, Yealink, Grandstream veya Cisco telefonu yeniden başlattığınızda tüm HTTP/HTTPS ve TFTP istekleri (200 OK, 404, 403 dahil) burada anlık akacaktır.
                     </p>
                   </td>
                 </tr>
@@ -406,7 +477,7 @@ export default function TftpLogTab({
                     >
                       <th
                         scope="row"
-                        className="px-3.5 py-2.5 font-mono text-[11px] font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap tabular-nums"
+                        className="sticky left-0 bg-white dark:bg-slate-900 px-3.5 py-2.5 font-mono text-[11px] font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap tabular-nums"
                         title={lg.timestamp}
                       >
                         {lg.time_short || lg.timestamp}
@@ -430,7 +501,8 @@ export default function TftpLogTab({
                         )}
                       </td>
                       <td className="px-3 py-2.5 whitespace-nowrap">
-                        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${getSourceBadgeClass(lg)}`}>
+                          {lg.http_method && lg.http_method !== "GET" ? `${lg.http_method} ` : ""}
                           {lg.source || lg.protocol || "TFTP"}
                         </span>
                       </td>
@@ -477,7 +549,7 @@ export default function TftpLogTab({
                           <span className="font-mono text-[11px] font-extrabold text-slate-900 dark:text-white">
                             {lg.filename}
                           </span>
-                          {isOk && typeof onOpenFileInDirectory === "function" && (
+                          {isOk && typeof onOpenFileInDirectory === "function" && !String(lg.filename || "").startsWith("/") && !String(lg.filename || "").startsWith("phone-sync") && (
                             <button
                               type="button"
                               onClick={() => onOpenFileInDirectory(lg.filename)}
@@ -489,11 +561,16 @@ export default function TftpLogTab({
                           )}
                         </div>
                       </td>
-                      <td className="px-3.5 py-2.5 text-[11px] text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                      <td className="px-3.5 py-2.5 text-[11px] text-slate-500 dark:text-slate-400 whitespace-nowrap" title={lg.user_agent || lg.detail || ""}>
                         <span className="font-mono font-semibold text-slate-700 dark:text-slate-300">
                           {formatBytes(lg.size_bytes)}
                         </span>
                         {lg.detail && <span className="ml-1.5 text-slate-400">• {lg.detail}</span>}
+                        {lg.user_agent && (
+                          <span className="ml-1.5 font-mono text-[10px] text-slate-400/90">
+                            [{lg.user_agent.slice(0, 44)}{lg.user_agent.length > 44 ? "…" : ""}]
+                          </span>
+                        )}
                       </td>
                     </tr>
                   );
@@ -509,8 +586,8 @@ export default function TftpLogTab({
         isOpen={showClearConfirm}
         onClose={() => !clearing && setShowClearConfirm(false)}
         onConfirm={handleClearLogs}
-        title="TFTP Loglarını Temizle"
-        message="Bellekteki tüm gerçek zamanlı TFTP trafik kayıtlarını temizlemek istediğinize emin misiniz?"
+        title="Provizyon Loglarını Temizle"
+        message="Bellekteki tüm gerçek zamanlı HTTP ve TFTP provizyon trafik kayıtlarını temizlemek istediğinize emin misiniz?"
         loading={clearing}
       />
     </div>
