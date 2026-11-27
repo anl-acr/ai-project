@@ -359,7 +359,12 @@ app.add_middleware(
 @app.middleware("http")
 async def auto_api_prefix_middleware(request: Request, call_next):
     path = request.scope.get("path", "")
-    if path and not path.startswith("/api") and not path.startswith("/uploads") and not path.startswith("/static"):
+    _p_low = path.lower()
+    _skip_auto_api = (
+        path.startswith(("/api", "/uploads", "/static", "/sdk/"))
+        or _p_low.startswith(("/sep", "/spa", "/dialplan.xml", "/xmldefault.cnf.xml"))
+    )
+    if path and not _skip_auto_api:
         request.scope["path"] = "/api" + path
     response = await call_next(request)
 
@@ -18187,7 +18192,13 @@ def _find_registered_tenant_token_for_mac(mac_hex: str) -> Tuple[Optional[str], 
         for u in (settings_db.get("users") or []):
             if not isinstance(u, dict):
                 continue
-            for d in (u.get("sip_devices") or []):
+            sdevs = u.get("sip_devices")
+            if isinstance(sdevs, str) and sdevs.strip().startswith("["):
+                try:
+                    sdevs = json.loads(sdevs)
+                except Exception:
+                    sdevs = []
+            for d in (sdevs or []):
                 if isinstance(d, dict):
                     _, mh = normalize_mac_address(d.get("mac") or "")
                     if mh == target_hex:
@@ -18195,6 +18206,36 @@ def _find_registered_tenant_token_for_mac(mac_hex: str) -> Tuple[Optional[str], 
                         break
             if found_tid:
                 break
+
+    if not found_tid:
+        try:
+            from backend.database.config import SyncSessionLocal
+            with SyncSessionLocal() as sess:
+                for r in sess.query(SystemUser).all():
+                    sdevs = getattr(r, "sip_devices", None)
+                    if isinstance(sdevs, str) and sdevs.strip().startswith("["):
+                        try:
+                            sdevs = json.loads(sdevs)
+                        except Exception:
+                            sdevs = []
+                    for d in (sdevs or []):
+                        if isinstance(d, dict):
+                            _, mh = normalize_mac_address(d.get("mac") or "")
+                            if mh == target_hex:
+                                found_tid = getattr(r, "tenant_id", None) or "tenant-default"
+                                break
+                    if found_tid:
+                        break
+        except Exception:
+            pass
+
+    if not found_tid:
+        for _dk, _dv in ((settings_db.get("user_deskphone_configs") or {}).items()):
+            if isinstance(_dv, dict):
+                _, mh = normalize_mac_address(_dv.get("mac") or "")
+                if mh == target_hex:
+                    found_tid = _dv.get("tenant_id") or "tenant-default"
+                    break
 
     if not found_tid:
         return None, None

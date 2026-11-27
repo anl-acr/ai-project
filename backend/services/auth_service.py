@@ -541,6 +541,7 @@ _PUBLIC_EXACT_PATHS = {
     "/api/webhooks/facebook",
     "/dialplan.xml",
     "/XMLDefault.cnf.xml",
+    "/xmldefault.cnf.xml",
     "/api/federation/heartbeat",
     "/api/federation/config-pull",
     "/api/federation/config-ack",
@@ -564,7 +565,9 @@ _PUBLIC_PREFIXES = (
     "/static/",
     "/sdk/",
     "/SEP",
+    "/sep",
     "/spa",
+    "/SPA",
 )
 
 # Asterisk Dialplan & Localhost-ONLY Internal Daemon Endpoints
