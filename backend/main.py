@@ -16614,6 +16614,7 @@ def _generate_deskphone_cfg_content(
         expansion_modules=cfg.get("expansion_modules") or [],
         phone_prefs=cfg.get("phone_prefs") or {},
         ext_name_map=ext_name_map,
+        sip_driver=str(cfg.get("sip_driver") or "pjsip"),
     )
 
 
@@ -17445,6 +17446,7 @@ async def download_user_sip_device_cfg(
         expansion_modules=matched_dev.get("expansion_modules") or [],
         phone_prefs=matched_dev.get("phone_prefs") or {},
         ext_name_map=ext_name_map,
+        sip_driver=str(matched_dev.get("sip_driver") or "pjsip"),
     )
     return Response(
         content=content_text,
@@ -17763,6 +17765,7 @@ async def _render_autoprovision_file_for_phone(
                     phone_sync_base_url=_phone_sync_base_url,
                     fwd_codes=_fwd_codes_cfg,
                     firmware_directive=_fw_directive,
+                    sip_driver=str(dev.get("sip_driver") or ap_rec.get("sip_driver") or "pjsip"),
                 )
                 # Stamp live provisioning fetch timestamp & persist disk snapshot for real phone pulls (not admin preview)
                 is_preview_req = is_admin_preview or (request.query_params.get("preview") == "1")

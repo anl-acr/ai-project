@@ -101,7 +101,13 @@ const SIP_PHONE_MODELS = {
     "GRP2602", "GRP2612", "GRP2613", "GRP2614", "GRP2615", "GRP2616", "GRP2624", "GRP2634", "GRP2636"
   ],
   Fanvil: ["X3S", "X3U", "X4U", "X5U", "X6U", "X7", "X7C", "X210", "V62", "V64", "V65"],
-  Cisco: ["3905", "7821", "7841", "8811", "8841", "8851", "8861"],
+  Cisco: [
+    "3905",
+    "7811", "7821", "7841", "7861",
+    "7940", "7941", "7942", "7945", "7960", "7961", "7962", "7965", "7975",
+    "8811", "8841", "8845", "8851", "8861",
+    "8941", "8945", "8961"
+  ],
   Gigaset: ["N510 IP PRO", "Maxwell 3"]
 };
 
@@ -10616,7 +10622,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                       Aynı Lokasyon (LAN — Tünelsiz / Local IP)
                                     </span>
                                     <span className="font-mono text-slate-500 dark:text-slate-400">
-                                      SIP: {inspectLiveInfo.provisioning.local_ip}:5060
+                                      SIP: {inspectLiveInfo.provisioning.local_ip}:{inspectDraft.sip_driver === "chan_sip" ? "5160" : "5060"}
                                     </span>
                                   </div>
                                   <div className="flex items-center gap-2">
@@ -10646,7 +10652,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                       Farklı Lokasyon / Uzak Şube (WAN)
                                     </span>
                                     <span className="font-mono text-slate-500 dark:text-slate-400">
-                                      SIP: {inspectLiveInfo.provisioning.wan_sip_host}:5060
+                                      SIP: {inspectLiveInfo.provisioning.wan_sip_host}:{inspectDraft.sip_driver === "chan_sip" ? "5160" : "5060"}
                                     </span>
                                   </div>
                                   <div className="flex items-center gap-2">

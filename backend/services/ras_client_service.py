@@ -705,7 +705,7 @@ async def _handle_tunneled_tcp_open(tunnel_ws: Any, msg: Dict[str, Any]):
         )
         return
 
-    allowed_ports = {22, 8000, 3000, 5060, 8088, 8089}
+    allowed_ports = {22, 8000, 3000, 5060, 5160, 8088, 8089}
     if target_port not in allowed_ports:
         await tunnel_ws.send(
             json.dumps({

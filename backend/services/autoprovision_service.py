@@ -45,7 +45,11 @@ SUPPORTED_PHONE_MODELS: Dict[str, List[str]] = {
         "V62", "V64", "V65",
     ],
     "Cisco": [
-        "3905", "7821", "7841", "8811", "8841", "8851", "8861",
+        "3905",
+        "7811", "7821", "7841", "7861",
+        "7940", "7941", "7942", "7945", "7960", "7961", "7962", "7965", "7975",
+        "8811", "8841", "8845", "8851", "8861",
+        "8941", "8945", "8961",
     ],
 }
 
@@ -177,13 +181,28 @@ PHONE_MODEL_CATALOG: List[Dict[str, Any]] = [
     {"brand": "Fanvil", "model": "V64", "label": "Fanvil V64 (8 Tuş × 3 Sayfa = 21 DSS • V-Serisi)", "screen": "color", "layout": "split", "dss_per_page": 8, "dss_pages": 3, "max_dss": 21, "soft_keys": 4, "expansion_model": "Fanvil-E20", "max_expansions": 4},
     {"brand": "Fanvil", "model": "V65", "label": "Fanvil V65 (10 Tuş × 4 Sayfa = 40 DSS • V-Serisi)", "screen": "color", "layout": "split", "dss_per_page": 10, "dss_pages": 4, "max_dss": 40, "soft_keys": 4, "expansion_model": "Fanvil-E20", "max_expansions": 4},
     # --- CISCO ---
-    {"brand": "Cisco", "model": "7821", "label": "Cisco IP Phone 7821 (2 Hat • Monokrom)", "screen": "mono", "layout": "left_only", "dss_per_page": 2, "dss_pages": 1, "max_dss": 2, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
     {"brand": "Cisco", "model": "3905", "label": "Cisco IP Phone 3905 (1 Hat • Monokrom SIP)", "screen": "mono", "layout": "left_only", "dss_per_page": 0, "dss_pages": 0, "max_dss": 0, "soft_keys": 0, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Cisco", "model": "7811", "label": "Cisco IP Phone 7811 (1 Hat • Monokrom)", "screen": "mono", "layout": "left_only", "dss_per_page": 1, "dss_pages": 1, "max_dss": 1, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Cisco", "model": "7821", "label": "Cisco IP Phone 7821 (2 Hat • Monokrom)", "screen": "mono", "layout": "left_only", "dss_per_page": 2, "dss_pages": 1, "max_dss": 2, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
     {"brand": "Cisco", "model": "7841", "label": "Cisco IP Phone 7841 (4 Hat • Monokrom Gigabit)", "screen": "mono", "layout": "left_only", "dss_per_page": 4, "dss_pages": 1, "max_dss": 4, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Cisco", "model": "7861", "label": "Cisco IP Phone 7861 (16 Hat/BLF • Monokrom)", "screen": "mono", "layout": "split", "dss_per_page": 16, "dss_pages": 1, "max_dss": 16, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Cisco", "model": "7940", "label": "Cisco IP Phone 7940 (2 Hat • Klasik Enterprise)", "screen": "mono", "layout": "left_only", "dss_per_page": 2, "dss_pages": 1, "max_dss": 2, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Cisco", "model": "7941", "label": "Cisco IP Phone 7941 (2 Hat • Monokrom)", "screen": "mono", "layout": "left_only", "dss_per_page": 2, "dss_pages": 1, "max_dss": 2, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Cisco", "model": "7942", "label": "Cisco IP Phone 7942G (2 Hat • Wideband)", "screen": "mono", "layout": "left_only", "dss_per_page": 2, "dss_pages": 1, "max_dss": 2, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Cisco", "model": "7945", "label": "Cisco IP Phone 7945G (2 Hat • Renkli Gigabit)", "screen": "color", "layout": "left_only", "dss_per_page": 2, "dss_pages": 1, "max_dss": 2, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Cisco", "model": "7960", "label": "Cisco IP Phone 7960 (6 Hat • Klasik Enterprise)", "screen": "mono", "layout": "left_only", "dss_per_page": 6, "dss_pages": 1, "max_dss": 6, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Cisco", "model": "7961", "label": "Cisco IP Phone 7961G (6 Hat • Monokrom)", "screen": "mono", "layout": "left_only", "dss_per_page": 6, "dss_pages": 1, "max_dss": 6, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Cisco", "model": "7962", "label": "Cisco IP Phone 7962G (6 Hat • Wideband)", "screen": "mono", "layout": "left_only", "dss_per_page": 6, "dss_pages": 1, "max_dss": 6, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Cisco", "model": "7965", "label": "Cisco IP Phone 7965G (6 Hat • Renkli Gigabit)", "screen": "color", "layout": "left_only", "dss_per_page": 6, "dss_pages": 1, "max_dss": 6, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Cisco", "model": "7975", "label": "Cisco IP Phone 7975G (8 Hat • Renkli Dokunmatik)", "screen": "color", "layout": "left_only", "dss_per_page": 8, "dss_pages": 1, "max_dss": 8, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
     {"brand": "Cisco", "model": "8811", "label": "Cisco IP Phone 8811 (10 Tuş • Monokrom)", "screen": "mono", "layout": "split", "dss_per_page": 10, "dss_pages": 1, "max_dss": 10, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
     {"brand": "Cisco", "model": "8841", "label": "Cisco IP Phone 8841 (10 Tuş • Renkli 5\" LCD)", "screen": "color", "layout": "split", "dss_per_page": 10, "dss_pages": 1, "max_dss": 10, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Cisco", "model": "8845", "label": "Cisco IP Phone 8845 (10 Tuş • Renkli Video)", "screen": "color", "layout": "split", "dss_per_page": 10, "dss_pages": 1, "max_dss": 10, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
     {"brand": "Cisco", "model": "8851", "label": "Cisco IP Phone 8851 (10 Tuş • Renkli • KEM × 3 Destekli)", "screen": "color", "layout": "split", "dss_per_page": 10, "dss_pages": 1, "max_dss": 10, "soft_keys": 4, "expansion_model": "CP-8800-KEM", "max_expansions": 3},
     {"brand": "Cisco", "model": "8861", "label": "Cisco IP Phone 8861 (10 Tuş • Renkli Wi-Fi • KEM × 3)", "screen": "color", "layout": "split", "dss_per_page": 10, "dss_pages": 1, "max_dss": 10, "soft_keys": 4, "expansion_model": "CP-8800-KEM", "max_expansions": 3},
+    {"brand": "Cisco", "model": "8941", "label": "Cisco IP Phone 8941 (4 Hat • Renkli Video)", "screen": "color", "layout": "left_only", "dss_per_page": 4, "dss_pages": 1, "max_dss": 4, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Cisco", "model": "8945", "label": "Cisco IP Phone 8945 (4 Hat • Renkli Video Bluetooth)", "screen": "color", "layout": "left_only", "dss_per_page": 4, "dss_pages": 1, "max_dss": 4, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Cisco", "model": "8961", "label": "Cisco IP Phone 8961 (5 Hat • Renkli Enterprise)", "screen": "color", "layout": "left_only", "dss_per_page": 5, "dss_pages": 1, "max_dss": 5, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
 ]
 
 DEFAULT_PHONE_PREFS: Dict[str, Any] = {
@@ -1875,10 +1894,12 @@ def generate_provisioning_config(
     phone_sync_base_url: str = "",
     fwd_codes: Optional[Dict[str, str]] = None,
     firmware_directive: Optional[Dict[str, Any]] = None,
+    sip_driver: str = "pjsip",
 ) -> Tuple[str, str, str]:
     """
     Generates multi-vendor provisioning content using `sip_username` (Kullanıcı > SIP > Kullanıcı Adı)
-    as the SIP Register & Auth Username so it authenticates directly against `[<sip_username>]` in Asterisk PJSIP.
+    as the SIP Register & Auth Username so it authenticates directly against `[<sip_username>]` in Asterisk PJSIP
+    (port 5060) or Asterisk chan_sip / Cisco UseCallManager (port 5160).
     Supports dynamic PBX subscriber name resolution (`label_mode == 'auto'`), daisy-chained expansion modules (1..4),
     and rich user-facing phone preferences (ringtone, screen brightness, time format, call waiting, headset, LEDs).
     Returns (content_text, media_type, suggested_filename).
@@ -1891,7 +1912,9 @@ def generate_provisioning_config(
     line_label = custom_screen_label or (ext_s if ext_s else disp_name)
     mac_norm, mac_hex = normalize_mac_address(mac_colon)
     tr_up = str(transport or "UDP").strip().upper()
-    sip_port = 5061 if tr_up == "TLS" else 5060
+    drv_low = str(sip_driver or "pjsip").strip().lower()
+    is_chan_sip = drv_low in ("chan_sip", "sip", "cisco_sip")
+    sip_port = 5160 if is_chan_sip else (5061 if tr_up == "TLS" else 5060)
     pb_base = str(phonebook_base_url or f"http://{pbx_host}:8000/api/phonebook").rstrip("/")
     pb_list = [p for p in (phonebooks or []) if isinstance(p, dict) and p.get("id") and p.get("name")]
 
@@ -2531,20 +2554,26 @@ def generate_provisioning_config(
                 and "mpp" not in model_low
                 and "spa" not in model_low
                 and (
-                    int(sip_port or 5060) == 5160
-                    or any(m in model_low for m in ("3905", "3911", "7811", "7821", "7841", "7861", "8811", "8841", "8845", "8851", "8861", "7940", "7941", "7942", "7945", "7960", "7961", "7962", "7965", "7975"))
+                    is_chan_sip
+                    or int(sip_port or 5060) == 5160
+                    or any(m in model_low for m in ("3905", "3911", "7811", "7821", "7841", "7861", "8811", "8841", "8845", "8851", "8861", "7940", "7941", "7942", "7945", "7960", "7961", "7962", "7965", "7975", "8941", "8945", "8961"))
                 )
             )
         )
 
         if is_sep_enterprise:
-            # Transport: 1=TCP, 2=UDP, 3=TLS. CP-3905 is most reliable over UDP (2) with PJSIP & Tunnel!
-            if is_cp3905:
+            # Transport: 1=TCP, 2=UDP, 3=TLS.
+            # On chan_sip (5160 UseCallManager), TCP (1) is standard for 78xx/79xx/88xx/89xx (BLF/Softkey/Conf).
+            # CP-3905 defaults to UDP (2) on PJSIP (5060), and follows transport (TCP/UDP) on chan_sip (5160).
+            if is_cp3905 and not is_chan_sip:
                 cisco_tr_code = "2"
+            elif is_chan_sip:
+                cisco_tr_code = "2" if tr_up == "UDP" else "1"
             else:
                 cisco_tr_code = "1" if tr_up == "TCP" else ("3" if tr_up == "TLS" else "2")
-            # PJSIP (port 5060 / Tunnel) MUST use direct host in <proxy>, whereas chan_sip (5160 cisco_usecallmanager) uses USECALLMANAGER
-            cisco_line_proxy = "USECALLMANAGER" if int(sip_port or 5060) == 5160 else html.escape(pbx_host)
+            # PJSIP (port 5060) uses direct host in <proxy>, whereas chan_sip (5160 cisco_usecallmanager) uses USECALLMANAGER
+            cisco_line_proxy = "USECALLMANAGER" if (is_chan_sip or int(sip_port or 5060) == 5160) else html.escape(pbx_host)
+            cisco_outbound_proxy = "" if (is_chan_sip or int(sip_port or 5060) == 5160) else html.escape(pbx_host)
             # WAN/Tunnel mode uses NAT traversal + keepalive
             is_wan_mode = str(connection_mode or "").strip().lower() == "wan"
             nat_flag = "true" if is_wan_mode else "false"
@@ -2619,7 +2648,7 @@ def generate_provisioning_config(
       <backupProxyPort>{sip_port}</backupProxyPort>
       <emergencyProxy></emergencyProxy>
       <emergencyProxyPort>{sip_port}</emergencyProxyPort>
-      <outboundProxy>{html.escape(pbx_host)}</outboundProxy>
+      <outboundProxy>{cisco_outbound_proxy}</outboundProxy>
       <outboundProxyPort>{sip_port}</outboundProxyPort>
       <registerWithProxy>true</registerWithProxy>
     </sipProxies>
@@ -2703,7 +2732,7 @@ def generate_provisioning_config(
       </line>
 {extra_lines_xml}
     </sipLines>
-    <voipControlPort>{sip_port}</voipControlPort>
+    <voipControlPort>5060</voipControlPort>
     <startMediaPort>16384</startMediaPort>
     <stopMediaPort>32766</stopMediaPort>
     <dscpForAudio>184</dscpForAudio>
