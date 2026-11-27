@@ -46,6 +46,9 @@ const FALLBACK_MODEL_SPECS = {
   "fanvil:x6u": { brand: "Fanvil", model: "X6U", screen: "dual_screen", layout: "side_mpk", dss_per_page: 12, dss_pages: 5, max_dss: 60, soft_keys: 4, expansion_model: "", max_expansions: 0 },
   "fanvil:v64": { brand: "Fanvil", model: "V64", screen: "color", layout: "split", dss_per_page: 8, dss_pages: 3, max_dss: 21, soft_keys: 4, expansion_model: "", max_expansions: 0 },
   "fanvil:v65": { brand: "Fanvil", model: "V65", screen: "color", layout: "split", dss_per_page: 10, dss_pages: 5, max_dss: 45, soft_keys: 4, expansion_model: "", max_expansions: 0 },
+  "cisco:8941": { brand: "Cisco", model: "8941", screen: "color", layout: "left_only", dss_per_page: 4, dss_pages: 1, max_dss: 4, soft_keys: 4, expansion_model: "", max_expansions: 0 },
+  "cisco:8945": { brand: "Cisco", model: "8945", screen: "color", layout: "left_only", dss_per_page: 4, dss_pages: 1, max_dss: 4, soft_keys: 4, expansion_model: "", max_expansions: 0 },
+  "cisco:8961": { brand: "Cisco", model: "8961", screen: "color", layout: "left_only", dss_per_page: 5, dss_pages: 1, max_dss: 5, soft_keys: 4, expansion_model: "", max_expansions: 0 },
 };
 
 const DEFAULT_SOFTKEYS = [

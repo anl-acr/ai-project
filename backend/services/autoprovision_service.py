@@ -2187,6 +2187,7 @@ def generate_provisioning_config(
     fwd_codes: Optional[Dict[str, str]] = None,
     firmware_directive: Optional[Dict[str, Any]] = None,
     sip_driver: str = "pjsip",
+    chan_sip_peer_id: str = "",
 ) -> Tuple[str, str, str]:
     """
     Generates multi-vendor provisioning content using `sip_username` (Kullanıcı > SIP > Kullanıcı Adı)
@@ -3023,8 +3024,16 @@ def generate_provisioning_config(
             else:
                 cisco_phone_label = _disp_lcd or ext_s or sip_u
                 cisco_feature_label = ext_s or _disp_lcd or sip_u
-            # Show real extension (e.g. 1001) on screen via <name> while keeping cryptographic sip_u (XT6AoiKP) in <authName> & <contact>
-            cisco_line_name = ext_s if (is_chan_sip and ext_s) else sip_u
+            # Match Asterisk chan_sip peer ID ([1000] for 1st chan_sip phone on ext, [<sip_u>] for 2nd+ Cisco phone on same ext)
+            cisco_line_name = (
+                str(chan_sip_peer_id or "").strip()
+                or (ext_s if (is_chan_sip and ext_s) else sip_u)
+            )
+            cisco_dir_url = (
+                f"{pb_base}/{ext_s or 'all'}/cisco.xml"
+                if (not is_cp3905 and pb_base)
+                else ""
+            )
             # Cisco CUCM / CP-3905 (incl. 9.2.1) strict <dateTimeSetting> rules:
             # 1) Exact CUCM timezone string for permanent UTC+3 (no DST) is 'Saudi Arabia Standard Time'
             #    ('Turkey Standard Time' and 'Arab Standard Time' are NOT in Cisco CUCM's built-in table -> fallback to UTC+0!).
@@ -3210,7 +3219,9 @@ def generate_provisioning_config(
     <displayOnDuration>10:00</displayOnDuration>
     <displayIdleTimeout>00:10</displayIdleTimeout>
   </vendorConfig>
-  <networkLocale>{"" if is_cp3905 else "Turkey"}</networkLocale>
+  <deviceSecurityMode>1</deviceSecurityMode>
+  <directoryURL>{html.escape(cisco_dir_url)}</directoryURL>
+  <networkLocale></networkLocale>
   <capfAuthMode>0</capfAuthMode>
   <transportLayerProtocol>{cisco_tr_code}</transportLayerProtocol>
 </device>

@@ -17746,7 +17746,8 @@ async def _render_autoprovision_file_for_phone(
         ext_s = str(u.get("extension") or "").strip()
         uid_s = str(u.get("id") or "").strip()
         u_matches_ap = bool(ap_target_assigned and ap_target_assigned in (ext_s, uid_s))
-        for dev in normalize_user_sip_devices(u, ap_all, dp_all, fallback_password_fn=resolve_secure_sip_password):
+        u_norm_devs = normalize_user_sip_devices(u, ap_all, dp_all, fallback_password_fn=resolve_secure_sip_password)
+        for dev in u_norm_devs:
             _, dev_mac_hex = normalize_mac_address(dev.get("mac") or "")
             dev_su = str(dev.get("sip_username") or "").strip()
             dev_id = str(dev.get("id") or "").strip()
@@ -17922,6 +17923,11 @@ async def _render_autoprovision_file_for_phone(
                     fwd_codes=_fwd_codes_cfg,
                     firmware_directive=_fw_directive,
                     sip_driver=str(dev.get("sip_driver") or ap_rec.get("sip_driver") or "pjsip"),
+                    chan_sip_peer_id=(
+                        _resolve_chan_sip_peer_id_for_device(dev, ext_s, all_user_devs=u_norm_devs)
+                        if str(dev.get("sip_driver") or ap_rec.get("sip_driver") or "pjsip").strip().lower() in ("chan_sip", "sip", "cisco_sip")
+                        else ""
+                    ),
                 )
                 # Stamp live provisioning fetch timestamp & persist disk snapshot for real phone pulls (not admin preview)
                 is_preview_req = is_admin_preview or (request.query_params.get("preview") == "1")
@@ -19897,6 +19903,21 @@ async def _render_dynamic_xml_phonebook(target_id: str, vendor_file: str, db: As
             f"  <Title>{_html.escape(book_title)}</Title>\n"
             + "\n".join(entries_xml)
             + "\n</FanvilIPPhoneDirectory>\n"
+        )
+        return Response(content=xml_str, media_type="application/xml; charset=utf-8")
+
+    if "cisco" in vf_low:
+        entries_xml = [
+            f"  <DirectoryEntry>\n    <Name>{_html.escape(it['name'])}</Name>\n    <Telephone>{_html.escape(it['number'])}</Telephone>\n  </DirectoryEntry>"
+            for it in items
+        ]
+        xml_str = (
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            "<CiscoIPPhoneDirectory>\n"
+            f"  <Title>{_html.escape(book_title)}</Title>\n"
+            "  <Prompt>Kisi secin</Prompt>\n"
+            + "\n".join(entries_xml)
+            + "\n</CiscoIPPhoneDirectory>\n"
         )
         return Response(content=xml_str, media_type="application/xml; charset=utf-8")
 
