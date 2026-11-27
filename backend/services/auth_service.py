@@ -560,6 +560,7 @@ _PUBLIC_PREFIXES = (
     "/uploads/",
     "/api/uploads/",
     "/static/",
+    "/sdk/",
 )
 
 # Asterisk Dialplan & Localhost-ONLY Internal Daemon Endpoints

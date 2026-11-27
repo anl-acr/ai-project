@@ -2,8 +2,8 @@
   "version": "v3.10.11",
   "api_version": "v1",
   "base_url_example": "https://musteri.nornia.com.tr",
-  "total_endpoints": 117,
-  "v1_endpoints_count": 46,
+  "total_endpoints": 119,
+  "v1_endpoints_count": 48,
   "platform_endpoints_count": 71,
   "permission_modules": [
     {
@@ -228,6 +228,21 @@
           "desc": "Konferans odası, hızlı arama veya sesli posta kaydı silme"
         }
       ]
+    },
+    {
+      "id": "sdk",
+      "title": "Desktop, Web & Mobil Softphone SDK (WebRTC Oturum & Widget)",
+      "description": "Harici CRM, ERP, Electron Desktop ve Flutter / React Native mobil uygulamalarına gömülebilir WebRTC telefon SDK oturumu.",
+      "actions": [
+        {
+          "code": "sdk:webrtc",
+          "label": "SDK WebRTC Oturumu Oluşturma (POST)",
+          "http_methods": [
+            "POST"
+          ],
+          "desc": "Belirli bir dahili için WSS, STUN/TURN ve SIP WebRTC kayıt bilgilerini çekme"
+        }
+      ]
     }
   ],
   "categories": [
@@ -442,8 +457,75 @@
       ]
     },
     {
-      "id": "2-cagri-raporlari-cdr-ses-kayitlari-transkript",
+      "id": "sdk",
       "index": 2,
+      "title": "Desktop, Web & Mobil Softphone SDK (WebRTC & Widget)",
+      "scope_module": "sdk",
+      "auth_type": "api_key",
+      "endpoints": [
+        {
+          "id": "post-api-v1-sdk-session",
+          "method": "POST",
+          "method_tr": "Yeni İşlem Başlatma (POST)",
+          "path": "/api/v1/sdk/session",
+          "base_path": "/api/v1/sdk/session",
+          "scope": "sdk:webrtc",
+          "auth_type": "api_key",
+          "title": "Web, Desktop & Mobil SDK WebRTC Oturum Bilgisi Al",
+          "description": "Harici CRM, Electron Desktop, Flutter veya React Native uygulamanızın Nornia santraline WebRTC ile tek adımda bağlanması için gereken sip_uri, sip_password, wss_url, via_host ve STUN/TURN bilgilerini döner. Yetki: sdk:webrtc veya calls:write.",
+          "path_params": [],
+          "query_params": [],
+          "sample_body": {
+            "extension": "1001",
+            "client_type": "web"
+          },
+          "sample_response": {
+            "status": "success",
+            "sdk_version": "1.0.0",
+            "extension": "1001",
+            "display_name": "Ahmet Yılmaz",
+            "sip_domain": "pbx.firma.com",
+            "sip_uri": "sip:1001@pbx.firma.com",
+            "sip_username": "1001",
+            "sip_password": "********",
+            "wss_url": "wss://pbx.firma.com:8089/ws",
+            "wss_proxy_url": "wss://pbx.firma.com/asterisk/ws",
+            "via_host": "203.0.113.10",
+            "ice_servers": [
+              {
+                "urls": "stun:stun.l.google.com:19302"
+              }
+            ],
+            "expires_in_seconds": 43200
+          }
+        },
+        {
+          "id": "get-api-v1-sdk-filename",
+          "method": "GET",
+          "method_tr": "Dosya İndirme (GET)",
+          "path": "/api/v1/sdk/{filename}",
+          "base_path": "/api/v1/sdk/{filename}",
+          "scope": "public",
+          "auth_type": "public",
+          "title": "Hazır SDK Dosyasını İndir (JS / Widget / Flutter / React Native)",
+          "description": "Santralden doğrudan indirilebilen 4 hazır SDK dosyasını sunar: nornia-voice-sdk.js (Web/Electron Headless), nornia-softphone-widget.js (3 satırda hazır mini telefon), nornia-mobile-sdk.dart (Flutter), nornia-mobile-sdk.js (React Native).",
+          "path_params": [
+            {
+              "name": "filename",
+              "type": "string",
+              "required": true,
+              "description": "nornia-voice-sdk.js | nornia-softphone-widget.js | nornia-mobile-sdk.dart | nornia-mobile-sdk.js"
+            }
+          ],
+          "query_params": [],
+          "sample_body": null,
+          "sample_response": "/* Nornia Voice SDK v1.0.0 — JavaScript / Dart Kaynak Dosyası */"
+        }
+      ]
+    },
+    {
+      "id": "2-cagri-raporlari-cdr-ses-kayitlari-transkript",
+      "index": 3,
       "title": "2. Çağrı Raporları (CDR), Ses Kayıtları & Transkript",
       "scope_module": "cdr",
       "auth_type": "api_key",
@@ -586,7 +668,7 @@
     },
     {
       "id": "3-dahili-aboneler-kullanicilar-temsilci-mola-yonetimi",
-      "index": 3,
+      "index": 4,
       "title": "3. Dahili Aboneler (Kullanıcılar) & Temsilci Mola Yönetimi",
       "scope_module": "extensions",
       "auth_type": "api_key",
@@ -754,7 +836,7 @@
     },
     {
       "id": "4-acd-arama-kuyruklari-abone-gruplari",
-      "index": 4,
+      "index": 5,
       "title": "4. ACD Arama Kuyrukları & Abone Grupları",
       "scope_module": "queues",
       "auth_type": "api_key",
@@ -914,7 +996,7 @@
     },
     {
       "id": "5-gelen-giden-arama-kurallari-sip-trunk-toplu-konfigurasyon",
-      "index": 5,
+      "index": 6,
       "title": "5. Gelen / Giden Arama Kuralları, SIP Trunk & Toplu Konfigürasyon",
       "scope_module": "routing",
       "auth_type": "api_key",
@@ -1109,7 +1191,7 @@
     },
     {
       "id": "6-crm-rehber-kisiler-kara-liste-randevu-takvimi",
-      "index": 6,
+      "index": 7,
       "title": "6. CRM Rehber (Kişiler), Kara Liste & Randevu Takvimi",
       "scope_module": "crm",
       "auth_type": "api_key",
@@ -1286,7 +1368,7 @@
     },
     {
       "id": "7-yapay-zeka-asistanlari-omnichannel-whatsapp-e-posta-gonderimi",
-      "index": 7,
+      "index": 8,
       "title": "7. Yapay Zeka Asistanları & Omnichannel (WhatsApp / E-Posta Gönderimi)",
       "scope_module": "ai_omnichannel",
       "auth_type": "api_key",
@@ -1362,7 +1444,7 @@
     },
     {
       "id": "8-konferans-odalari-hizli-arama-sesli-posta-voicemail-webhook-sistem-kapasitesi",
-      "index": 8,
+      "index": 9,
       "title": "8. Konferans Odaları, Hızlı Arama, Sesli Posta (Voicemail), Webhook & Sistem Kapasitesi",
       "scope_module": "pbx_features",
       "auth_type": "api_key",
@@ -1551,7 +1633,7 @@
     },
     {
       "id": "9-cti-crm-screen-pop-arayan-tanima-otomatik-kart-acma",
-      "index": 9,
+      "index": 10,
       "title": "9. CTI & CRM Screen Pop (Arayan Tanıma & Otomatik Kart Açma)",
       "scope_module": "cti",
       "auth_type": "session",
@@ -1676,7 +1758,7 @@
     },
     {
       "id": "10-otomatik-dis-arama-dialer-kampanya-yonetimi-api",
-      "index": 10,
+      "index": 11,
       "title": "10. Otomatik Dış Arama (Dialer) & Kampanya Yönetimi API",
       "scope_module": "dialer",
       "auth_type": "session",
@@ -1861,7 +1943,7 @@
     },
     {
       "id": "11-omnichannel-whatsapp-telegram-meta-e-posta-ortak-gelen-kutusu-api",
-      "index": 11,
+      "index": 12,
       "title": "11. Omnichannel (WhatsApp, Telegram, Meta, E-Posta) & Ortak Gelen Kutusu API",
       "scope_module": "omnichannel",
       "auth_type": "session",
@@ -2132,7 +2214,7 @@
     },
     {
       "id": "12-bilgi-bankasi-rag-canli-ceviri-kalite-kontrol-qa-api",
-      "index": 12,
+      "index": 13,
       "title": "12. Bilgi Bankası (RAG), Canlı Çeviri & Kalite Kontrol (QA) API",
       "scope_module": "rag_ai",
       "auth_type": "session",
@@ -2339,7 +2421,7 @@
     },
     {
       "id": "13-musteri-360-geri-arama-callback-kriz-alarmi-api",
-      "index": 13,
+      "index": 14,
       "title": "13. Müşteri 360°, Geri Arama (Callback) & Kriz Alarmı API",
       "scope_module": "workspace",
       "auth_type": "session",
@@ -2585,7 +2667,7 @@
     },
     {
       "id": "14-kurumsal-raporlar-wallboard-supervizor-hot-desking-api",
-      "index": 14,
+      "index": 15,
       "title": "14. Kurumsal Raporlar, Wallboard, Süpervizör & Hot-Desking API",
       "scope_module": "reports",
       "auth_type": "session",
@@ -2915,7 +2997,7 @@
     },
     {
       "id": "15-cok-subeli-santral-federation-nornia-connect-ag-ai-konfigurasyon-api",
-      "index": 15,
+      "index": 16,
       "title": "15. Çok-Şubeli Santral (Federation), Nornia Connect, Ağ & AI Konfigürasyon API",
       "scope_module": "infrastructure",
       "auth_type": "session",
@@ -3108,7 +3190,7 @@
     },
     {
       "id": "16-gelen-kanal-webhook-lari-sip-hata-ayiklama-pcap-sistem-sagligi-api",
-      "index": 16,
+      "index": 17,
       "title": "16. Gelen Kanal Webhook'ları, SIP Hata Ayıklama (PCAP) & Sistem Sağlığı API",
       "scope_module": "webhooks_diag",
       "auth_type": "webhook",

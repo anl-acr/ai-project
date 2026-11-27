@@ -639,5 +639,348 @@ sudo -u postgres pg_dump -p 5444 -Fc ai_pbx > /opt/ai-project/backups/ai_pbx_$(d
       "guvenlik-kalkani",
       "bakim-yedekleme-ve-kayit-saklama"
     ]
+  },
+  {
+    id: "desktop-ve-mobil-sdk-rehberi",
+    number: "108",
+    groupId: "teknik-mimari",
+    category: "Teknik Mimari & Sistem Dokümantasyonu",
+    title: "Web, Desktop (Electron / .NET) & Mobil (Flutter / React Native) Softphone SDK Rehberi",
+    shortTitle: "Desktop & Mobil SDK Rehberi",
+    menuPath: "Teknik Dokümantasyon → Desktop & Mobil Softphone SDK",
+    pbxRoute: "/api/v1/sdk/session",
+    permissions: ["Yazılım Geliştirici • External API Anahtarı (sdk:webrtc veya calls:write)"],
+    badge: "Geliştirici SDK • v1.0",
+    readMinutes: 15,
+    summary:
+      "Nornia santralinin arama, cevaplama, aktarma, bekletme ve gelen çağrı yakalama (CRM Screen Pop) yeteneklerini kendi Web CRM, Electron Desktop, C#/.NET veya Flutter / React Native mobil uygulamanızın içine 5 dakikada kopyala-yapıştırla gömmek için sıfırdan adım adım geliştirici kılavuzu.",
+    prerequisites: [
+      "Nornia yönetim panelinden `Yönetim → API Yönetimi` menüsüne girip yeni bir API Anahtarı (`aida_live_...`) oluşturun ve **`sdk:webrtc`** (veya `calls:write`) yetkisini işaretleyin.",
+      "Bağlanacağınız dahili numaranın (ör. `1001`) `Santral → Kullanıcılar` altında aktif olduğunu doğrulayın.",
+      "WebRTC mikrofon erişimi için sayfanızın **`https://`** (veya geliştirme ortamında `http://localhost`) üzerinden açılması ve santralin **8089/TCP (WSS)** portunun açık olması gerekir.",
+      "Bu SDK'yı kullanmak için hiçbir SIP/VoIP protokolü bilmenize gerek yoktur; Nornia tüm SIP, WSS, STUN/TURN ve NAT ayarlarını tek bir API çağrısıyla otomatik verir."
+    ],
+    fieldTable: [
+      {
+        field: "/api/v1/sdk/nornia-voice-sdk.js",
+        type: "Web & Desktop (Electron) • Headless JS SDK",
+        defaultVal: "GET (Public)",
+        required: true,
+        description:
+          "Kendi butonlarınızı ve tasarımınızı yaparken arkada tüm WebRTC ses/arama işini yöneten sıfır-kurulumlu JavaScript SDK. Tarayıcı `<script>`, React, Vue, Angular ve Electron ile doğrudan çalışır."
+      },
+      {
+        field: "/api/v1/sdk/nornia-softphone-widget.js",
+        type: "Web CRM & Electron • Hazır Mini Telefon Widget",
+        defaultVal: "GET (Public)",
+        required: false,
+        description:
+          "Hiç arayüz tasarlamadan 3 satır kodla CRM ekranınızın sağ alt köşesine açılır-kapanır hazır WebRTC telefon (tuş takımı, zil, cevapla, sessize al, transfer, süre sayacı) yerleştirir. Shadow DOM kullandığı için sitenizin CSS'ini bozmaz."
+      },
+      {
+        field: "/api/v1/sdk/nornia-mobile-sdk.dart",
+        type: "Mobil (Flutter — iOS & Android)",
+        defaultVal: "GET (Public)",
+        required: false,
+        description:
+          "Flutter mobil projenizin `lib/` klasörüne doğrudan kopyalayabileceğiniz tek dosyalık hazır SDK sınıfı (`NorniaMobileSDK`)."
+      },
+      {
+        field: "/api/v1/sdk/nornia-mobile-sdk.js",
+        type: "Mobil (React Native — iOS & Android)",
+        defaultVal: "GET (Public)",
+        required: false,
+        description:
+          "React Native projenize doğrudan kopyalayabileceğiniz hazır ES Module SDK sınıfı (`NorniaReactNativeSDK`)."
+      },
+      {
+        field: "POST /api/v1/sdk/session",
+        type: "REST API • X-API-Key Korumalı",
+        defaultVal: "Yetki: sdk:webrtc",
+        required: true,
+        description:
+          "Tek istekte bir dahili için `sip_uri`, `sip_username`, `sip_password`, `wss_url`, `via_host` ve `ice_servers` (STUN/TURN) bilgilerini döner. Tüm SDK dosyaları bu ucu otomatik çağırır."
+      }
+    ],
+    sections: [
+      {
+        heading: "1. Sistem Nasıl Çalışır? (Tek Bakışta Mimari Şema)",
+        body:
+          "Geliştirici olarak hiçbir SIP sunucusu, port veya şifre ayarı ezberlemeniz gerekmez. Uygulamanız sadece 2 adımda Nornia santraline bağlanır: (1) REST API ile oturum bilgisini alır, (2) WebRTC WSS üzerinden ses hattını açar.",
+        archDiagram: {
+          eyebrow: "NORNIA VOICE SDK • GELİŞTİRİCİ MİMARİSİ",
+          title: "Kendi Uygulamanızdan Nornia Santraline 2 Adımda Bağlantı",
+          badges: ["Zero-Build JS", "Shadow DOM Widget", "Electron Desktop", "Flutter & React Native"],
+          tiers: [
+            {
+              label: "Katman 1 — Sizin Uygulamanız (Müşteri Yazılımı)",
+              tone: "sky",
+              meta: "5 Satır Kod ile Entegrasyon",
+              nodes: [
+                { name: "Web CRM / ERP", badge: "Widget veya JS SDK", desc: "Sağ altta hazır telefon veya kendi butonlarınızla arama + Screen Pop" },
+                { name: "Desktop (Electron / .NET)", badge: "WebRTC veya CTI", desc: "Masaüstü uygulamasından dahili sesli görüşme veya Click-to-Call" },
+                { name: "Mobil (Flutter / RN)", badge: "iOS & Android", desc: "Kurum içi saha uygulaması veya uygulama içi ücretsiz destek araması" }
+              ],
+              arrowToNext: "Adım 1: POST /api/v1/sdk/session (X-API-Key + extension: '1001')"
+            },
+            {
+              label: "Katman 2 — Nornia API & Oturum Dağıtıcı",
+              tone: "indigo",
+              meta: "Tenant İzolasyonu • Otomatik IPv4 viaHost & STUN/TURN",
+              nodes: [
+                { name: "Nornia REST API (:443)", badge: "X-API-Key", desc: "Dahiliyi doğrular; wss_url, sip_uri, sip_password ve ICE sunucularını tek JSON'da döner" },
+                { name: "SDK Dosya Sunucusu", badge: "/api/v1/sdk/*", desc: "nornia-voice-sdk.js, widget.js, mobile-sdk.dart/js dosyalarını doğrudan sunar" }
+              ],
+              arrowToNext: "Adım 2: WebRTC WSS (:8089/ws) + DTLS-SRTP Şifreli Ses"
+            },
+            {
+              label: "Katman 3 — Nornia Ses & Çağrı Çekirdeği",
+              tone: "emerald",
+              meta: "Tüm Çağrı Kayıtları, AI Asistan ve Raporlar Otomatik Çalışır",
+              nodes: [
+                { name: "Asterisk / Kamailio WSS", badge: "WSS :8089", desc: "Dış hat (0850), dahili, kuyruk ve AI sesli asistan çağrılarını bağlar" },
+                { name: "Kayıt, CDR & AI Analiz", badge: "Otomatik", desc: "SDK ile yapılan her görüşme normal dahili gibi kaydedilir ve raporlanır" }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        heading: "2. Adım 0 — API Anahtarı Alma (1 Dakika)",
+        body:
+          "Kodu çalıştırmadan önce santralinizden bir API anahtarı almanız gerekir. Bu işlem sadece 1 kez yapılır:",
+        steps: [
+          "Nornia yönetici paneline giriş yapın ve sol menüden `Yönetim → API Yönetimi` ekranını açın.",
+          "Sağ üstteki `+` butonuna tıklayıp yeni anahtar oluşturun (Ad: örn. `CRM Softphone SDK`).",
+          "Yetki listesinden **`Desktop, Web & Mobil Softphone SDK → sdk:webrtc`** kutucuğunu işaretleyin (Click-to-Call de kullanacaksanız `calls:write` yetkisini ekleyin).",
+          "Ekranda bir kez gösterilen `aida_live_...` anahtarını kopyalayıp güvenli bir yere kaydedin. Güvenlik için bu anahtarı üretimde kendi backend'inizde tutmanız veya yalnızca yetkili kurum içi CRM'de kullanmanız önerilir."
+        ]
+      },
+      {
+        heading: "3. En Kolay Yol: 3 Satırda Hazır Mini Telefon Widget'ı (Kopyala-Yapıştır Test)",
+        body:
+          "Hiç arayüz kodu yazmak istemiyorsanız, bilgisayarınızda `test.html` adında boş bir dosya açıp aşağıdaki kodu olduğu gibi yapıştırın. Sadece 3 alanı (`serverUrl`, `apiKey`, `extension`) kendinize göre değiştirip tarayıcıda açın — sağ alt köşede tam çalışan Nornia telefonu anında açılacaktır!",
+        codeBlock: {
+          title: "test.html — Tek Dosya, Sıfır Kurulum, 3 Satırda Hazır CRM Telefonu",
+          code: `<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Nornia SDK Test</title>
+</head>
+<body>
+  <h2>Müşteri CRM Ekranım</h2>
+  <p id="arayanBilgi">Henüz gelen çağrı yok...</p>
+
+  <!-- 1. Adım: İki SDK dosyasını doğrudan kendi Nornia sunucunuzdan yükleyin -->
+  <script src="https://SANTRAL-ADRESINIZ/api/v1/sdk/nornia-voice-sdk.js"></script>
+  <script src="https://SANTRAL-ADRESINIZ/api/v1/sdk/nornia-softphone-widget.js"></script>
+
+  <!-- 2. Adım: Telefonu ekrana bağlayın -->
+  <script>
+    const widget = NorniaSoftphoneWidget.mount({
+      serverUrl: "https://SANTRAL-ADRESINIZ",   // Örn: https://pbx.firma.com
+      apiKey: "aida_live_BURAYA_ANAHTARINIZ",   // API Yönetimi'nden aldığınız anahtar
+      extension: "1001",                        // Bağlanacak dahili numara
+      position: "bottom-right",                 // "bottom-right" veya "bottom-left"
+      themeColor: "#4f46e5",                    // Kendi kurumsal renginiz
+
+      // Çağrı geldiğinde kendi CRM müşteri kartınızı açın (Screen Pop):
+      onIncomingCall: function (call) {
+        document.getElementById("arayanBilgi").innerText =
+          "GELEN ÇAĞRI: " + call.callerNumber + " (" + call.callerName + ")";
+        // Örnek: window.open("/crm/musteri?tel=" + call.callerNumber);
+      },
+      onEnded: function () {
+        document.getElementById("arayanBilgi").innerText = "Görüşme sonlandı.";
+      }
+    });
+  </script>
+</body>
+</html>`
+        }
+      },
+      {
+        heading: "4. Kendi Tasarımını Yapmak İsteyenler İçin: Headless JavaScript SDK (Web & React / Vue)",
+        body:
+          "Hazır widget yerine kendi CRM butonlarınızla (Ara, Cevapla, Kapat, Sessize Al, Beklet, Aktar) çalışmak isterseniz doğrudan `NorniaVoiceSDK` sınıfını kullanın.",
+        table: {
+          headers: ["Metot / Olay", "Ne İşe Yarar?", "Örnek Kullanım"],
+          rows: [
+            ["await phone.connect()", "Santralden oturum alır ve WebRTC'ye kayıt olur", "await phone.connect()"],
+            ["await phone.dial(numara)", "Dış numara veya dahili arar", "await phone.dial('05321234567')"],
+            ["await phone.answer()", "Çalan gelen çağrıyı açar", "await phone.answer()"],
+            ["await phone.reject()", "Gelen çağrıyı reddeder", "await phone.reject()"],
+            ["await phone.hangup()", "Aktif çağrıyı kapatır", "await phone.hangup()"],
+            ["phone.mute(true/false)", "Mikrofonu sessize alır / açar", "phone.mute(true)"],
+            ["phone.hold(true/false)", "Görüşmeyi beklemeye alır / devam ettirir", "await phone.hold(true)"],
+            ["phone.sendDtmf('1')", "Karşı IVR menüsüne tuşlama gönderir", "phone.sendDtmf('2')"],
+            ["await phone.transfer('1002')", "Aktif çağrıyı başka dahiliye aktarır", "await phone.transfer('1002')"],
+            ["await phone.clickToCall(no)", "WebRTC olmadan masa telefonundan aratır", "await phone.clickToCall('0532...')"],
+            ["phone.on('incomingCall', fn)", "Çağrı çaldığında tetiklenir (Screen Pop)", "phone.on('incomingCall', c => ...)"],
+            ["phone.on('registered', fn)", "Santrale kayıt tamamlandığında tetiklenir", "phone.on('registered', () => ...)"]
+          ]
+        },
+        codeBlock: {
+          title: "Headless NorniaVoiceSDK — Kendi Arayüzünüzde Tam Kontrol",
+          code: `<script src="https://pbx.firma.com/api/v1/sdk/nornia-voice-sdk.js"></script>
+<script>
+  const phone = new NorniaVoiceSDK({
+    serverUrl: "https://pbx.firma.com",
+    apiKey: "aida_live_...",
+    extension: "1001",
+    debug: true // Geliştirme sırasında tarayıcı konsolunda detay görmek için
+  });
+
+  phone.on("registered", () => console.log("Telefon ÇEVRİMİÇİ!"));
+  phone.on("incomingCall", (call) => {
+    console.log("Arayan Numara:", call.callerNumber);
+    // İsterseniz butonla phone.answer() veya phone.reject() çağırın
+  });
+  phone.on("connected", () => console.log("Ses hattı bağlandı!"));
+  phone.on("ended", () => console.log("Görüşme bitti."));
+
+  // Başlatma (Kullanıcı bir butona tıkladıktan sonra çağırın — tarayıcı mikrofon izni için)
+  async function baslat() {
+    await phone.connect();
+  }
+</script>`
+        }
+      },
+      {
+        heading: "5. Masaüstü Uygulamaları: Electron Desktop & C# / .NET / Python (Click-to-Call)",
+        body:
+          "Electron tabanlı masaüstü uygulamalarınızda yukarıdaki `nornia-voice-sdk.js` birebir çalışır; yalnızca `main.js` içinde mikrofon iznine onay vermeniz yeterlidir. C# / .NET (WinForms/WPF), Delphi veya Python masaüstü programlarınızda ise hiç WebRTC yazmadan tek bir HTTP POST isteğiyle kullanıcının masa telefonundan veya Runa uygulamasından **Click-to-Call** başlatabilirsiniz.",
+        codeBlock: {
+          title: "A) Electron main.js (Mikrofon İzni)  &  B) C# .NET Click-to-Call Örneği",
+          code: `// --- A) ELECTRON DESKTOP (main.js) — Mikrofon İznini Otomatik Onayla ---
+const { session } = require("electron");
+app.whenReady().then(() => {
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+    if (permission === "media") return callback(true);
+    callback(false);
+  });
+});
+
+// --- B) C# / .NET (WinForms / WPF / ERP) — Tek İstekle Click-to-Call ---
+using var http = new HttpClient();
+http.DefaultRequestHeaders.Add("X-API-Key", "aida_live_BURAYA_ANAHTARINIZ");
+var body = new StringContent(
+    "{\"extension\":\"1001\",\"destination\":\"05321234567\"}",
+    System.Text.Encoding.UTF8,
+    "application/json"
+);
+var resp = await http.PostAsync("https://pbx.firma.com/api/v1/calls/originate", body);
+Console.WriteLine(await resp.Content.ReadAsStringAsync());`
+        }
+      },
+      {
+        heading: "6. Mobil Uygulamalar: Flutter (iOS & Android) ve React Native",
+        body:
+          "Kendi kurumsal mobil uygulamanıza (saha ekibi veya uygulama içi müşteri desteği) sesli arama eklemek için santralinizden hazır mobil SDK dosyasını indirip projenize koymanız yeterlidir.",
+        steps: [
+          "Flutter için `https://pbx.firma.com/api/v1/sdk/nornia-mobile-sdk.dart` dosyasını indirip projenizdeki `lib/nornia_mobile_sdk.dart` yoluna kaydedin.",
+          "`pubspec.yaml` dosyanıza `http: ^1.2.0` ve `sip_ua: ^1.0.0` paketlerini ekleyip `flutter pub get` çalıştırın.",
+          "Android için `AndroidManifest.xml` içine `RECORD_AUDIO`, `INTERNET`, `MODIFY_AUDIO_SETTINGS` izinlerini; iOS için `Info.plist` içine `NSMicrophoneUsageDescription` açıklamasını ekleyin.",
+          "React Native kullanıyorsanız `https://pbx.firma.com/api/v1/sdk/nornia-mobile-sdk.js` dosyasını projenize kopyalayıp `npm install sip.js@0.20.1 react-native-webrtc` kurun."
+        ],
+        codeBlock: {
+          title: "Flutter (Dart) & React Native — 10 Satırda Çalışan Mobil Arama Örneği",
+          code: `// ===================== FLUTTER (lib/main.dart) =====================
+import 'nornia_mobile_sdk.dart';
+
+final nornia = NorniaMobileSDK(
+  serverUrl: 'https://pbx.firma.com',
+  apiKey: 'aida_live_BURAYA_ANAHTARINIZ',
+  extension: '1001',
+  onRegistrationChanged: (ok) => print('Santral Bağlı: $ok'),
+  onIncomingCall: (call, caller) => print('Gelen Arama: $caller'),
+);
+
+// Bağlan ve Ara:
+await nornia.connect();
+await nornia.dial('05321234567');
+// Gelen aramayı açmak için: nornia.answer();  Kapatmak için: nornia.hangup();
+
+// ================== REACT NATIVE (App.js) ==================
+import { NorniaReactNativeSDK } from "./nornia-mobile-sdk";
+
+const phone = new NorniaReactNativeSDK({
+  serverUrl: "https://pbx.firma.com",
+  apiKey: "aida_live_BURAYA_ANAHTARINIZ",
+  extension: "1001",
+  onRegistered: (ok) => console.log("Bağlı:", ok),
+  onIncomingCall: ({ callerNumber }) => console.log("Arayan:", callerNumber),
+});
+
+await phone.connect();
+await phone.dial("05321234567");`
+        }
+      },
+      {
+        heading: "7. SDK Oturum API Referansı (`POST /api/v1/sdk/session`)",
+        body:
+          "Kendi özel dilinizde (Swift, Kotlin, C++, Go vb.) entegrasyon yapıyorsanız doğrudan bu REST ucunu çağırarak tüm WebRTC/SIP parametrelerini alabilirsiniz.",
+        codeBlock: {
+          title: "cURL Test Komutu ve Örnek JSON Yanıtı",
+          code: `# İstek (Terminalden hemen test edebilirsiniz):
+curl -X POST "https://pbx.firma.com/api/v1/sdk/session" \\
+  -H "Content-Type: application/json" \\
+  -H "X-API-Key: aida_live_BURAYA_ANAHTARINIZ" \\
+  -d '{"extension": "1001", "client_type": "web"}'
+
+# Başarılı Yanıt (HTTP 200 OK):
+{
+  "status": "success",
+  "sdk_version": "1.0.0",
+  "extension": "1001",
+  "display_name": "Ahmet Yılmaz",
+  "sip_domain": "pbx.firma.com",
+  "sip_uri": "sip:1001@pbx.firma.com",
+  "sip_username": "1001",
+  "sip_password": "********",
+  "wss_url": "wss://pbx.firma.com:8089/ws",
+  "wss_proxy_url": "wss://pbx.firma.com/asterisk/ws",
+  "via_host": "203.0.113.10",
+  "ice_servers": [
+    { "urls": "stun:stun.l.google.com:19302" }
+  ],
+  "expires_in_seconds": 43200
+}`
+        },
+        callout: {
+          type: "warning",
+          title: "Güvenlik En İyi Uygulaması (Üretim Ortamı İçin)",
+          text: "Tarayıcıda çalışan genel bir web uygulamasında `X-API-Key` anahtarını istemci koduna açık yazmak yerine, kendi backend sunucunuzun `/api/v1/sdk/session` isteğini yapıp dönen JSON'ı yalnızca oturum açmış kendi kullanıcınıza vermesi en güvenli yaklaşımdır."
+        }
+      }
+    ],
+    troubleshooting: [
+      {
+        problem: "HTTP 401 veya 403 Yetki Hatası dönüyor",
+        cause: "`X-API-Key` başlığı eksik/hatalı veya anahtarda `sdk:webrtc` / `calls:write` yetkisi işaretlenmemiştir.",
+        solution: "`Yönetim → API Yönetimi` ekranında anahtarın aktif olduğunu ve `sdk:webrtc` iznine sahip olduğunu kontrol edin."
+      },
+      {
+        problem: "Tarayıcıda mikrofon izni sormuyor veya ses gitmiyor",
+        cause: "Tarayıcılar güvenlik gereği yalnızca `https://` veya `http://localhost` adreslerinde WebRTC mikrofon erişimine izin verir.",
+        solution: "Sayfanızı `http://192.168.x.x` yerine `https://` üzerinden veya geliştirme sırasında `http://localhost` üzerinden açın."
+      },
+      {
+        problem: "WSS bağlantısı (`wss://...:8089/ws`) kurulamıyor",
+        cause: "Güvenlik duvarında 8089/TCP portu kapalıdır veya santralin SSL sertifikası self-signed olduğu için tarayıcı reddediyordur.",
+        solution: "8089/TCP portunu açın ve geçerli bir Let's Encrypt / kurumsal SSL sertifikası kullanın (veya alternatif olarak Nginx üzerinden `wss_proxy_url` olan `wss://pbx.firma.com/asterisk/ws` ucunu deneyin)."
+      },
+      {
+        problem: "CORS hatası alıyorum (`Access-Control-Allow-Origin`)",
+        cause: "CRM'inizin alan adı santralin izinli CORS listesinde tanımlı değildir.",
+        solution: "Santral sunucusundaki `.env` dosyasında `NORNIA_CORS_ORIGINS=https://crm.firmaniz.com` tanımını ekleyip `pm2 restart aida-backend` çalıştırın."
+      }
+    ],
+    relatedChapters: [
+      "masaustu-mobil-ve-webphone",
+      "sip-webrtc-ami-cagri-akisi",
+      "kanallar-crm-ve-dis-api"
+    ]
   }
 ];

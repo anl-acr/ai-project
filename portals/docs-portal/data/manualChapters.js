@@ -28,8 +28,8 @@ const ALL_EDIT_GUIDES = {
 export const MANUAL_META = {
   product: "Nornia Enterprise AI PBX",
   version: "v3.12.0",
-  updatedAt: "26 Kasım 2026",
-  totalPages: 107,
+  updatedAt: "27 Kasım 2026",
+  totalPages: 108,
   fullPdfPath: "/pdfs/nornia-kullanim-kilavuzu-tam.pdf"
 };
 

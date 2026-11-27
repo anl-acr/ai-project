@@ -55850,6 +55850,145 @@ async def ext_api_v1_list_announcements(request: Request):
     return {"status": "success", "action": "GET (Sesli Anons Listesi)", "announcements": anns}
 
 
+# ==============================================================================
+# EXTERNAL WEB, DESKTOP & MOBILE SOFTPHONE SDK ENDPOINTS (/api/v1/sdk/* & /sdk/*)
+# ==============================================================================
+
+_SDK_ALLOWED_FILES = {
+    "nornia-voice-sdk.js": "application/javascript; charset=utf-8",
+    "nornia-softphone-widget.js": "application/javascript; charset=utf-8",
+    "nornia-mobile-sdk.js": "application/javascript; charset=utf-8",
+    "nornia-mobile-sdk.dart": "text/plain; charset=utf-8",
+}
+
+
+@app.post("/api/v1/sdk/session")
+async def ext_api_v1_sdk_session(
+    request: Request,
+    payload: Dict[str, Any] = Body(...),
+):
+    """
+    Desktop (Electron/CRM), Web ve Mobil (Flutter / React Native) SDK istemcileri için
+    tek çağrıda WebRTC WSS, SIP kimlik bilgisi, IPv4 viaHost ve STUN/TURN bilgilerini döner.
+    Yetki: `sdk:webrtc` veya `calls:write` kapsamlı External API anahtarı (X-API-Key).
+    """
+    try:
+        auth = verify_external_api_request(request, settings_db, save_settings, "sdk:webrtc")
+    except HTTPException as first_exc:
+        if first_exc.status_code == 403:
+            auth = verify_external_api_request(request, settings_db, save_settings, "calls:write")
+        else:
+            raise
+
+    ext_req = str(payload.get("extension") or "").strip()
+    client_type = str(payload.get("client_type") or "web").strip().lower()
+    if not ext_req:
+        raise HTTPException(status_code=400, detail="extension alanı zorunludur (örn: '1001').")
+
+    target_tid = auth["tenant_id"]
+    all_users = _collect_all_users_for_auth(target_tenant=target_tid)
+    matched = next(
+        (
+            u for u in all_users
+            if str(u.get("extension") or "").strip() == ext_req
+            or str(u.get("sip_username") or "").strip() == ext_req
+        ),
+        None,
+    )
+    if not matched:
+        raise HTTPException(status_code=404, detail=f"Dahili '{ext_req}' bu müşteri (tenant) altında bulunamadı.")
+    if matched.get("is_active") is False:
+        raise HTTPException(status_code=403, detail=f"Dahili '{ext_req}' pasif durumdadır.")
+
+    sip_user = str(matched.get("sip_username") or matched.get("extension") or ext_req).strip()
+    sip_pass = str(matched.get("sip_password") or "").strip()
+    if not sip_pass:
+        try:
+            sip_pass = resolve_secure_sip_password(matched)
+        except Exception:
+            sip_pass = ""
+    if not sip_pass:
+        raise HTTPException(status_code=422, detail=f"Dahili '{ext_req}' için SIP parolası tanımlı değil.")
+
+    proto = (request.headers.get("x-forwarded-proto") or request.url.scheme or "https").split(",")[0].strip()
+    host_hdr = (request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc or "localhost").split(",")[0].strip()
+    domain_only = host_hdr.split(":")[0]
+
+    nat_cfg = settings_db.get("nat") if isinstance(settings_db.get("nat"), dict) else {}
+    extern_ip = str(nat_cfg.get("extern_ip") or "").strip()
+    via_host = extern_ip
+    if not via_host or not re.match(r"^\d{1,3}(\.\d{1,3}){3}$", via_host):
+        try:
+            import socket as _sock
+            resolved = _sock.gethostbyname(domain_only)
+            if re.match(r"^\d{1,3}(\.\d{1,3}){3}$", resolved):
+                via_host = resolved
+        except Exception:
+            via_host = "127.0.0.1"
+
+    wss_scheme = "wss" if proto == "https" else "ws"
+    wss_direct = f"{wss_scheme}://{domain_only}:8089/ws"
+    wss_proxy = f"{wss_scheme}://{host_hdr}/asterisk/ws"
+
+    ice_servers: List[Dict[str, Any]] = [
+        {"urls": "stun:stun.l.google.com:19302"},
+        {"urls": "stun:stun1.l.google.com:19302"},
+    ]
+    turn_url = str(nat_cfg.get("turn_url") or os.getenv("NORNIA_TURN_URL") or "").strip()
+    if turn_url:
+        turn_entry: Dict[str, Any] = {"urls": turn_url}
+        if nat_cfg.get("turn_username") or os.getenv("NORNIA_TURN_USERNAME"):
+            turn_entry["username"] = str(nat_cfg.get("turn_username") or os.getenv("NORNIA_TURN_USERNAME"))
+        if nat_cfg.get("turn_password") or os.getenv("NORNIA_TURN_PASSWORD"):
+            turn_entry["credential"] = str(nat_cfg.get("turn_password") or os.getenv("NORNIA_TURN_PASSWORD"))
+        ice_servers.append(turn_entry)
+
+    return {
+        "status": "success",
+        "sdk_version": "1.0.0",
+        "client_type": client_type,
+        "tenant_id": target_tid,
+        "extension": str(matched.get("extension") or ext_req),
+        "display_name": str(matched.get("full_name") or matched.get("name") or sip_user),
+        "sip_domain": domain_only,
+        "sip_uri": f"sip:{sip_user}@{domain_only}",
+        "sip_username": sip_user,
+        "sip_password": sip_pass,
+        "wss_url": wss_direct,
+        "wss_proxy_url": wss_proxy,
+        "via_host": via_host,
+        "ice_servers": ice_servers,
+        "api_base_url": f"{proto}://{host_hdr}",
+        "expires_in_seconds": 43200,
+    }
+
+
+@app.get("/api/v1/sdk/{filename}")
+@app.get("/sdk/{filename}")
+async def download_nornia_sdk_file(filename: str):
+    """Nornia Web, Desktop (Electron) ve Mobil (Flutter / React Native) SDK dosyalarını doğrudan sunar."""
+    safe_name = os.path.basename(filename)
+    ctype = _SDK_ALLOWED_FILES.get(safe_name)
+    if not ctype:
+        raise HTTPException(
+            status_code=404,
+            detail=f"SDK dosyası bulunamadı. Kullanılabilir dosyalar: {', '.join(_SDK_ALLOWED_FILES.keys())}",
+        )
+    fp = os.path.join(PROJECT_ROOT, "backend", "static", "sdk", safe_name)
+    if not os.path.isfile(fp):
+        raise HTTPException(status_code=404, detail="SDK dosyası sunucuda eksik.")
+    with open(fp, "r", encoding="utf-8") as f:
+        content = f.read()
+    return Response(
+        content=content,
+        media_type=ctype,
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Cache-Control": "public, max-age=300",
+        },
+    )
+
+
 @app.post("/api/v1/webhooks/subscribe")
 async def ext_api_v1_subscribe_webhook(
     request: Request,

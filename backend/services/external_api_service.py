@@ -98,6 +98,14 @@ API_PERMISSION_MODULES = [
             {"code": "pbx_features:delete", "label": "Silme (DELETE)", "http_methods": ["DELETE"], "desc": "Konferans odası, hızlı arama veya sesli posta kaydı silme"},
         ],
     },
+    {
+        "id": "sdk",
+        "title": "Desktop, Web & Mobil Softphone SDK (WebRTC Oturum & Widget)",
+        "description": "Harici CRM, ERP, Electron Desktop ve Flutter / React Native mobil uygulamalarına gömülebilir WebRTC telefon (SDK) oturum bilgileri.",
+        "actions": [
+            {"code": "sdk:webrtc", "label": "SDK WebRTC Oturumu Oluşturma (POST)", "http_methods": ["POST"], "desc": "Belirli bir dahili için WSS, STUN/TURN ve SIP WebRTC kayıt bilgilerini çekme"},
+        ],
+    },
 ]
 
 ALL_SCOPE_CODES = [
