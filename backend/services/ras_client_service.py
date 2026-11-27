@@ -851,6 +851,11 @@ async def _ras_tunnel_loop():
                                         _su2 = str(_sd.get("sip_username") or "").strip()
                                         if _su2:
                                             sip_users_set.add(_su2)
+                                        _drv2 = str(_sd.get("sip_driver") or "").strip().lower()
+                                        _br2 = str(_sd.get("brand") or "").strip().lower()
+                                        _u_ext2 = str(_u.get("extension") or "").strip()
+                                        if _u_ext2 and (_drv2 in ("chan_sip", "sip", "cisco_sip") or "cisco" in _br2):
+                                            sip_users_set.add(_u_ext2)
                             for _dk, _dv in ((_s_prov.get("user_deskphone_configs") or {}).items()):
                                 if isinstance(_dv, dict):
                                     _, _mh3 = _norm_m(_dv.get("mac") or "")

@@ -2808,7 +2808,7 @@ def generate_provisioning_config(
         <messagesNumber>*97</messagesNumber>
         <ringSettingIdle>4</ringSettingIdle>
         <ringSettingActive>5</ringSettingActive>
-        <contact>{html.escape(sip_u)}</contact>
+        <contact>{html.escape(cisco_line_name)}</contact>
         <forwardCallInfoDisplay>
           <callerName>true</callerName>
           <callerNumber>true</callerNumber>
