@@ -829,6 +829,22 @@ async def _ras_tunnel_loop():
                                     _asu = str(_ap.get("sip_username") or "").strip()
                                     if _asu:
                                         sip_users_set.add(_asu)
+                                    _aext = str(_ap.get("assigned_extension") or "").strip()
+                                    _abrn = str(_ap.get("brand") or "").strip().lower()
+                                    if _aext and "cisco" in _abrn:
+                                        sip_users_set.add(_aext)
+                            # Authoritative source of truth: include every active chan_sip peer section from /etc/asterisk/sip_custom.conf
+                            if os.path.isfile("/etc/asterisk/sip_custom.conf"):
+                                try:
+                                    with open("/etc/asterisk/sip_custom.conf", "r", encoding="utf-8", errors="ignore") as _f_csip:
+                                        for _ln in _f_csip:
+                                            _ls = _ln.strip()
+                                            if _ls.startswith("[") and _ls.endswith("]") and len(_ls) > 2:
+                                                _sec = _ls[1:-1].strip()
+                                                if _sec and _sec.lower() != "general":
+                                                    sip_users_set.add(_sec)
+                                except Exception:
+                                    pass
                             for _u in (_s_prov.get("users") or []):
                                 if not isinstance(_u, dict) or _u.get("is_active") is False:
                                     continue
