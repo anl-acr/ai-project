@@ -4199,7 +4199,11 @@ def run_pjsip_reload():
             try:
                 with open("/etc/asterisk/sip_custom.conf", "r", encoding="utf-8") as _fsc:
                     _has_csip = "type=friend" in _fsc.read()
-                if _has_csip:
+                _has_5160_main = False
+                if os.path.isfile("/etc/asterisk/sip.conf"):
+                    with open("/etc/asterisk/sip.conf", "r", encoding="utf-8") as _fsm:
+                        _has_5160_main = ":5160" in _fsm.read()
+                if _has_csip or _has_5160_main:
                     subprocess.run(["asterisk", "-rx", "module load chan_sip.so"], capture_output=True, text=True, timeout=ast_timeout)
                 subprocess.run(["asterisk", "-rx", "sip reload"], capture_output=True, text=True, timeout=ast_timeout)
             except Exception:
@@ -5670,7 +5674,7 @@ mailboxes={cid_ext_val}@default
                 os.chmod(etc_sip_custom, 0o644)
             except Exception:
                 pass
-            if chan_sip_blocks:
+            if chan_sip_blocks or os.path.isfile("/usr/lib/asterisk/modules/chan_sip.so"):
                 sip_main_path = os.path.join(etc_dir, "sip.conf")
                 sip_orig_bak = os.path.join(etc_dir, "sip.conf.orig")
                 if os.path.isfile(sip_main_path) and not os.path.isfile(sip_orig_bak):
@@ -15364,6 +15368,19 @@ async def save_autoprovision(payload: dict, user_info: dict = Depends(get_user_i
                 salt += 1
             new_pwd = f"Nrn#{_sec_mod.token_hex(6)}"
             new_id = f"dev-{ext_s or 'u'}-{phys_count + 1}-{_sec_mod.token_hex(2)}"
+            _req_drv_raw = str(payload.get("sip_driver") or "").strip().lower()
+            _is_cisco_ent_new = (
+                "cisco" in str(brand_val or "").lower()
+                and "mpp" not in str(model_val or "").lower()
+                and "3pcc" not in str(model_val or "").lower()
+                and "spa" not in str(model_val or "").lower()
+            )
+            _eff_new_drv = (
+                "chan_sip"
+                if (_req_drv_raw in ("chan_sip", "sip", "cisco_sip") or (not _req_drv_raw and _is_cisco_ent_new))
+                else "pjsip"
+            )
+            _eff_new_tr = "TCP" if (conn_mode == "wan" or _eff_new_drv == "chan_sip") else "UDP"
             target_sd = {
                 "id": new_id,
                 "name": new_dev_name or f"{brand_val} {model_val} (#{phys_count + 1})",
@@ -15371,10 +15388,10 @@ async def save_autoprovision(payload: dict, user_info: dict = Depends(get_user_i
                 "sip_username": new_su,
                 "sip_password": new_pwd,
                 "max_activations": 1,
-                "sip_driver": "pjsip",
+                "sip_driver": _eff_new_drv,
                 "remote_access": (conn_mode == "wan"),
                 "connection_mode": conn_mode,
-                "transport": "TCP" if conn_mode == "wan" else "UDP",
+                "transport": _eff_new_tr,
                 "is_active": True,
                 "is_deletable": True,
                 "mac": mac_norm,

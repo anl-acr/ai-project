@@ -10569,6 +10569,44 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                 <option value="auto">Otomatik Algıla (Telefonun IP Adresine Göre LAN/WAN)</option>
                               </select>
                             </div>
+
+                            <div>
+                              <label htmlFor="inspect-sip-driver-select" className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                                SIP Motoru (Port)
+                              </label>
+                              <select
+                                id="inspect-sip-driver-select"
+                                value={inspectDraft.sip_driver === "chan_sip" ? "chan_sip" : "pjsip"}
+                                onChange={(e) => {
+                                  const nextDrv = e.target.value === "chan_sip" ? "chan_sip" : "pjsip";
+                                  setInspectDraft((prev) => ({
+                                    ...prev,
+                                    sip_driver: nextDrv,
+                                    transport: nextDrv === "chan_sip" ? "TCP" : (prev.transport || "UDP")
+                                  }));
+                                }}
+                                className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                              >
+                                <option value="pjsip">PJSIP (5060 — Standart)</option>
+                                <option value="chan_sip">SIP (5160 — Cisco BLF/UseCallManager)</option>
+                              </select>
+                            </div>
+
+                            <div>
+                              <label htmlFor="inspect-transport-select" className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                                Taşıma (Transport)
+                              </label>
+                              <select
+                                id="inspect-transport-select"
+                                value={inspectDraft.transport || (inspectDraft.sip_driver === "chan_sip" ? "TCP" : "UDP")}
+                                onChange={(e) => setInspectDraft((prev) => ({ ...prev, transport: e.target.value }))}
+                                className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                              >
+                                <option value="TCP">TCP (Cisco / Tünel Önerilen)</option>
+                                <option value="UDP">UDP (Standart)</option>
+                                {inspectDraft.sip_driver !== "chan_sip" && <option value="TLS">TLS (5061 Şifreli)</option>}
+                              </select>
+                            </div>
                           </div>
                         </div>
 
