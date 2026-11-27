@@ -9,6 +9,7 @@ import {
   Plus,
   Trash2,
   Download,
+  Upload,
   Copy,
   Check,
   ChevronUp,
@@ -20,6 +21,7 @@ import {
   Binary,
   Globe,
   Server,
+  Archive,
 } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
@@ -57,6 +59,9 @@ export default function TftpDirectoryTab({
   const [tftpMeta, setTftpMeta] = useState({ path: "", port: 69 });
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [downloadingAll, setDownloadingAll] = useState(false);
+  const [extractZipOnUpload, setExtractZipOnUpload] = useState(true);
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [banner, setBanner] = useState(null);
 
   // Directory filters
@@ -229,14 +234,15 @@ export default function TftpDirectoryTab({
     }
   };
 
-  const handleUploadFiles = async (e) => {
-    const picked = Array.from(e.target.files || []);
+  const uploadFileList = async (fileArr) => {
+    const picked = Array.from(fileArr || []);
     if (picked.length === 0) return;
     setUploading(true);
     try {
       const formData = new FormData();
       picked.forEach((f) => formData.append("files", f));
-      const res = await fetch(`${API_BASE}/api/settings/autoprovision/tftp-directory/upload`, {
+      const qs = new URLSearchParams({ extract_zip: extractZipOnUpload ? "true" : "false" });
+      const res = await fetch(`${API_BASE}/api/settings/autoprovision/tftp-directory/upload?${qs.toString()}`, {
         method: "POST",
         headers: getAuthHeaders ? getAuthHeaders() : {},
         body: formData,
@@ -260,6 +266,64 @@ export default function TftpDirectoryTab({
     } finally {
       setUploading(false);
       if (uploadInputRef.current) uploadInputRef.current.value = "";
+    }
+  };
+
+  const handleUploadFiles = async (e) => {
+    await uploadFileList(e.target.files);
+  };
+
+  const handleDownloadFileItem = (item) => {
+    if (!item) return;
+    const itemMode = item.category === "device_config" && item.connection_mode === "lan" ? "lan" : previewMode;
+    const qs = new URLSearchParams({
+      filename: item.filename,
+      category: item.category,
+      mac: item.mac_hex || item.mac || "",
+      mode: itemMode,
+    });
+    const url = `${API_BASE}/api/settings/autoprovision/tftp-directory/download?${qs.toString()}`;
+    fetch(url, { headers: getAuthHeaders ? getAuthHeaders() : {} })
+      .then((r) => {
+        if (!r.ok) throw new Error("Dosya indirilemedi.");
+        return r.blob();
+      })
+      .then((blob) => {
+        const objUrl = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = objUrl;
+        a.download = item.filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(objUrl);
+      })
+      .catch((err) => flashBanner(false, err.message || "İndirme hatası."));
+  };
+
+  const handleDownloadAllZip = async () => {
+    if (downloadingAll) return;
+    setDownloadingAll(true);
+    try {
+      const qs = new URLSearchParams({ mode: previewMode });
+      const res = await fetch(`${API_BASE}/api/settings/autoprovision/tftp-directory/download-all?${qs.toString()}`, {
+        headers: getAuthHeaders ? getAuthHeaders() : {},
+      });
+      if (!res.ok) throw new Error("TFTP dizini ZIP olarak indirilemedi.");
+      const blob = await res.blob();
+      const objUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objUrl;
+      a.download = "nornia-tftp-directory.zip";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objUrl);
+      flashBanner(true, "Tüm TFTP dizini ZIP arşivi olarak indirildi.");
+    } catch (err) {
+      flashBanner(false, err.message || "ZIP indirme hatası.");
+    } finally {
+      setDownloadingAll(false);
     }
   };
 
@@ -486,11 +550,32 @@ export default function TftpDirectoryTab({
             className="hidden"
             onChange={handleUploadFiles}
           />
+
           <button
             type="button"
             disabled={uploading}
             onClick={() => uploadInputRef.current?.click()}
-            title="TFTP Dizinine Dosya / Cisco Firmware Yükle (Çoklu Seçim Destekli)"
+            title="TFTP Dizinine Dosya / Firmware Yükle (Upload)"
+            className="p-2 text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-xl border border-slate-200 dark:border-slate-800 transition-all h-8 w-8 flex items-center justify-center shrink-0 cursor-pointer disabled:opacity-50"
+          >
+            <Upload size={15} />
+          </button>
+
+          <button
+            type="button"
+            disabled={downloadingAll || counts.total === 0}
+            onClick={handleDownloadAllZip}
+            title="Tüm TFTP Dizinini ZIP Olarak İndir (Download)"
+            className="p-2 text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl border border-slate-200 dark:border-slate-800 transition-all h-8 w-8 flex items-center justify-center shrink-0 cursor-pointer disabled:opacity-50"
+          >
+            <Download size={15} className={downloadingAll ? "animate-pulse" : ""} />
+          </button>
+
+          <button
+            type="button"
+            disabled={uploading}
+            onClick={() => uploadInputRef.current?.click()}
+            title="TFTP Dizinine Yeni Dosya Ekle"
             className="bg-rose-600 hover:bg-rose-500 text-white rounded-xl h-8 w-8 flex items-center justify-center shrink-0 transition-all shadow-sm cursor-pointer disabled:opacity-60"
           >
             <Plus size={16} />
@@ -526,15 +611,88 @@ export default function TftpDirectoryTab({
 
       {/* Master-Detail Split Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
-        {/* Left: File List */}
-        <div className="lg:col-span-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm overflow-hidden">
-          <div className="px-4 py-2.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/70 dark:bg-slate-950/60">
+        {/* Left: File List + Drag & Drop Upload Zone */}
+        <div
+          onDragOver={(e) => {
+            e.preventDefault();
+            setIsDraggingOver(true);
+          }}
+          onDragLeave={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget)) {
+              setIsDraggingOver(false);
+            }
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            setIsDraggingOver(false);
+            if (e.dataTransfer?.files?.length) {
+              uploadFileList(e.dataTransfer.files);
+            }
+          }}
+          className={`lg:col-span-5 bg-white dark:bg-slate-900 border rounded-2xl shadow-sm overflow-hidden transition-all ${
+            isDraggingOver
+              ? `${border} ring-2 ${ring} bg-slate-50/90 dark:bg-slate-900`
+              : "border-slate-200/80 dark:border-slate-800/80"
+          }`}
+        >
+          <div className="px-4 py-2.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2 bg-slate-50/70 dark:bg-slate-950/60">
             <span className="text-[11px] font-extrabold text-slate-600 dark:text-slate-300 uppercase tracking-wider">
               Dosya Listesi ({filteredFiles.length})
             </span>
-            {uploading && (
-              <span className={`text-[10px] font-bold ${text} animate-pulse`}>Yükleniyor...</span>
-            )}
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                disabled={uploading}
+                onClick={() => uploadInputRef.current?.click()}
+                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-extrabold ${lightBg} ${text} border ${borderLight} hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-50`}
+                title="TFTP dizinine dosya veya firmware yükle"
+              >
+                <Upload size={11} />
+                <span>{uploading ? "Yükleniyor..." : "Dosya Yükle"}</span>
+              </button>
+              <button
+                type="button"
+                disabled={downloadingAll || counts.total === 0}
+                onClick={handleDownloadAllZip}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer disabled:opacity-50"
+                title="Tüm TFTP dizinini ZIP arşivi olarak indir"
+              >
+                <Archive size={11} />
+                <span>ZIP</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Compact Drag & Drop Strip + Auto-Extract ZIP toggle */}
+          <div
+            onClick={() => !uploading && uploadInputRef.current?.click()}
+            className={`px-3.5 py-2 border-b border-dashed transition-colors cursor-pointer flex items-center justify-between gap-2 ${
+              isDraggingOver
+                ? `${lightBg} ${border}`
+                : "bg-slate-50/40 dark:bg-slate-950/40 border-slate-200 dark:border-slate-800 hover:bg-slate-100/60 dark:hover:bg-slate-800/40"
+            }`}
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <Upload size={13} className={isDraggingOver ? text : "text-slate-400 shrink-0"} />
+              <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 truncate">
+                {isDraggingOver
+                  ? "Dosyaları TFTP dizinine yüklemek için bırakın..."
+                  : "Dosyaları buraya sürükleyip bırakın veya tıklayın (.loads, .sbn, .csv, .xml, .zip)"}
+              </span>
+            </div>
+            <label
+              onClick={(e) => e.stopPropagation()}
+              className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-600 dark:text-slate-300 shrink-0 cursor-pointer select-none"
+              title="Cisco firmware ZIP paketlerini otomatik olarak TFTP kök dizinine çıkarır"
+            >
+              <input
+                type="checkbox"
+                checked={extractZipOnUpload}
+                onChange={(e) => setExtractZipOnUpload(e.target.checked)}
+                className="rounded border-slate-300 dark:border-slate-700"
+              />
+              <span>ZIP aç</span>
+            </label>
           </div>
 
           <div className="max-h-[600px] overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/70">
@@ -594,19 +752,32 @@ export default function TftpDirectoryTab({
                       </div>
                     </div>
 
-                    {item.deletable && (
+                    <div className="flex items-center gap-1 shrink-0">
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          setDeleteTargetFile(item);
+                          handleDownloadFileItem(item);
                         }}
-                        title="Dosyayı TFTP Dizininden Sil"
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer shrink-0"
+                        title={`${item.filename} dosyasını indir`}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors cursor-pointer shrink-0"
                       >
-                        <Trash2 size={14} />
+                        <Download size={14} />
                       </button>
-                    )}
+                      {item.deletable && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeleteTargetFile(item);
+                          }}
+                          title="Dosyayı TFTP Dizininden Sil"
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer shrink-0"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 );
               })

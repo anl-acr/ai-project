@@ -18350,8 +18350,9 @@ _TFTP_TEXT_EXTENSIONS = {
     ".xml", ".cfg", ".cnf", ".csv", ".txt", ".loads", ".json", ".ini", ".conf", ".log", ".dat",
 }
 _TFTP_ALLOWED_UPLOAD_EXTENSIONS = {
-    ".loads", ".sbn", ".zz", ".bin", ".rom", ".z", ".zip", ".tar", ".cop", ".sgn",
+    ".loads", ".sbn", ".sb2", ".zz", ".cnu", ".bin", ".rom", ".z", ".zip", ".tar", ".cop", ".sgn",
     ".xml", ".cfg", ".csv", ".jar", ".raw", ".pcm", ".tlv", ".cnf", ".txt", ".dat", ".img", ".gz",
+    ".bz2", ".pem", ".crt", ".der",
 }
 
 
@@ -19046,11 +19047,70 @@ async def download_tftp_directory_file(
     )
 
 
+@app.get("/api/settings/autoprovision/tftp-directory/download-all")
+async def download_all_tftp_directory_zip(
+    request: Request,
+    mode: str = "wan",
+    user_info: dict = Depends(get_user_info),
+):
+    import io as _io_zip
+    import zipfile as _zf_tftp
+
+    dir_listing = await list_tftp_directory_endpoint(user_info=user_info)
+    files_list = dir_listing.get("files") or []
+    buf = _io_zip.BytesIO()
+    added_names = set()
+    with _zf_tftp.ZipFile(buf, "w", compression=_zf_tftp.ZIP_DEFLATED) as zf:
+        for item in files_list:
+            fn = os.path.basename(str(item.get("filename") or "").strip())
+            if not fn or fn.lower() in added_names:
+                continue
+            cat = str(item.get("category") or "")
+            raw_b: Optional[bytes] = None
+            try:
+                if cat == "tftp_file":
+                    fp = _find_disk_file_case_insensitive(get_tftp_root_dir(), fn)
+                    if fp:
+                        with open(fp, "rb") as _f:
+                            raw_b = _f.read()
+                elif cat == "firmware":
+                    fp = _find_firmware_file_by_name(fn)
+                    if fp:
+                        with open(fp, "rb") as _f:
+                            raw_b = _f.read()
+                else:
+                    res_c = await read_tftp_directory_file_content(
+                        request=request,
+                        filename=fn,
+                        category=cat,
+                        mac=str(item.get("mac_hex") or item.get("mac") or ""),
+                        mode=mode,
+                        user_info=user_info,
+                    )
+                    if not res_c.get("is_binary"):
+                        raw_b = str(res_c.get("content") or "").encode("utf-8")
+            except Exception:
+                raw_b = None
+            if raw_b is not None:
+                zf.writestr(fn, raw_b)
+                added_names.add(fn.lower())
+    buf.seek(0)
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="nornia-tftp-directory.zip"'},
+    )
+
+
 @app.post("/api/settings/autoprovision/tftp-directory/upload")
 async def upload_tftp_directory_files(
     files: List[UploadFile] = File(...),
+    extract_zip: bool = False,
     user_info: dict = Depends(get_user_info),
 ):
+    import io as _io_up
+    import zipfile as _zf_up
+
     tftp_dir = get_tftp_root_dir()
     uploaded = []
     for up in files:
@@ -19064,6 +19124,34 @@ async def upload_tftp_directory_files(
         data = await up.read()
         if len(data) > 200 * 1024 * 1024:
             raise HTTPException(status_code=413, detail=f"Dosya boyutu 200 MB sınırını aşıyor: {safe_bn}")
+
+        if extract_zip and ext == ".zip":
+            try:
+                with _zf_up.ZipFile(_io_up.BytesIO(data), "r") as zf:
+                    total_unpacked = 0
+                    for info in zf.infolist():
+                        if info.is_dir():
+                            continue
+                        member_name = str(info.filename or "").replace("\\", "/")
+                        if "__MACOSX/" in member_name or member_name.startswith("__MACOSX"):
+                            continue
+                        m_bn = os.path.basename(member_name).strip()
+                        m_safe = re.sub(r"[^A-Za-z0-9._-]", "_", m_bn)
+                        if not m_safe or m_safe.startswith(".") or ".." in m_safe:
+                            continue
+                        total_unpacked += int(info.file_size or 0)
+                        if total_unpacked > 300 * 1024 * 1024:
+                            raise HTTPException(status_code=413, detail="ZIP içeriği 300 MB güvenlik sınırını aşıyor.")
+                        m_bytes = zf.read(info)
+                        with open(os.path.join(tftp_dir, m_safe), "wb") as fout:
+                            fout.write(m_bytes)
+                        uploaded.append({"filename": m_safe, "size_bytes": len(m_bytes), "from_zip": safe_bn})
+                continue
+            except HTTPException:
+                raise
+            except Exception as e_zip:
+                raise HTTPException(status_code=400, detail=f"ZIP açılamadı ({safe_bn}): {e_zip}")
+
         dest = os.path.join(tftp_dir, safe_bn)
         with open(dest, "wb") as fout:
             fout.write(data)
