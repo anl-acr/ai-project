@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# Idempotently adds `nornia_user_routes` (SIP username fallback for legacy Cisco 3905/79xx raw-IP REGISTER)
-# to /etc/kamailio/kamailio.cfg, validates syntax with `kamailio -c`, restarts Kamailio, and opens UDP 69 (TFTP).
+# Idempotently updates /etc/kamailio/kamailio.cfg with:
+#  1) nornia_user_routes htable (SIP username fallback for legacy Cisco 3905/79xx raw-IP REGISTER)
+#  2) Safe "" + $sht(...) != $null checks (avoids Kamailio $var(x)=$null -> integer 0 quirk!)
+#  3) Core {uri.host} port-5160/5068 rewrite
+#  4) UFW UDP 69 (Hub TFTP proxy)
 set -euo pipefail
 
 CFG="/etc/kamailio/kamailio.cfg"
@@ -12,6 +15,7 @@ fi
 cp -a "$CFG" "${CFG}.bak.$(date +%Y%m%d%H%M%S)"
 
 python3 - "$CFG" <<'PYEOF'
+import re
 import sys
 
 cfg_path = sys.argv[1]
@@ -32,23 +36,38 @@ if "nornia_user_routes" not in txt:
             txt = txt.replace(anchor_ht2, anchor_ht2 + "\n" + htable_line, 1)
             changed = True
 
-fallback_block = (
-    '    # 1b) Legacy Cisco 3905/79xx raw-IP fallback matched by unique SIP username (From/To user)\n'
-    '    if ($var(target_pbx) == $null && $fU != $null) {\n'
-    '        $var(target_pbx) = $sht(nornia_user_routes=>$fU);\n'
-    '    }\n'
-    '    if ($var(target_pbx) == $null && $tU != $null) {\n'
-    '        $var(target_pbx) = $sht(nornia_user_routes=>$tU);\n'
-    '    }'
+safe_route_block = """    $var(target_pbx) = "";
+    if ($sht(nornia_routes=>$rd) != $null) {
+        $var(target_pbx) = $sht(nornia_routes=>$rd);
+    }
+    if ($var(target_pbx) == "" && $fU != $null && $sht(nornia_user_routes=>$fU) != $null) {
+        $var(target_pbx) = $sht(nornia_user_routes=>$fU);
+    }
+    if ($var(target_pbx) == "" && $tU != $null && $sht(nornia_user_routes=>$tU) != $null) {
+        $var(target_pbx) = $sht(nornia_user_routes=>$tU);
+    }
+    if ($var(target_pbx) == "" && $(ru{uri.param,line}) != "" && $sht(nornia_line_routes=>$(ru{uri.param,line})) != $null) {
+        $var(target_pbx) = $sht(nornia_line_routes=>$(ru{uri.param,line}));
+    }
+    if ($var(target_pbx) == "" && $rU != $null && $sht(nornia_did_routes=>$rU) != $null) {
+        $var(target_pbx) = $sht(nornia_did_routes=>$rU);
+    }
+    if ($var(target_pbx) == "" && $tU != $null && $sht(nornia_did_routes=>$tU) != $null) {
+        $var(target_pbx) = $sht(nornia_did_routes=>$tU);
+    }
+    if ($var(target_pbx) == "") {
+        xlog("L_WARN", "NORNIA_SEC_DROP unknown_domain src=$si method=$rm rd=$rd ru=$rU\\n");
+        exit;
+    }"""
+
+# Replace old `$var(target_pbx) = $sht(nornia_routes=>$rd); ... if ($var(target_pbx) == $null) { ... exit; }`
+old_pattern = re.compile(
+    r'    \$var\(target_pbx\)\s*=\s*\$sht\(nornia_routes=>\$rd\);.*?if\s*\(\$var\(target_pbx\)\s*==\s*\$null\)\s*\{.*?exit;\s*\}',
+    re.DOTALL,
 )
-if "$sht(nornia_user_routes=>" not in txt:
-    anchor_rt = '$var(target_pbx) = $sht(nornia_routes=>$rd);'
-    if anchor_rt in txt:
-        txt = txt.replace(anchor_rt, anchor_rt + "\n" + fallback_block, 1)
-        changed = True
-    else:
-        print("UYARI: nornia_routes=>$rd satırı bulunamadı, kamailio.cfg değiştirilmedi.", file=sys.stderr)
-        sys.exit(2)
+if old_pattern.search(txt):
+    txt = old_pattern.sub(lambda _m: safe_route_block, txt, count=1)
+    changed = True
 
 for old_expr in (
     '$(var(target_pbx){s.replace,:5060,:5160})',
@@ -68,7 +87,7 @@ for old_expr2 in (
 if changed:
     with open(cfg_path, "w", encoding="utf-8") as f:
         f.write(txt)
-    print("OK: kamailio.cfg güncellendi (nornia_user_routes eklendi).")
+    print("OK: kamailio.cfg güncellendi (safe null-check + nornia_user_routes + uri.host).")
 else:
     print("OK: kamailio.cfg zaten güncel.")
 PYEOF
@@ -82,4 +101,4 @@ fi
 
 echo "=== DOĞRULAMA ==="
 systemctl is-active kamailio
-ss -ulnp -tlnp | grep -E ":69 |:5060 |:5160 " || true
+grep -n 'target_pbx' "$CFG" | head -n 20

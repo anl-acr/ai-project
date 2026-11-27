@@ -452,27 +452,32 @@ request_route {
     }
 
     # 3g. ZERO-IP DROP SHIELD + 3-Layer Subdomain / SIP-User / DID-Line Routing:
+    # NOTE: In Kamailio, assigning \$null to \$var(...) converts it to integer 0 (which != \$null).
+    # Always initialize to "" and test \$sht(...) != \$null before assignment!
+    \$var(target_pbx) = "";
     # 1) Registered customer subdomains (deskphones)
-    \$var(target_pbx) = \$sht(nornia_routes=>\$rd);
+    if (\$sht(nornia_routes=>\$rd) != \$null) {
+        \$var(target_pbx) = \$sht(nornia_routes=>\$rd);
+    }
     # 1b) Legacy Cisco 3905/79xx raw-IP fallback matched by unique SIP username (From/To user)
-    if (\$var(target_pbx) == \$null && \$fU != \$null) {
+    if (\$var(target_pbx) == "" && \$fU != \$null && \$sht(nornia_user_routes=>\$fU) != \$null) {
         \$var(target_pbx) = \$sht(nornia_user_routes=>\$fU);
     }
-    if (\$var(target_pbx) == \$null && \$tU != \$null) {
+    if (\$var(target_pbx) == "" && \$tU != \$null && \$sht(nornia_user_routes=>\$tU) != \$null) {
         \$var(target_pbx) = \$sht(nornia_user_routes=>\$tU);
     }
     # 2) Operator trunk inbound INVITE matched by RFC 3261 ;line= param
-    if (\$var(target_pbx) == \$null && \$(ru{uri.param,line}) != "") {
+    if (\$var(target_pbx) == "" && \$(ru{uri.param,line}) != "" && \$sht(nornia_line_routes=>\$(ru{uri.param,line})) != \$null) {
         \$var(target_pbx) = \$sht(nornia_line_routes=>\$(ru{uri.param,line}));
     }
     # 3) Operator trunk inbound INVITE matched by unique DID user in Request-URI or To header
-    if (\$var(target_pbx) == \$null && \$rU != \$null) {
+    if (\$var(target_pbx) == "" && \$rU != \$null && \$sht(nornia_did_routes=>\$rU) != \$null) {
         \$var(target_pbx) = \$sht(nornia_did_routes=>\$rU);
     }
-    if (\$var(target_pbx) == \$null && \$tU != \$null) {
+    if (\$var(target_pbx) == "" && \$tU != \$null && \$sht(nornia_did_routes=>\$tU) != \$null) {
         \$var(target_pbx) = \$sht(nornia_did_routes=>\$tU);
     }
-    if (\$var(target_pbx) == \$null) {
+    if (\$var(target_pbx) == "") {
         # Silent drop — scanners hitting raw IP or invalid domain receive ZERO reply
         xlog("L_WARN", "NORNIA_SEC_DROP unknown_domain src=\$si method=\$rm rd=\$rd ru=\$rU\n");
         exit;
