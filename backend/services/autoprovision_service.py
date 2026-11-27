@@ -1796,6 +1796,49 @@ def _build_grandstream_softkeys_xml_lines(
     return out_lines
 
 
+def generate_cisco_dialplan_xml() -> str:
+    """Standard Cisco Enterprise dialplan.xml for instant Turkish/internal dialing without 15s wait."""
+    return (
+        "<DIALTEMPLATE>\n"
+        '  <TEMPLATE MATCH="112" Timeout="0"/>\n'
+        '  <TEMPLATE MATCH="155" Timeout="0"/>\n'
+        '  <TEMPLATE MATCH="110" Timeout="0"/>\n'
+        '  <TEMPLATE MATCH="*.." Timeout="1"/>\n'
+        '  <TEMPLATE MATCH="**...." Timeout="1"/>\n'
+        '  <TEMPLATE MATCH="0.........." Timeout="0"/>\n'
+        '  <TEMPLATE MATCH="90.........." Timeout="0"/>\n'
+        '  <TEMPLATE MATCH="00*" Timeout="3"/>\n'
+        '  <TEMPLATE MATCH="...." Timeout="1"/>\n'
+        '  <TEMPLATE MATCH="..." Timeout="2"/>\n'
+        '  <TEMPLATE MATCH="*" Timeout="4"/>\n'
+        "</DIALTEMPLATE>\n"
+    )
+
+
+def generate_cisco_xml_default(pbx_host: str, sip_port: int = 5060) -> str:
+    """Minimal XMLDefault.cnf.xml for Cisco Enterprise phones during initial TFTP boot."""
+    h = html.escape(str(pbx_host or "127.0.0.1"))
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        "<Default>\n"
+        "  <callManagerGroup>\n"
+        "    <members>\n"
+        '      <member priority="0">\n'
+        "        <callManager>\n"
+        "          <ports>\n"
+        "            <ethernetPhonePort>2000</ethernetPhonePort>\n"
+        f"            <sipPort>{sip_port}</sipPort>\n"
+        "            <securedSipPort>5061</securedSipPort>\n"
+        "          </ports>\n"
+        f"          <processNodeName>{h}</processNodeName>\n"
+        "        </callManager>\n"
+        "      </member>\n"
+        "    </members>\n"
+        "  </callManagerGroup>\n"
+        "</Default>\n"
+    )
+
+
 def generate_provisioning_config(
     ext: str,
     sip_username: str,
@@ -2474,8 +2517,218 @@ def generate_provisioning_config(
         fname = f"{mac_hex}.cfg" if mac_hex else f"fanvil_{ext_s}.cfg"
         return "\n".join(fv_lines) + "\n", "text/plain; charset=utf-8", fname
 
-    # --- CISCO MULTIPLATFORM (MPP) XML (7821 / 7841 / 8811 / 8841 / 8851 / 8861 + CP-8800-KEM 1..3) ---
+    # --- CISCO ENTERPRISE (SEP<MAC>.cnf.xml: CP-7821/7841/7861/8811/8841/8851/79xx) & MPP/3PCC (spa<mac>.xml) ---
     if "cisco" in b_low:
+        req_fn_low = str(requested_filename or "").strip().lower()
+        model_low = str(model or "").strip().lower()
+        is_sep_enterprise = (
+            (req_fn_low.startswith("sep") and req_fn_low.endswith(".cnf.xml"))
+            or (
+                not req_fn_low.startswith("spa")
+                and "3pcc" not in model_low
+                and "mpp" not in model_low
+                and "spa" not in model_low
+                and (
+                    int(sip_port or 5060) == 5160
+                    or any(m in model_low for m in ("7811", "7821", "7841", "7861", "8811", "8841", "8845", "8851", "8861", "7940", "7941", "7942", "7945", "7960", "7961", "7962", "7965", "7975"))
+                )
+            )
+        )
+
+        if is_sep_enterprise:
+            # Transport: 1=TCP, 2=UDP, 4=TCP+UDP (Cisco 78xx/88xx Enterprise)
+            cisco_tr_code = "1" if tr_up == "TCP" else ("3" if tr_up == "TLS" else "2")
+            # WAN/Tunnel mode uses NAT traversal + keepalive
+            is_wan_mode = str(connection_mode or "").strip().lower() == "wan"
+            nat_flag = "true" if is_wan_mode else "false"
+            sep_lines: List[str] = []
+            btn_idx = 2
+            for k in dss_list[:10]:
+                ktype = str(k.get("type") or "none")
+                klbl = html.escape(str(k.get("label") or ""))
+                kval = html.escape(str(k.get("value") or ""))
+                if int(k.get("key_index") or 1) == 1 and ktype == "line":
+                    continue
+                if ktype == "blf" and kval:
+                    sep_lines.append(
+                        f'      <line button="{btn_idx}">\n'
+                        f'        <featureID>21</featureID>\n'
+                        f'        <featureLabel>{klbl or kval}</featureLabel>\n'
+                        f'        <speedDialNumber>{kval}</speedDialNumber>\n'
+                        f'        <contact>{kval}</contact>\n'
+                        f'        <featureOptionMask>1</featureOptionMask>\n'
+                        f'      </line>'
+                    )
+                    btn_idx += 1
+                elif ktype in ("speed_dial", "park", "intercom", "voicemail", "forward") and (kval or ktype == "voicemail"):
+                    eff_v = kval or "*97"
+                    sep_lines.append(
+                        f'      <line button="{btn_idx}">\n'
+                        f'        <featureID>2</featureID>\n'
+                        f'        <featureLabel>{klbl or eff_v}</featureLabel>\n'
+                        f'        <speedDialNumber>{eff_v}</speedDialNumber>\n'
+                        f'      </line>'
+                    )
+                    btn_idx += 1
+
+            extra_lines_xml = "\n".join(sep_lines)
+            mac_upper = mac_hex.upper() if mac_hex else f"{ext_s}"
+            sep_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!-- Nornia PBX Cisco Enterprise Auto-Provisioning ({html.escape(model)}) | Ext: {html.escape(ext_s)} | Mode: {html.escape(str(connection_mode or 'lan').upper())} -->
+<device>
+  <deviceProtocol>SIP</deviceProtocol>
+  <sshUserId>admin</sshUserId>
+  <sshPassword>nornia7800</sshPassword>
+  <devicePool>
+    <dateTimeSetting>
+      <dateTemplate>D.M.Ya</dateTemplate>
+      <timeZone>Turkey Standard Time</timeZone>
+      <ntps>
+        <ntp>
+          <name>{html.escape(ntp_server or 'pool.ntp.org')}</name>
+          <ntpMode>Unicast</ntpMode>
+        </ntp>
+      </ntps>
+    </dateTimeSetting>
+    <callManagerGroup>
+      <members>
+        <member priority="0">
+          <callManager>
+            <ports>
+              <ethernetPhonePort>2000</ethernetPhonePort>
+              <sipPort>{sip_port}</sipPort>
+              <securedSipPort>5061</securedSipPort>
+            </ports>
+            <processNodeName>{html.escape(pbx_host)}</processNodeName>
+          </callManager>
+        </member>
+      </members>
+    </callManagerGroup>
+  </devicePool>
+  <sipProfile>
+    <sipProxies>
+      <backupProxy></backupProxy>
+      <backupProxyPort>{sip_port}</backupProxyPort>
+      <emergencyProxy></emergencyProxy>
+      <emergencyProxyPort>{sip_port}</emergencyProxyPort>
+      <outboundProxy>{html.escape(pbx_host)}</outboundProxy>
+      <outboundProxyPort>{sip_port}</outboundProxyPort>
+      <registerWithProxy>true</registerWithProxy>
+    </sipProxies>
+    <sipCallFeatures>
+      <cnfJoinEnabled>true</cnfJoinEnabled>
+      <callForwardURI>x-serviceuri-cfwdall</callForwardURI>
+      <callPickupURI>x-cisco-serviceuri-pickup</callPickupURI>
+      <callPickupListURI>x-cisco-serviceuri-opickup</callPickupListURI>
+      <callPickupGroupURI>x-cisco-serviceuri-gpickup</callPickupGroupURI>
+      <meetMeServiceURI>x-cisco-serviceuri-meetme</meetMeServiceURI>
+      <abbreviatedDialURI>x-cisco-serviceuri-abbrdial</abbreviatedDialURI>
+      <rfc2543Hold>false</rfc2543Hold>
+      <callHoldRingback>2</callHoldRingback>
+      <localCfwdEnable>true</localCfwdEnable>
+      <semiAttendedTransfer>true</semiAttendedTransfer>
+      <anonymousCallBlock>2</anonymousCallBlock>
+      <callerIdBlocking>2</callerIdBlocking>
+      <dndControl>0</dndControl>
+      <remoteCcEnable>true</remoteCcEnable>
+    </sipCallFeatures>
+    <sipStack>
+      <sipInviteRetx>6</sipInviteRetx>
+      <sipRetx>10</sipRetx>
+      <timerInviteExpires>180</timerInviteExpires>
+      <timerRegisterExpires>120</timerRegisterExpires>
+      <timerRegisterDelta>5</timerRegisterDelta>
+      <timerKeepAliveExpires>60</timerKeepAliveExpires>
+      <timerSubscribeExpires>120</timerSubscribeExpires>
+      <timerSubscribeDelta>5</timerSubscribeDelta>
+      <timerT1>500</timerT1>
+      <timerT2>4000</timerT2>
+      <maxRedirects>70</maxRedirects>
+      <remotePartyID>true</remotePartyID>
+      <userInfo>None</userInfo>
+    </sipStack>
+    <autoAnswerTimer>1</autoAnswerTimer>
+    <autoAnswerAltBehavior>false</autoAnswerAltBehavior>
+    <autoAnswerOverride>true</autoAnswerOverride>
+    <transferOnhookEnabled>true</transferOnhookEnabled>
+    <enableVad>false</enableVad>
+    <preferredCodec>g711alaw</preferredCodec>
+    <dtmfAvtPayload>101</dtmfAvtPayload>
+    <dtmfDbLevel>3</dtmfDbLevel>
+    <dtmfOutofBand>avt</dtmfOutofBand>
+    <alwaysUsePrimeLine>false</alwaysUsePrimeLine>
+    <alwaysUsePrimeLineVoiceMail>false</alwaysUsePrimeLineVoiceMail>
+    <kpml>3</kpml>
+    <phoneLabel>{html.escape(disp_name)}</phoneLabel>
+    <stutterMsgWaiting>1</stutterMsgWaiting>
+    <callStats>false</callStats>
+    <silentPeriodBetweenCallWaitingBursts>10</silentPeriodBetweenCallWaitingBursts>
+    <disableLocalSpeedDialConfig>false</disableLocalSpeedDialConfig>
+    <natEnabled>{nat_flag}</natEnabled>
+    <natReceivedProcessing>true</natReceivedProcessing>
+    <sipLines>
+      <line button="1">
+        <featureID>9</featureID>
+        <featureLabel>{html.escape(line_label)}</featureLabel>
+        <proxy>USECALLMANAGER</proxy>
+        <port>{sip_port}</port>
+        <name>{html.escape(sip_u)}</name>
+        <displayName>{html.escape(disp_name)}</displayName>
+        <autoAnswer>
+          <autoAnswerEnabled>{'2' if eff_auto_answer else '0'}</autoAnswerEnabled>
+        </autoAnswer>
+        <callWaiting>{'3' if prefs['call_waiting'] else '0'}</callWaiting>
+        <authName>{html.escape(sip_u)}</authName>
+        <authPassword>{html.escape(sip_password)}</authPassword>
+        <sharedLine>false</sharedLine>
+        <messageWaitingLampPolicy>1</messageWaitingLampPolicy>
+        <messagesNumber>*97</messagesNumber>
+        <ringSettingIdle>4</ringSettingIdle>
+        <ringSettingActive>5</ringSettingActive>
+        <contact>{html.escape(sip_u)}</contact>
+        <forwardCallInfoDisplay>
+          <callerName>true</callerName>
+          <callerNumber>true</callerNumber>
+          <redirectedNumber>false</redirectedNumber>
+          <dialedNumber>true</dialedNumber>
+        </forwardCallInfoDisplay>
+      </line>
+{extra_lines_xml}
+    </sipLines>
+    <voipControlPort>{sip_port}</voipControlPort>
+    <startMediaPort>16384</startMediaPort>
+    <stopMediaPort>32766</stopMediaPort>
+    <dscpForAudio>184</dscpForAudio>
+    <ringSettingBusyStationPolicy>0</ringSettingBusyStationPolicy>
+    <dialTemplate>dialplan.xml</dialTemplate>
+  </sipProfile>
+  <commonProfile>
+    <phonePassword></phonePassword>
+    <backgroundImageAccess>true</backgroundImageAccess>
+    <callLogBlfEnabled>2</callLogBlfEnabled>
+  </commonProfile>
+  <vendorConfig>
+    <disableSpeaker>false</disableSpeaker>
+    <disableSpeakerAndHeadset>false</disableSpeakerAndHeadset>
+    <pcPort>0</pcPort>
+    <settingsAccess>1</settingsAccess>
+    <garp>0</garp>
+    <voiceVlanAccess>0</voiceVlanAccess>
+    <videoCapability>0</videoCapability>
+    <autoSelectLineEnable>0</autoSelectLineEnable>
+    <webAccess>0</webAccess>
+    <daysDisplayNotActive>1,7</daysDisplayNotActive>
+    <displayOnTime>08:00</displayOnTime>
+    <displayOnDuration>10:00</displayOnDuration>
+    <displayIdleTimeout>00:10</displayIdleTimeout>
+  </vendorConfig>
+  <networkLocale>Turkey</networkLocale>
+  <transportLayerProtocol>{cisco_tr_code}</transportLayerProtocol>
+</device>
+"""
+            fname = f"SEP{mac_upper}.cnf.xml"
+            return sep_xml, "application/xml; charset=utf-8", fname
+
         cs_lines: List[str] = []
         for k in dss_list[:10]:
             idx = max(1, int(k.get("key_index") or 1))

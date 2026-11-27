@@ -324,6 +324,16 @@ async def on_startup_telemetry():
             )
     except Exception as e_cb:
         print(f"[ClusterBus Startup Warning]: {e_cb}")
+    try:
+        from backend.services.tftp_prov_server import start_tftp_provisioning_server
+
+        async def _tftp_resolver(fname: str, cip: str):
+            res = await _resolve_cisco_ip_only_file(fname, client_ip=cip)
+            return res[0] if res else None
+
+        await start_tftp_provisioning_server(_tftp_resolver)
+    except Exception as e_tftp:
+        print(f"[TFTP Prov Startup Warning]: {e_tftp}")
 
 # SEC-04: Strict CORS policy (no wildcard origin with allow_credentials=True)
 _EXTRA_CORS_ORIGINS = [
@@ -17493,6 +17503,18 @@ async def _render_autoprovision_file_for_phone(
         )
         raise HTTPException(status_code=404, detail="Boot/yardımcı dosya mevcut değil; cihaz ana .cfg dosyasını çekmelidir.")
 
+    # Cisco Enterprise auxiliary boot files (dialplan.xml & XMLDefault.cnf.xml)
+    if fn_low == "dialplan.xml":
+        from backend.services.autoprovision_service import generate_cisco_dialplan_xml
+        _log_autoprovision_hit(tenant_id, fn_clean, client_ip, user_agent, 200, "Cisco dialplan.xml gönderildi", mode=query_mode)
+        return Response(content=generate_cisco_dialplan_xml(), media_type="application/xml; charset=utf-8")
+    if fn_low == "xmldefault.cnf.xml":
+        from backend.services.autoprovision_service import generate_cisco_xml_default, resolve_provisioning_endpoints
+        _net_ep = resolve_provisioning_endpoints(settings_db, tenant_id, request_host=req_host, request_scheme=req_scheme)
+        _host_d = _net_ep.get("wan_sip_host") if query_mode == "wan" else (_net_ep.get("local_ip") or _net_ep.get("wan_sip_host") or "127.0.0.1")
+        _log_autoprovision_hit(tenant_id, fn_clean, client_ip, user_agent, 200, "Cisco XMLDefault.cnf.xml gönderildi", mode=query_mode)
+        return Response(content=generate_cisco_xml_default(_host_d, 5060), media_type="application/xml; charset=utf-8")
+
     # Yealink model-level common cfg (e.g. y000000000067.cfg for T42S, y000000000108.cfg for T46U, y000000000124.cfg for T33G)
     if re.match(r"^y\d{10,14}\.cfg$", fn_clean, re.IGNORECASE):
         _log_autoprovision_hit(
@@ -18106,6 +18128,121 @@ async def serve_sip_device_autoprovision_file_wan(token: str, filename: str, req
 async def serve_sip_device_autoprovision_file(token: str, filename: str, request: Request):
     """Akıllı (Auto / Cihaz Modu) oto-provizyon dosyası sunucusu."""
     return await _render_autoprovision_file_for_phone(token, filename, request, explicit_mode=None)
+
+
+# ==============================================================================
+# CISCO IP-ONLY ROOT HTTP & BUILT-IN TFTP (UDP 69) AUTO-PROVISIONING BRIDGE
+# ==============================================================================
+
+def _find_registered_tenant_token_for_mac(mac_hex: str) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Finds the tenant_id and provisioning token for a MAC address registered in
+    autoprovision or users[].sip_devices. Returns (None, None) if unregistered.
+    """
+    from backend.services.autoprovision_service import normalize_mac_address, get_or_create_provisioning_token
+
+    if not mac_hex:
+        return None, None
+    target_hex = mac_hex.lower().strip()
+    found_tid = None
+
+    for ap in (settings_db.get("autoprovision") or []):
+        if isinstance(ap, dict):
+            _, mh = normalize_mac_address(ap.get("mac") or "")
+            if mh == target_hex:
+                found_tid = ap.get("tenant_id") or "tenant-default"
+                break
+
+    if not found_tid:
+        for u in (settings_db.get("users") or []):
+            if not isinstance(u, dict):
+                continue
+            for d in (u.get("sip_devices") or []):
+                if isinstance(d, dict):
+                    _, mh = normalize_mac_address(d.get("mac") or "")
+                    if mh == target_hex:
+                        found_tid = u.get("tenant_id") or "tenant-default"
+                        break
+            if found_tid:
+                break
+
+    if not found_tid:
+        return None, None
+    tok = get_or_create_provisioning_token(settings_db, found_tid)
+    return found_tid, tok
+
+
+async def _resolve_cisco_ip_only_file(filename: str, client_ip: str = "127.0.0.1", request: Optional[Request] = None) -> Optional[Tuple[bytes, str]]:
+    """
+    Resolves Cisco Enterprise / MPP / SPA provisioning files requested via raw IP
+    (TFTP UDP 69 or HTTP root /SEP<MAC>.cnf.xml, /spa<mac>.xml, /dialplan.xml, /XMLDefault.cnf.xml).
+    Strictly rejects unregistered MAC addresses.
+    """
+    from backend.services.autoprovision_service import (
+        extract_mac_from_provision_filename,
+        generate_cisco_dialplan_xml,
+        generate_cisco_xml_default,
+        resolve_provisioning_endpoints,
+    )
+    fn_clean = os.path.basename(str(filename or "").strip())
+    fn_low = fn_clean.lower()
+
+    if fn_low == "dialplan.xml":
+        return generate_cisco_dialplan_xml().encode("utf-8"), "application/xml; charset=utf-8"
+
+    if fn_low == "xmldefault.cnf.xml":
+        net_ep = resolve_provisioning_endpoints(settings_db, "tenant-default")
+        pbx_h = net_ep.get("local_ip") or net_ep.get("wan_sip_host") or "127.0.0.1"
+        return generate_cisco_xml_default(pbx_h, 5060).encode("utf-8"), "application/xml; charset=utf-8"
+
+    mac_hex = extract_mac_from_provision_filename(fn_clean)
+    if not mac_hex:
+        return None
+    tid, tok = _find_registered_tenant_token_for_mac(mac_hex)
+    if not tid or not tok:
+        return None
+
+    # Reuse the exact central provisioning renderer so LAN/WAN/Tunnel mode & DSS keys stay 100% identical
+    class _DummyClient:
+        def __init__(self, ip: str):
+            self.host = ip
+
+    class _DummyURL:
+        scheme = "http"
+
+    class _SyntheticRequest:
+        def __init__(self, ip: str):
+            self.headers = {"user-agent": "Cisco-TFTP-Provisioner/1.0"}
+            self.query_params = {}
+            self.client = _DummyClient(ip)
+            self.url = _DummyURL()
+
+    req_obj = request if request is not None else _SyntheticRequest(client_ip)
+    try:
+        resp = await _render_autoprovision_file_for_phone(tok, fn_clean, req_obj, explicit_mode=None)
+        body = getattr(resp, "body", b"")
+        if isinstance(body, str):
+            body = body.encode("utf-8")
+        ctype = getattr(resp, "media_type", None) or "application/xml; charset=utf-8"
+        return body, ctype
+    except Exception:
+        return None
+
+
+@app.get("/dialplan.xml")
+@app.get("/XMLDefault.cnf.xml")
+@app.get("/SEP{mac_part}.cnf.xml")
+@app.get("/spa{mac_part}.xml")
+@app.get("/spa{mac_part}.cfg")
+async def serve_cisco_ip_only_root_provision(request: Request, mac_part: str = ""):
+    """Token gerektirmeyen IP-Only HTTP root Cisco provizyon ucu (yalnızca kayıtlı MAC'lere cevap verir)."""
+    fn_clean = os.path.basename(request.url.path.lstrip("/"))
+    client_ip = extract_client_ip(request)
+    res = await _resolve_cisco_ip_only_file(fn_clean, client_ip=client_ip, request=request)
+    if not res:
+        raise HTTPException(status_code=404, detail="Kayıtlı cihaz veya Cisco provizyon dosyası bulunamadı.")
+    body, ctype = res
+    return Response(content=body, media_type=ctype)
 
 
 # ----------------------------------------------------
