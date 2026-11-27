@@ -1022,6 +1022,7 @@ qualify_frequency=30
         seen_exts = set()
         seen_sip_eps = set()
         chan_sip_blocks_s = []
+        seen_csip_peers_s = set()
         if not has_1000_in_users:
             seen_sip_eps.add("1000")
             seen_sip_eps.add(resolve_user_webphone_sip_username("1000", "").lower())
@@ -1174,10 +1175,13 @@ remove_existing=yes
                     csip_tr_s = "udp,tcp" if csip_tr_raw_s == "UDP" else "tcp,udp"
                     csip_allow_lines_s = "\n".join([f"allow={c.strip()}" for c in d_allow.split(",") if c.strip()])
                     csip_pg_s = f"namedcallgroup={pg_names_s}\nnamedpickupgroup={pg_names_s}\n" if pg_names_s else ""
+                    csip_pid_s = ext if (ext and ext not in seen_csip_peers_s) else d_su
+                    seen_csip_peers_s.add(csip_pid_s)
                     chan_sip_blocks_s.append(
-                        f"; --- CISCO / chan_sip DEVICE: {d_label} ({d_su}) -> Ext {ext} ---\n"
-                        f"[{d_su}]\n"
+                        f"; --- CISCO / chan_sip DEVICE: {d_label} ({ext} | contact={d_su}) ---\n"
+                        f"[{csip_pid_s}]\n"
                         f"type=friend\n"
+                        f"defaultuser={csip_pid_s}\n"
                         f"host=dynamic\n"
                         f"secret={esc_dpwd}\n"
                         f"context=webrtc_agents\n"

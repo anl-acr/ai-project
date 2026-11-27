@@ -2790,7 +2790,7 @@ def generate_provisioning_config(
     <natEnabled>{nat_flag}</natEnabled>
     <natReceivedProcessing>true</natReceivedProcessing>
     <sipLines>
-      <line button="1">
+      <line button="1" lineIndex="1">
         <featureID>9</featureID>
         <featureLabel>{html.escape(cisco_feature_label)}</featureLabel>
         <proxy>{cisco_line_proxy}</proxy>
@@ -2801,7 +2801,7 @@ def generate_provisioning_config(
           <autoAnswerEnabled>{'2' if eff_auto_answer else '0'}</autoAnswerEnabled>
         </autoAnswer>
         <callWaiting>{'3' if prefs['call_waiting'] else '0'}</callWaiting>
-        <authName>{html.escape(sip_u)}</authName>
+        <authName>{html.escape(cisco_line_name)}</authName>
         <authPassword>{html.escape(sip_password)}</authPassword>
         <sharedLine>false</sharedLine>
         <messageWaitingLampPolicy>1</messageWaitingLampPolicy>

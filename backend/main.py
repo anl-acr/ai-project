@@ -5415,6 +5415,7 @@ trust_id_inbound={trust_id_in}
 
     db_sip_backfill_items = []
     chan_sip_blocks = []
+    seen_csip_peers = set()
     for u in users_list:
         is_act = u.get("is_active") if "is_active" in u else True
         if not is_act:
@@ -5526,11 +5527,13 @@ remove_existing=yes
                 csip_tr = "udp,tcp" if csip_tr_raw == "UDP" else "tcp,udp"
                 csip_allow_lines = "\n".join([f"allow={c}" for c in (safe_c_list or ["g722", "alaw", "ulaw", "g729"])])
                 csip_pg_lines = f"namedcallgroup={pg_names}\nnamedpickupgroup={pg_names}\n" if pg_names else ""
+                csip_peer_id = cid_ext_val if (cid_ext_val and cid_ext_val not in seen_csip_peers) else dev_su
+                seen_csip_peers.add(csip_peer_id)
                 chan_sip_blocks.append(
-                    f"; --- CISCO / chan_sip DEVICE: {_safe_cid_label(dev.get('name') or dev_su, dev_su)} ({cid_ext_val}) ---\n"
-                    f"[{dev_su}]\n"
+                    f"; --- CISCO / chan_sip DEVICE: {_safe_cid_label(dev.get('name') or dev_su, dev_su)} ({cid_ext_val} | contact={dev_su}) ---\n"
+                    f"[{csip_peer_id}]\n"
                     f"type=friend\n"
-                    f"defaultuser={dev_su}\n"
+                    f"defaultuser={csip_peer_id}\n"
                     f"host=dynamic\n"
                     f"secret={_esc_pjsip_val(dev_pwd)}\n"
                     f"context=webrtc_agents\n"
@@ -6262,6 +6265,7 @@ same => n,Hangup()
             continue
         seen_hint_exts.add(h_ext)
         hint_targets = []
+        used_csip_ext_hint = False
         for hd in _norm_devs_ext(u_h):
             if hd.get("is_active") is False:
                 continue
@@ -6269,9 +6273,13 @@ same => n,Hangup()
                 continue
             hd_su = str(hd.get("sip_username") or "").strip()
             hd_drv = str(hd.get("sip_driver") or "pjsip").strip().lower()
-            hd_tech = "SIP" if hd_drv in ("chan_sip", "sip", "cisco_sip") else "PJSIP"
-            if hd_su and hd_su != h_ext and not hd_su.isdigit() and f"{hd_tech}/{hd_su}" not in hint_targets:
-                hint_targets.append(f"{hd_tech}/{hd_su}")
+            if hd_drv in ("chan_sip", "sip", "cisco_sip"):
+                csip_h_id = h_ext if (h_ext and not used_csip_ext_hint) else hd_su
+                used_csip_ext_hint = True
+                if csip_h_id and f"SIP/{csip_h_id}" not in hint_targets:
+                    hint_targets.append(f"SIP/{csip_h_id}")
+            elif hd_su and hd_su != h_ext and not hd_su.isdigit() and f"PJSIP/{hd_su}" not in hint_targets:
+                hint_targets.append(f"PJSIP/{hd_su}")
         if hint_targets:
             hint_lines.append(f"exten => {h_ext},hint,{'&'.join(hint_targets)}")
     if "1000" not in seen_hint_exts:
@@ -19819,6 +19827,7 @@ async def resolve_agent_ring_targets(extension: str = "", format: str = "", for_
     )
     trunks_lookup = None
     active_sip_eps = []
+    used_csip_ext_ring = False
     hd_sessions_ring = settings_db.get("hotdesk_sessions") if isinstance(settings_db.get("hotdesk_sessions"), dict) else {}
     hijacked_by_other = {
         str(hd_k).strip().lower()
@@ -19904,7 +19913,12 @@ async def resolve_agent_ring_targets(extension: str = "", format: str = "", for_
         )
         if allowed_by_prof:
             d_drv = str(sdev.get("sip_driver") or "pjsip").strip().lower()
-            ep_entry = f"SIP/{d_su}" if d_drv in ("chan_sip", "sip", "cisco_sip") else d_su
+            if d_drv in ("chan_sip", "sip", "cisco_sip"):
+                csip_r_id = ext_str if (ext_str and not used_csip_ext_ring) else d_su
+                used_csip_ext_ring = True
+                ep_entry = f"SIP/{csip_r_id}"
+            else:
+                ep_entry = d_su
             if ep_entry not in active_sip_eps:
                 active_sip_eps.append(ep_entry)
 
@@ -26612,6 +26626,7 @@ def _collect_call_flip_target_endpoints(
 
     web_ep = ""
     other_eps: list[str] = []
+    used_csip_ext_flip = False
     for sdev in norm_devs:
         if sdev.get("is_active") is False:
             continue
@@ -26625,11 +26640,18 @@ def _collect_call_flip_target_endpoints(
             continue
         if not d_su or d_su == ext_str or d_su.lower() in hijacked_by_other:
             continue
-        if src_ep_low and d_su.lower() == src_ep_low:
-            # Exclude the exact physical phone that initiated Call Flip
-            continue
         d_drv = str(sdev.get("sip_driver") or "pjsip").strip().lower()
-        ep_entry = f"SIP/{d_su}" if d_drv in ("chan_sip", "sip", "cisco_sip") else d_su
+        if d_drv in ("chan_sip", "sip", "cisco_sip"):
+            csip_f_id = ext_str if (ext_str and not used_csip_ext_flip) else d_su
+            used_csip_ext_flip = True
+            if src_ep_low and csip_f_id.lower() == src_ep_low:
+                continue
+            ep_entry = f"SIP/{csip_f_id}"
+        else:
+            if src_ep_low and d_su.lower() == src_ep_low:
+                # Exclude the exact physical phone that initiated Call Flip
+                continue
+            ep_entry = d_su
         if ep_entry not in other_eps:
             other_eps.append(ep_entry)
 
