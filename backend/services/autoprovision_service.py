@@ -2790,7 +2790,7 @@ def generate_provisioning_config(
     <natEnabled>{nat_flag}</natEnabled>
     <natReceivedProcessing>true</natReceivedProcessing>
     <sipLines>
-      <line button="1" lineIndex="1">
+      <line button="1">
         <featureID>9</featureID>
         <featureLabel>{html.escape(cisco_feature_label)}</featureLabel>
         <proxy>{cisco_line_proxy}</proxy>
