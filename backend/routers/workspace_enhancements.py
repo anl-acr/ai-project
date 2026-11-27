@@ -1244,7 +1244,8 @@ async def get_dashboard_widgets_summary(
     res_q = await db.execute(stmt_q)
     queues_summary = []
     for q in res_q.scalars().all():
-        members = q.members if isinstance(q.members, list) else []
+        raw_members = getattr(q, "queueMembers", None)
+        members = raw_members if isinstance(raw_members, list) else []
         queues_summary.append({
             "id": q.id,
             "name": q.name,
