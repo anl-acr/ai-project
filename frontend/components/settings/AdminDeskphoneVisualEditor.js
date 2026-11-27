@@ -38,6 +38,8 @@ const FALLBACK_MODEL_SPECS = {
   "grandstream:grp2614": { brand: "Grandstream", model: "GRP2614", screen: "dual_screen", layout: "side_mpk", dss_per_page: 8, dss_pages: 3, max_dss: 24, soft_keys: 4, expansion_model: "", max_expansions: 0 },
   "grandstream:grp2615": { brand: "Grandstream", model: "GRP2615", screen: "color", layout: "split", dss_per_page: 10, dss_pages: 4, max_dss: 40, soft_keys: 4, expansion_model: "GBX20", max_expansions: 4 },
   "grandstream:grp2616": { brand: "Grandstream", model: "GRP2616", screen: "dual_screen", layout: "side_mpk", dss_per_page: 12, dss_pages: 4, max_dss: 48, soft_keys: 4, expansion_model: "GBX20", max_expansions: 4 },
+  "fanvil:x3s": { brand: "Fanvil", model: "X3S", screen: "color", layout: "left_only", dss_per_page: 2, dss_pages: 1, max_dss: 2, soft_keys: 4, expansion_model: "", max_expansions: 0 },
+  "fanvil:x3sp": { brand: "Fanvil", model: "X3SP", screen: "color", layout: "left_only", dss_per_page: 2, dss_pages: 1, max_dss: 2, soft_keys: 4, expansion_model: "", max_expansions: 0 },
   "fanvil:x3u": { brand: "Fanvil", model: "X3U", screen: "color", layout: "left_only", dss_per_page: 3, dss_pages: 2, max_dss: 6, soft_keys: 4, expansion_model: "", max_expansions: 0 },
   "fanvil:x4u": { brand: "Fanvil", model: "X4U", screen: "dual_screen", layout: "side_mpk", dss_per_page: 6, dss_pages: 5, max_dss: 30, soft_keys: 4, expansion_model: "", max_expansions: 0 },
   "fanvil:x5u": { brand: "Fanvil", model: "X5U", screen: "dual_screen", layout: "side_mpk", dss_per_page: 6, dss_pages: 5, max_dss: 30, soft_keys: 4, expansion_model: "", max_expansions: 0 },

@@ -41,7 +41,7 @@ SUPPORTED_PHONE_MODELS: Dict[str, List[str]] = {
         "GRP2624", "GRP2634", "GRP2636",
     ],
     "Fanvil": [
-        "X3S", "X3U", "X4U", "X5U", "X6U", "X7", "X7C", "X210",
+        "X3S", "X3SP", "X3U", "X4U", "X5U", "X6U", "X7", "X7C", "X210",
         "V62", "V64", "V65",
     ],
     "Cisco": [
@@ -170,6 +170,7 @@ PHONE_MODEL_CATALOG: List[Dict[str, Any]] = [
     {"brand": "Grandstream", "model": "GRP2636", "label": "Grandstream GRP2636 (12 Hat + 24 MPK • GBX20 × 4)", "screen": "dual_screen", "layout": "side_mpk", "dss_per_page": 12, "dss_pages": 3, "max_dss": 36, "soft_keys": 4, "expansion_model": "GBX20", "max_expansions": 4},
     # --- FANVIL ---
     {"brand": "Fanvil", "model": "X3S", "label": "Fanvil X3S (2 Hat • Renkli LCD)", "screen": "color", "layout": "left_only", "dss_per_page": 2, "dss_pages": 1, "max_dss": 2, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
+    {"brand": "Fanvil", "model": "X3SP", "label": "Fanvil X3SP (2 Hat • PoE • Renkli LCD)", "screen": "color", "layout": "left_only", "dss_per_page": 2, "dss_pages": 1, "max_dss": 2, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
     {"brand": "Fanvil", "model": "X3U", "label": "Fanvil X3U (3 Hat • Renkli LCD Gigabit)", "screen": "color", "layout": "left_only", "dss_per_page": 3, "dss_pages": 1, "max_dss": 3, "soft_keys": 4, "expansion_model": None, "max_expansions": 0},
     {"brand": "Fanvil", "model": "X4U", "label": "Fanvil X4U (Çift Renkli Ekran • 6 Yan DSS × 5 Sayfa = 30)", "screen": "dual_screen", "layout": "side_mpk", "dss_per_page": 6, "dss_pages": 5, "max_dss": 30, "soft_keys": 4, "expansion_model": "Fanvil-E20", "max_expansions": 4},
     {"brand": "Fanvil", "model": "X5U", "label": "Fanvil X5U (Çift Renkli Ekran • 6 Yan DSS × 5 Sayfa = 30)", "screen": "dual_screen", "layout": "side_mpk", "dss_per_page": 6, "dss_pages": 5, "max_dss": 30, "soft_keys": 4, "expansion_model": "Fanvil-E20", "max_expansions": 4},
@@ -295,6 +296,15 @@ def build_system_default_templates() -> List[Dict[str, Any]]:
             content = f"""<<VOIP CONFIG FILE>>Version:2.0000
 # Nornia Sistem Şablonu: Fanvil {m} ({item['dss_per_page']}×{item['dss_pages']} = {item['max_dss']} DSS{exp_note})
 
+<GLOBAL CONFIG MODULE>
+Enable SNTP          :1
+SNTP Server          :{{NTP_SERVER}}
+Second SNTP Server   :pool.ntp.org
+SNTP Timeout         :60
+Time Zone            :{{FANVIL_TZ_INDEX}}
+Time Zone Name       :{{FANVIL_TZ_NAME}}
+Enable DST           :0
+
 <AUTOUPDATE CONFIG MODULE>
 Auto Server URL      :{{PROVISION_URL}}
 Update Mode          :1
@@ -303,6 +313,7 @@ SIP Notify Update    :1
 <SIP CONFIG MODULE>
 --SIP Line List--  :
 SIP1 Enable          :1
+SIP1 Enable Reg      :1
 SIP1 Phone Number    :{{SIP_USERNAME}}
 SIP1 Display Name    :{{LABEL}}
 SIP1 Sip Name        :{{DISPLAY_NAME}}
@@ -310,9 +321,11 @@ SIP1 Register Addr   :{{SIP_SERVER}}
 SIP1 Register Port   :{{SIP_PORT}}
 SIP1 Register User   :{{SIP_USERNAME}}
 SIP1 Register Pswd   :{{SIP_PASSWORD}}
-SIP1 Register TTL    :3600
+SIP1 Register TTL    :300
 SIP1 Transport       :{{TRANSPORT_CODE}}
 SIP1 Rport           :1
+SIP1 Keep Alive Type :1
+SIP1 Keep Alive Intvl:30
 SIP1 Subscribe Expire:1800
 SIP1 MWI Num         :{{VOICEMAIL_CODE}}
 SIP1 Ring Type       :{{RINGTONE}}
@@ -1914,6 +1927,24 @@ def generate_yealink_common_boot_cfg(settings_db: Optional[dict] = None) -> str:
     )
 
 
+def _resolve_fanvil_timezone(tz_raw: Any) -> Tuple[str, str]:
+    """Maps UTC offset / IANA timezone to Fanvil `(Time Zone index = offset*4, Time Zone Name)`."""
+    s = str(tz_raw or "+3").strip()
+    if s in ("", "+3", "3", "Europe/Istanbul", "Turkey", "UTC+3"):
+        return "12", "UTC+3"
+    m = re.match(r"^([+-]?\d+(?:\.\d+)?)$", s.replace("UTC", "").replace("GMT", "").strip())
+    if m:
+        try:
+            hrs = float(m.group(1))
+            idx = int(round(hrs * 4))
+            sign = "+" if hrs >= 0 else ""
+            lbl = f"UTC{sign}{int(hrs) if hrs.is_integer() else hrs}"
+            return str(idx), lbl
+        except Exception:
+            pass
+    return "12", "UTC+3"
+
+
 def _resolve_grandstream_lang_code(eff_language: str) -> str:
     """Maps Nornia language preference to official Grandstream P1362 language code (defaults to Turkish `tr`)."""
     low = str(eff_language or "Turkish").strip().lower()
@@ -2431,6 +2462,8 @@ def generate_provisioning_config(
             "{GS_LANGUAGE_CODE}": _resolve_grandstream_lang_code(eff_language),
             "{TIMEZONE}": str(timezone or "+3").strip() or "+3",
             "{TIMEZONE_NAME}": "Turkey(Ankara)" if str(timezone or "+3").strip() in ("+3", "Europe/Istanbul") else str(timezone or "+3"),
+            "{FANVIL_TZ_INDEX}": _resolve_fanvil_timezone(timezone)[0],
+            "{FANVIL_TZ_NAME}": _resolve_fanvil_timezone(timezone)[1],
             "{NTP_SERVER}": str(ntp_server or "pool.ntp.org").strip() or "pool.ntp.org",
             "{TIME_FORMAT_24_BIT}": "1" if prefs["time_format"] == "24" else "0",
             "{DSS_KEYS_BLOCK}": "\n".join(dss_block_lines),
@@ -2488,7 +2521,7 @@ def generate_provisioning_config(
                 rendered = rendered.replace("<SIP CONFIG MODULE>", "\n".join(fw_fanvil_lines) + "\n\n<SIP CONFIG MODULE>", 1)
         elif "cisco" in tpl_b_low and fw_cisco_lines and "</flat-profile>" in rendered:
             rendered = rendered.replace("</flat-profile>", "\n".join(fw_cisco_lines) + "\n</flat-profile>", 1)
-        is_xml = rendered.lstrip().startswith("<")
+        is_xml = rendered.lstrip().startswith("<") and not rendered.lstrip().startswith("<<VOIP CONFIG FILE>>")
         ext_suffix = "xml" if is_xml else "cfg"
         fname = f"{mac_hex or ('ext_' + ext_s)}.{ext_suffix}"
         return rendered, ("application/xml; charset=utf-8" if is_xml else "text/plain; charset=utf-8"), fname
@@ -2637,12 +2670,23 @@ def generate_provisioning_config(
         fname = f"cfg{mac_hex}.xml" if mac_hex else f"cfg_ext_{ext_s}.xml"
         return xml_out, "application/xml; charset=utf-8", fname
 
-    # --- FANVIL CFG (X3U / X4U / X5U / X6U / X7 / X210 / V62 / V64 / V65 + External Modules 1..4) ---
+    # --- FANVIL CFG (X3S / X3SP / X3U / X4U / X5U / X6U / X7 / X210 / V62 / V64 / V65 + External Modules 1..4) ---
     if "fanvil" in b_low:
-        fv_tr = "3" if tr_up == "TLS" else ("1" if tr_up == "TCP" else "0")
+        fv_tr = "2" if tr_up == "TLS" else ("1" if tr_up == "TCP" else "0")
+        fv_tz_idx, fv_tz_name = _resolve_fanvil_timezone(timezone)
+        fv_ntp = str(ntp_server or "pool.ntp.org").strip() or "pool.ntp.org"
         fv_lines = [
             "<<VOIP CONFIG FILE>>Version:2.0000",
             f"# AIDA PBX Fanvil Auto-Provisioning ({model}) | Ext: {ext_s} | SIP Endpoint: {sip_u}",
+            "",
+            "<GLOBAL CONFIG MODULE>",
+            "Enable SNTP          :1",
+            f"SNTP Server          :{fv_ntp}",
+            "Second SNTP Server   :pool.ntp.org",
+            "SNTP Timeout         :60",
+            f"Time Zone            :{fv_tz_idx}",
+            f"Time Zone Name       :{fv_tz_name}",
+            "Enable DST           :0",
             "",
             "<AUTOUPDATE CONFIG MODULE>",
             f"Auto Server URL      :{provision_server_url}" if provision_server_url else "Auto Server URL      :",
@@ -2653,6 +2697,7 @@ def generate_provisioning_config(
             "<SIP CONFIG MODULE>",
             "--SIP Line List--  :",
             "SIP1 Enable          :1",
+            "SIP1 Enable Reg      :1",
             f"SIP1 Phone Number    :{sip_u}",
             f"SIP1 Display Name    :{line_label}",
             f"SIP1 Sip Name        :{disp_name}",
@@ -2660,9 +2705,11 @@ def generate_provisioning_config(
             f"SIP1 Register Port   :{sip_port}",
             f"SIP1 Register User   :{sip_u}",
             f"SIP1 Register Pswd   :{sip_password}",
-            "SIP1 Register TTL    :3600",
+            "SIP1 Register TTL    :300",
             f"SIP1 Transport       :{fv_tr}",
             "SIP1 Rport           :1",
+            "SIP1 Keep Alive Type :1",
+            "SIP1 Keep Alive Intvl:30",
             "SIP1 Subscribe Expire:1800",
             "SIP1 MWI Num         :*97",
             f"SIP1 Auto Answer     :{1 if eff_auto_answer else 0}",

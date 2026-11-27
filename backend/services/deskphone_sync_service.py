@@ -460,6 +460,8 @@ def build_fanvil_sync_sip_lines(
 
     return [
         "# --- Nornia Cift Yonlu DND & Cagri Yonlendirme (Fanvil SIP1 <-> Santral) ---",
+        "SIP1 Feature Sync    :1",
+        "SIP1 Enable Feature Sync:1",
         f"SIP1 Enable DND      :{dnd_bit}",
         "SIP1 DND On Code     :*78",
         "SIP1 DND Off Code    :*79",
@@ -503,17 +505,17 @@ def build_fanvil_sync_phone_lines(
     clean_base = str(sync_base_url or "").strip().rstrip("/")
     if clean_base and ext and sip_username:
         sig_tok = compute_phone_sync_token(ext, sip_username)
-        qs_common = urllib.parse.urlencode({"ext": str(ext).strip(), "su": str(sip_username).strip(), "sig": sig_tok})
+        qs_common = urllib.parse.urlencode({"ext": str(ext).strip(), "su": str(sip_username).strip(), "sig": sig_tok, "brand": "fanvil"})
         base_ep = f"{clean_base}?{qs_common}"
         lines.extend([
             "# --- Anlik Action URL Senkronizasyonu (Fanvil -> Nornia Santral) ---",
             f"DND On Url           :{base_ep}&event=dnd_on&mac=$mac&ip=$ip",
             f"DND Off Url          :{base_ep}&event=dnd_off&mac=$mac&ip=$ip",
-            f"Always FWD On Url    :{base_ep}&event=fwd_always_on&mac=$mac&ip=$ip",
+            f"Always FWD On Url    :{base_ep}&event=fwd_always_on&target=$fwd_num&mac=$mac&ip=$ip",
             f"Always FWD Off Url   :{base_ep}&event=fwd_always_off&mac=$mac&ip=$ip",
-            f"Busy FWD On Url      :{base_ep}&event=fwd_busy_on&mac=$mac&ip=$ip",
+            f"Busy FWD On Url      :{base_ep}&event=fwd_busy_on&target=$fwd_num&mac=$mac&ip=$ip",
             f"Busy FWD Off Url     :{base_ep}&event=fwd_busy_off&mac=$mac&ip=$ip",
-            f"No Answer FWD On Url :{base_ep}&event=fwd_no_answer_on&mac=$mac&ip=$ip",
+            f"No Answer FWD On Url :{base_ep}&event=fwd_no_answer_on&target=$fwd_num&mac=$mac&ip=$ip",
             f"No Answer FWD Off Url:{base_ep}&event=fwd_no_answer_off&mac=$mac&ip=$ip",
         ])
 

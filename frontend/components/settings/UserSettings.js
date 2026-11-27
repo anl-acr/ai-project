@@ -100,7 +100,7 @@ const SIP_PHONE_MODELS = {
     "GXP1625", "GXP1628", "GXP2135", "GXP2140", "GXP2170",
     "GRP2602", "GRP2612", "GRP2613", "GRP2614", "GRP2615", "GRP2616", "GRP2624", "GRP2634", "GRP2636"
   ],
-  Fanvil: ["X3S", "X3U", "X4U", "X5U", "X6U", "X7", "X7C", "X210", "V62", "V64", "V65"],
+  Fanvil: ["X3S", "X3SP", "X3U", "X4U", "X5U", "X6U", "X7", "X7C", "X210", "V62", "V64", "V65"],
   Cisco: [
     "3905",
     "7811", "7821", "7841", "7861",
