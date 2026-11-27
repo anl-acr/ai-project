@@ -845,6 +845,11 @@ class PBXSettingsSchema(BaseModel):
     nas_mount_path: str
     auto_language_detection: Optional[bool] = False
     auto_emotion_management: Optional[bool] = False
+    acoustic_shout_enabled: Optional[bool] = True
+    acoustic_delta_db: Optional[float] = 12.0
+    acoustic_min_peak_dbfs: Optional[float] = -14.0
+    acoustic_min_duration_sec: Optional[int] = 2
+    acoustic_alert_sound: Optional[bool] = True
     auto_whisper_enabled: Optional[bool] = True
     force_tls: Optional[bool] = False
     force_srtp: Optional[bool] = False
@@ -1541,6 +1546,11 @@ DEFAULT_SETTINGS = {
         "nas_mount_path": "/mnt/nas/ai-recordings",
         "auto_language_detection": False,
         "auto_emotion_management": False,
+        "acoustic_shout_enabled": True,
+        "acoustic_delta_db": 12.0,
+        "acoustic_min_peak_dbfs": -14.0,
+        "acoustic_min_duration_sec": 2,
+        "acoustic_alert_sound": True,
         "auto_whisper_enabled": True,
         "numbering_plan": {
             "extension_range": {"start": 1000, "end": 1099},
@@ -3388,6 +3398,16 @@ def load_settings(force_reload: bool = False, persist: bool = False):
             db["pbx"]["auto_language_detection"] = False
         if "auto_emotion_management" not in db["pbx"]:
             db["pbx"]["auto_emotion_management"] = False
+        if "acoustic_shout_enabled" not in db["pbx"]:
+            db["pbx"]["acoustic_shout_enabled"] = True
+        if "acoustic_delta_db" not in db["pbx"]:
+            db["pbx"]["acoustic_delta_db"] = 12.0
+        if "acoustic_min_peak_dbfs" not in db["pbx"]:
+            db["pbx"]["acoustic_min_peak_dbfs"] = -14.0
+        if "acoustic_min_duration_sec" not in db["pbx"]:
+            db["pbx"]["acoustic_min_duration_sec"] = 2
+        if "acoustic_alert_sound" not in db["pbx"]:
+            db["pbx"]["acoustic_alert_sound"] = True
         if "auto_whisper_enabled" not in db["pbx"]:
             db["pbx"]["auto_whisper_enabled"] = True
             
@@ -31423,6 +31443,7 @@ async def get_realtime_calls_monitor(user_info: dict = Depends(get_user_info)):
             "channel": ch_name or "AudioSocket/AI",
             "agent_topic": getattr(call, "agent_topic", None) or "",
             "sentiment": getattr(call, "sentiment", None) or "Nötr",
+            "acoustic_metrics": getattr(call, "acoustic_metrics", None),
             "recording_paused": rec_paused,
             "last_transcript": call_trs[-1] if call_trs else None,
             "transcripts": call_trs[-15:],
@@ -43290,6 +43311,7 @@ async def startup_event():
                 "ALTER TABLE calls ADD COLUMN IF NOT EXISTS talk_duration INTEGER;",
                 "ALTER TABLE calls ADD COLUMN IF NOT EXISTS ivr_events JSON;",
                 "ALTER TABLE calls ADD COLUMN IF NOT EXISTS transfer_details JSON;",
+                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS acoustic_metrics JSON;",
                 "ALTER TABLE agent_break_logs ADD COLUMN IF NOT EXISTS agent_name VARCHAR;",
                 "ALTER TABLE internal_chat_messages ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMP;",
                 "ALTER TABLE internal_chat_messages ADD COLUMN IF NOT EXISTS read_at TIMESTAMP;",
@@ -53640,6 +53662,11 @@ async def on_startup_scheduled_reports_worker():
         start_ras_tunnel_worker()
     except Exception as e_ras:
         print(f"[Nornia RAS Startup Error]: {e_ras}")
+    try:
+        from backend.services.acoustic_shout_service import start_acoustic_shout_monitor
+        start_acoustic_shout_monitor()
+    except Exception as e_ac:
+        print(f"[AcousticShout Startup Error]: {e_ac}")
 
 
 # ==============================================================================

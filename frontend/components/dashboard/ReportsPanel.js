@@ -28,6 +28,7 @@ import {
   Clipboard,
   Crown,
   Users,
+  Volume2,
   TrendingUp,
   PhoneOff,
   PhoneMissed,
@@ -489,6 +490,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   const [agentKpiMetrics, setAgentKpiMetrics] = useState({ by_extension: {}, by_name: {} });
   const [filterAgentsSelected, setFilterAgentsSelected] = useState([]);
   const [filterSentimentsSelected, setFilterSentimentsSelected] = useState([]);
+  const [filterShoutOnly, setFilterShoutOnly] = useState(false);
   const [filterWordcloudKeyword, setFilterWordcloudKeyword] = useState("");
   const [filterFcrStatusesSelected, setFilterFcrStatusesSelected] = useState([]);
   const [filterFcrSentimentsSelected, setFilterFcrSentimentsSelected] = useState([]);
@@ -3186,6 +3188,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     setFilterQueuesSelected([]);
     setFilterQueueSlaSeconds(20);
     setFilterSentimentsSelected([]);
+    setFilterShoutOnly(false);
     setFilterWordcloudKeyword("");
     setFilterFcrStatusesSelected([]);
     setFilterFcrSentimentsSelected([]);
@@ -3318,13 +3321,23 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         if (data?.summary && !isInvalidSummaryText(data.summary)) {
           setSelectedTranscriptCall((prev) =>
             prev && prev.id === targetCall.id
-              ? { ...prev, summary: data.summary, sentiment: data.sentiment || prev.sentiment }
+              ? {
+                  ...prev,
+                  summary: data.summary,
+                  sentiment: data.sentiment || prev.sentiment,
+                  acoustic_metrics: data.acoustic_metrics || prev.acoustic_metrics,
+                }
               : prev
           );
           setCalls((prev) =>
             prev.map((c) =>
               c.id === targetCall.id
-                ? { ...c, summary: data.summary, sentiment: data.sentiment || c.sentiment }
+                ? {
+                    ...c,
+                    summary: data.summary,
+                    sentiment: data.sentiment || c.sentiment,
+                    acoustic_metrics: data.acoustic_metrics || c.acoustic_metrics,
+                  }
                 : c
             )
           );
@@ -5462,6 +5475,11 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         if (filterStatus !== "All") {
           const statusLabel = getCallStatus(c);
           if (statusLabel !== filterStatus) return false;
+        }
+
+        // 4b. Customer Acoustic Shout Filter (Sentiment Report)
+        if (viewMode === "sentiment" && filterShoutOnly) {
+          if (!c.acoustic_metrics?.shout_detected) return false;
         }
       }
     }
@@ -15179,6 +15197,27 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         ) : (
           /* Original List Scroll Mode for other views */
           <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800 scrollbar-thin">
+            {viewMode === "sentiment" && (
+              <div className="px-4 py-2.5 bg-slate-50/80 dark:bg-slate-950/40 flex items-center justify-between gap-2 sticky top-0 z-10 border-b border-slate-100 dark:border-slate-800">
+                <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                  Akustik Bağırma Filtresi
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setFilterShoutOnly((prev) => !prev)}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold inline-flex items-center gap-1.5 border transition cursor-pointer ${
+                    filterShoutOnly
+                      ? "bg-rose-600 text-white border-rose-600 shadow-sm"
+                      : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-rose-400"
+                  }`}
+                >
+                  <Volume2 size={11} />
+                  <span>
+                    {filterShoutOnly ? "Bağırma Tespit Edilenler (Aktif)" : "Sadece Bağırma Olanlar"}
+                  </span>
+                </button>
+              </div>
+            )}
             {isLoading ? (
               <div className="text-center py-12 text-xs text-slate-400 dark:text-slate-500 animate-pulse font-semibold">
                 Arama kayıtları yükleniyor...
@@ -15214,6 +15253,15 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                               : "bg-slate-50 dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-800"
                           }`}>
                             {call.sentiment}
+                          </span>
+                        )}
+                        {call.acoustic_metrics?.shout_detected && (
+                          <span
+                            title={`Müşteri ${call.acoustic_metrics.shout_count || 1} kez, toplam ${call.acoustic_metrics.shout_seconds || 0} sn bağırdı (+${call.acoustic_metrics.max_delta_db || 0} dB)`}
+                            className="px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase tracking-wide shrink-0 bg-rose-600 text-white inline-flex items-center gap-1"
+                          >
+                            <Volume2 size={9} />
+                            <span>Bağırma · {call.acoustic_metrics.shout_seconds || 0}sn</span>
                           </span>
                         )}
                       </p>
@@ -15300,6 +15348,58 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                   <div className="p-3 bg-purple-50 dark:bg-purple-900/20 border border-purple-100 dark:border-purple-900/30 rounded-xl text-xs text-purple-800 dark:text-purple-300 leading-relaxed font-semibold">
                     <span className="font-bold text-primary dark:text-purple-400 block mb-1">Görüşme Özeti (Yapay Zeka):</span>
                     {!isInvalidSummaryText(selectedCall.summary) ? selectedCall.summary : buildClientFallbackSummary(transcripts)}
+                  </div>
+                )}
+
+                {/* Acoustic Customer Shout Detection Report Card */}
+                {selectedCall.acoustic_metrics?.shout_detected && (
+                  <div className="p-3.5 bg-rose-50/90 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 rounded-xl space-y-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-xs font-extrabold text-rose-700 dark:text-rose-300 inline-flex items-center gap-1.5">
+                        <Volume2 size={14} className="text-rose-600 dark:text-rose-400" />
+                        <span>Akustik Ses Şiddeti: Müşteri Bağırması Tespit Edildi</span>
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full bg-rose-600 text-white text-[10px] font-black">
+                        Stres Skoru: {selectedCall.acoustic_metrics.stress_score ?? 0} / 100
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                      <div className="px-2.5 py-1.5 rounded-lg bg-white/80 dark:bg-slate-900/80 border border-rose-200/60 dark:border-rose-900/40">
+                        <span className="block text-[9px] font-bold text-slate-400 uppercase">Bağırma Sayısı</span>
+                        <span className="font-extrabold text-rose-700 dark:text-rose-300">{selectedCall.acoustic_metrics.shout_count || 1} kez</span>
+                      </div>
+                      <div className="px-2.5 py-1.5 rounded-lg bg-white/80 dark:bg-slate-900/80 border border-rose-200/60 dark:border-rose-900/40">
+                        <span className="block text-[9px] font-bold text-slate-400 uppercase">Toplam Süre</span>
+                        <span className="font-extrabold text-rose-700 dark:text-rose-300">{selectedCall.acoustic_metrics.shout_seconds || 0} sn</span>
+                      </div>
+                      <div className="px-2.5 py-1.5 rounded-lg bg-white/80 dark:bg-slate-900/80 border border-rose-200/60 dark:border-rose-900/40">
+                        <span className="block text-[9px] font-bold text-slate-400 uppercase">Ses Artışı (Delta)</span>
+                        <span className="font-extrabold text-rose-700 dark:text-rose-300">+{selectedCall.acoustic_metrics.max_delta_db ?? 0} dB</span>
+                      </div>
+                      <div className="px-2.5 py-1.5 rounded-lg bg-white/80 dark:bg-slate-900/80 border border-rose-200/60 dark:border-rose-900/40">
+                        <span className="block text-[9px] font-bold text-slate-400 uppercase">Tepe / Taban</span>
+                        <span className="font-extrabold text-slate-700 dark:text-slate-200">
+                          {selectedCall.acoustic_metrics.peak_dbfs ?? 0} / {selectedCall.acoustic_metrics.baseline_dbfs ?? -26} dBFS
+                        </span>
+                      </div>
+                    </div>
+                    {Array.isArray(selectedCall.acoustic_metrics.timestamps) && selectedCall.acoustic_metrics.timestamps.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                        <span className="text-[10px] font-bold text-rose-700/80 dark:text-rose-300/80">Bağırma Anları:</span>
+                        {selectedCall.acoustic_metrics.timestamps.map((tsSec, tsIdx) => {
+                          const mm = String(Math.floor(Number(tsSec || 0) / 60)).padStart(2, "0");
+                          const ss = String(Number(tsSec || 0) % 60).padStart(2, "0");
+                          return (
+                            <span
+                              key={`${tsSec}-${tsIdx}`}
+                              className="px-2 py-0.5 rounded-md bg-rose-600/15 text-rose-700 dark:text-rose-300 font-mono text-[10px] font-extrabold border border-rose-500/20"
+                            >
+                              {mm}:{ss}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 )}
 

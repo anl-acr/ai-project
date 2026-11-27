@@ -200,6 +200,23 @@ async def analyze_call(call_id: str) -> dict:
     """
     print(f"[Call Analyzer] Analyzing call_id={call_id}")
     async with AsyncSessionLocal() as session:
+        db_call = await session.get(Call, call_id)
+
+        # 0. Analyze customer acoustic loudness / shouting from customer WAV channel (_rx/_tx)
+        acoustic_metrics = None
+        try:
+            from backend.services.acoustic_shout_service import (
+                analyze_completed_call_acoustics,
+                format_timestamp_mmss,
+            )
+            acoustic_metrics = await analyze_completed_call_acoustics(call_id, db_call=db_call)
+            if db_call and isinstance(acoustic_metrics, dict):
+                db_call.acoustic_metrics = acoustic_metrics
+        except Exception as ac_ex:
+            print(f"[Call Analyzer] Acoustic analysis warning ({call_id}): {ac_ex}")
+
+        shout_detected = bool(isinstance(acoustic_metrics, dict) and acoustic_metrics.get("shout_detected"))
+
         # 1. Fetch transcripts (and auto-transcribe from .wav recording if not yet transcribed)
         stmt = select(Transcript).where(Transcript.call_id == call_id).order_by(Transcript.timestamp.asc())
         result = await session.execute(stmt)
@@ -213,18 +230,24 @@ async def analyze_call(call_id: str) -> dict:
         
         if not turns:
             print(f"[Call Analyzer] No transcripts found for call_id={call_id}")
-            db_call = await session.get(Call, call_id)
             if db_call:
-                db_call.summary = "Herhangi bir konuşma algılanmadı."
-                db_call.sentiment = "Nötr"
+                if shout_detected:
+                    s_cnt = int(acoustic_metrics.get("shout_count") or 1)
+                    s_sec = int(acoustic_metrics.get("shout_seconds") or 1)
+                    db_call.summary = f"Akustik ses analizinde müşterinin görüşme boyunca {s_cnt} kez (toplam {s_sec} sn) yüksek sesle bağırdığı tespit edildi."
+                    db_call.sentiment = "Öfkeli"
+                else:
+                    db_call.summary = "Herhangi bir konuşma algılanmadı."
+                    db_call.sentiment = "Nötr"
                 await session.commit()
                 return {
                     "id": call_id,
                     "summary": db_call.summary,
                     "sentiment": db_call.sentiment,
                     "qa_score": db_call.qa_score,
+                    "acoustic_metrics": db_call.acoustic_metrics,
                 }
-            return {"id": call_id, "summary": "Herhangi bir konuşma algılanmadı.", "sentiment": "Nötr"}
+            return {"id": call_id, "summary": "Herhangi bir konuşma algılanmadı.", "sentiment": "Öfkeli" if shout_detected else "Nötr"}
             
         # 2. Build conversation history
         chat_history = []
@@ -238,9 +261,22 @@ async def analyze_call(call_id: str) -> dict:
             
         transcript_text = "\n".join(chat_history)
         fallback_summary, fallback_sentiment = build_fallback_summary_from_turns(turns)
+        if shout_detected:
+            fallback_sentiment = "Öfkeli"
         
-        db_call = await session.get(Call, call_id)
         target_tenant = (getattr(db_call, "tenant_id", None) or "tenant-default") if db_call else "tenant-default"
+
+        acoustic_prompt_block = ""
+        if shout_detected and isinstance(acoustic_metrics, dict):
+            ts_list = [format_timestamp_mmss(t) for t in (acoustic_metrics.get("timestamps") or [])[:8]]
+            ts_str = ", ".join(ts_list) if ts_list else "-"
+            acoustic_prompt_block = (
+                f"\n[AKUSTİK SES ŞİDDETİ ANALİZİ - SADECE MÜŞTERİ KANALI]\n"
+                f"- Müşteri bağırma tespiti: EVET ({acoustic_metrics.get('shout_count', 1)} kez, toplam {acoustic_metrics.get('shout_seconds', 0)} saniye)\n"
+                f"- Normal konuşma tabanı: {acoustic_metrics.get('baseline_dbfs', -26)} dBFS | Maksimum tepe: {acoustic_metrics.get('peak_dbfs', 0)} dBFS (Tabana göre +{acoustic_metrics.get('max_delta_db', 0)} dB artış)\n"
+                f"- Akustik stres skoru: {acoustic_metrics.get('stress_score', 0)}/100 | Zaman damgaları: {ts_str}\n"
+                f"- ÖNEMLİ: Müşteri kelimelerinde küfür olmasa bile açıkça bağırarak konuştuğu için duygu durumunu \"Öfkeli\" veya \"Olumsuz\" olarak değerlendir ve özette ses yükseltme/bağırma yaşandığını kısaca belirt.\n"
+            )
 
         # 3. Call Routed AI Provider (Local Ollama / Cloud AI)
         try:
@@ -250,7 +286,7 @@ Aşağıdaki telefon görüşmesi transkriptini analiz et:
 
 [GÖRÜŞME TRANSKRİPTİ]
 {transcript_text}
-
+{acoustic_prompt_block}
 Senden iki şey istiyorum:
 1. Görüşmenin anlaşılır ve net bir özetini çıkar (2-3 cümle, Türkçe).
 2. Müşterinin duygu durumunu şu kategorilerden biri olarak belirle: "Pozitif", "Nötr", "Olumsuz", "Öfkeli", "Memnun".
@@ -271,6 +307,8 @@ Yanıtını kesinlikle şu JSON formatında ver:
             data = _extract_json_dict(resp_text)
             summary_val = (data.get("summary") or "").strip() or fallback_summary
             sentiment_val = (data.get("sentiment") or "").strip() or fallback_sentiment
+            if shout_detected and sentiment_val in ("Pozitif", "Memnun", "Nötr"):
+                sentiment_val = "Öfkeli"
             
             # Fetch QA Rules
             from backend.database.models import QAQuestion
@@ -331,22 +369,27 @@ Yanıtını kesinlikle şu JSON formatında ver:
                 db_call.sentiment = sentiment_val
                 db_call.qa_score = qa_score
                 db_call.qa_report = qa_report_str
+                if isinstance(acoustic_metrics, dict):
+                    db_call.acoustic_metrics = acoustic_metrics
                 await session.commit()
-                print(f"[Call Analyzer] Successfully updated call_id={call_id} -> sentiment={sentiment_val}, qa_score={qa_score}")
+                print(f"[Call Analyzer] Successfully updated call_id={call_id} -> sentiment={sentiment_val}, qa_score={qa_score}, shout={shout_detected}")
                 return {
                     "id": call_id,
                     "summary": db_call.summary,
                     "sentiment": db_call.sentiment,
                     "qa_score": db_call.qa_score,
+                    "acoustic_metrics": db_call.acoustic_metrics,
                 }
-            return {"id": call_id, "summary": summary_val, "sentiment": sentiment_val, "qa_score": qa_score}
+            return {"id": call_id, "summary": summary_val, "sentiment": sentiment_val, "qa_score": qa_score, "acoustic_metrics": acoustic_metrics}
         except Exception as e:
             print(f"[Call Analyzer] Error analyzing call {call_id} with Gemini, using transcript fallback: {e}")
             db_call = await session.get(Call, call_id)
             if db_call:
                 db_call.summary = fallback_summary
-                if not db_call.sentiment:
+                if shout_detected or not db_call.sentiment:
                     db_call.sentiment = fallback_sentiment
+                if isinstance(acoustic_metrics, dict):
+                    db_call.acoustic_metrics = acoustic_metrics
                 if db_call.qa_score is None:
                     db_call.qa_score = 100
                 await session.commit()
@@ -355,6 +398,7 @@ Yanıtını kesinlikle şu JSON formatında ver:
                     "summary": db_call.summary,
                     "sentiment": db_call.sentiment,
                     "qa_score": db_call.qa_score,
+                    "acoustic_metrics": db_call.acoustic_metrics,
                 }
-            return {"id": call_id, "summary": fallback_summary, "sentiment": fallback_sentiment, "qa_score": 100}
+            return {"id": call_id, "summary": fallback_summary, "sentiment": fallback_sentiment, "qa_score": 100, "acoustic_metrics": acoustic_metrics}
 

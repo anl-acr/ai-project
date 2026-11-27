@@ -612,10 +612,24 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
                           ? `${al.caller_name} (${al.caller_number})`
                           : al.caller_number}
                       </span>
-                      <span className="px-2 py-0.5 rounded-md bg-rose-500/15 text-rose-600 dark:text-rose-400 text-[9px] font-black uppercase">
-                        {al.severity === "critical" ? "Kritik Kriz" : "Gerginlik"}
-                      </span>
+                      {al.alert_type === "acoustic_shout" ? (
+                        <span className="px-2 py-0.5 rounded-md bg-rose-600 text-white text-[9px] font-black uppercase inline-flex items-center gap-1 animate-pulse">
+                          <Volume2 size={10} />
+                          <span>Müşteri Bağırıyor · +{al.max_delta_db || 0} dB · {al.shout_seconds || 0} sn</span>
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-md bg-rose-500/15 text-rose-600 dark:text-rose-400 text-[9px] font-black uppercase">
+                          {al.severity === "critical" ? "Kritik Kriz" : "Gerginlik"}
+                        </span>
+                      )}
                     </div>
+                    {al.alert_type === "acoustic_shout" && (
+                      <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                        {al.agent_name && <span>Temsilci: <strong className="text-slate-700 dark:text-slate-200">{al.agent_name}</strong></span>}
+                        {al.queue_name && <span>· Kuyruk: <strong className="text-slate-700 dark:text-slate-200">{al.queue_name}</strong></span>}
+                        {al.shout_count > 0 && <span>· {al.shout_count} kez</span>}
+                      </div>
+                    )}
                     {al.latest_customer_text && (
                       <p className="text-[11px] text-slate-600 dark:text-slate-300 italic mt-1 line-clamp-2">
                         &ldquo;{al.latest_customer_text}&rdquo;

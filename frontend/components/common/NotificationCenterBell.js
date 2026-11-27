@@ -16,6 +16,7 @@ import {
   User,
   CheckCircle2,
   AlarmClock,
+  Volume2,
 } from "lucide-react";
 import { useTheme } from "../../utils/theme";
 import { getApiBaseUrl } from "../../utils/apiHost";
@@ -33,6 +34,7 @@ export default function NotificationCenterBell({
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [liveAnnouncement, setLiveAnnouncement] = useState("");
   const [dueCallbacks, setDueCallbacks] = useState([]);
   const [dismissedPopupIds, setDismissedPopupIds] = useState(() => new Set());
   const [categoryFilter, setCategoryFilter] = useState("all");
@@ -143,6 +145,46 @@ export default function NotificationCenterBell({
     } catch (e) {}
   }, []);
 
+  const playAcousticAlertChime = useCallback(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const now = ctx.currentTime;
+      [880, 1174.66].forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(freq, now + idx * 0.16);
+        gain.gain.setValueAtTime(0.0001, now + idx * 0.16);
+        gain.gain.exponentialRampToValueAtTime(0.14, now + idx * 0.16 + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + idx * 0.16 + 0.15);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now + idx * 0.16);
+        osc.stop(now + idx * 0.16 + 0.16);
+      });
+      setTimeout(() => {
+        try {
+          ctx.close();
+        } catch (e) {}
+      }, 600);
+    } catch (e) {}
+  }, []);
+
+  const announceLiveAlert = useCallback((msg) => {
+    if (typeof document === "undefined" || !msg) return;
+    try {
+      if (typeof document.ariaNotify === "function") {
+        document.ariaNotify(`${msg}. Müdahale aksiyonları mevcut.`);
+        return;
+      }
+    } catch (e) {}
+    setLiveAnnouncement("");
+    setTimeout(() => setLiveAnnouncement(msg), 50);
+  }, []);
+
   const fetchNotifications = useCallback(async () => {
     if (typeof document !== "undefined" && document.visibilityState === "hidden" && !isDesktopApp()) return;
     if (!currentUser) return;
@@ -159,11 +201,12 @@ export default function NotificationCenterBell({
       setUnreadCount(computedUnread);
       setDueCallbacks(Array.isArray(data.due_callbacks) ? data.due_callbacks : []);
 
-      // Fire native desktop push for newly seen critical/warning unread items (and omnichannel/missed in desktop app)
+      // Fire native desktop push + optional acoustic chime for newly seen critical/warning unread items
       for (const item of list) {
         const shouldPush =
           item.severity === "critical" ||
           item.severity === "warning" ||
+          item.alert_type === "acoustic_shout" ||
           (isDesktopApp() && (item.category === "omnichannel" || item.category === "callback" || item.category === "call"));
         if (
           item.unread &&
@@ -172,10 +215,18 @@ export default function NotificationCenterBell({
         ) {
           notifiedDesktopIdsRef.current.add(item.id);
           triggerBrowserNotification(item);
+          if (item.alert_type === "acoustic_shout") {
+            if (item.alert_sound !== false) {
+              playAcousticAlertChime();
+            }
+            announceLiveAlert(`${item.title}. ${item.body}`);
+          } else if (item.category === "crisis") {
+            announceLiveAlert(`${item.title}. ${item.body}`);
+          }
         }
       }
     } catch (e) {}
-  }, [API_BASE, buildHeaders, currentUser, triggerBrowserNotification]);
+  }, [API_BASE, buildHeaders, currentUser, triggerBrowserNotification, playAcousticAlertChime, announceLiveAlert]);
 
   const markIdsRead = useCallback(
     async (ids) => {
@@ -239,7 +290,7 @@ export default function NotificationCenterBell({
 
   useEffect(() => {
     fetchNotifications();
-    const timer = setInterval(fetchNotifications, 15000);
+    const timer = setInterval(fetchNotifications, 5000);
     const onVisChange = () => {
       if (document.visibilityState === "visible") {
         fetchNotifications();
@@ -367,18 +418,23 @@ export default function NotificationCenterBell({
     });
   }, [isOpen, filteredNotifications]);
 
-  // Live floating crisis alerts (only unread & not dismissed in this session)
-  const activeCrisisPopups = hasCrisisAccess
-    ? notifications.filter(
-        (n) => n.category === "crisis" && n.unread && !dismissedPopupIds.has(n.id)
-      ).slice(0, 2)
-    : [];
+  // Live floating crisis & acoustic shout alerts (acoustic shout alerts are already strictly filtered by queue managers on backend)
+  const activeCrisisPopups = notifications
+    .filter(
+      (n) =>
+        n.category === "crisis" &&
+        n.unread &&
+        !dismissedPopupIds.has(n.id) &&
+        (hasCrisisAccess || n.alert_type === "acoustic_shout")
+    )
+    .slice(0, 2);
 
   const activeDuePopups = dueCallbacks
     .filter((cb) => !dismissedPopupIds.has(`cb-${cb.id}`))
     .slice(0, 2);
 
   const renderCategoryIcon = (item) => {
+    if (item.alert_type === "acoustic_shout") return <Volume2 size={14} className="text-rose-500 shrink-0 animate-pulse" />;
     if (item.category === "crisis") return <AlertTriangle size={14} className="text-rose-500 shrink-0" />;
     if (item.category === "callback") return <AlarmClock size={14} className="text-amber-500 shrink-0" />;
     if (item.category === "call") return <Phone size={14} className="text-rose-500 shrink-0" />;
@@ -556,6 +612,12 @@ export default function NotificationCenterBell({
         )}
       </div>
 
+      {/* Pre-populated screen reader assertive live region fallback for ariaNotify() */}
+      <p className="sr-only">Canlı kriz ve bağırma duyuruları</p>
+      <div aria-live="assertive" aria-atomic="true" className="sr-only">
+        {liveAnnouncement}
+      </div>
+
       {/* Persistent Non-Intrusive Stackable Action Toasts (Due Callbacks & Live Supervisor Crisis Radar) */}
       {(activeDuePopups.length > 0 || activeCrisisPopups.length > 0) && (
         <div
@@ -563,8 +625,10 @@ export default function NotificationCenterBell({
           aria-label="Acil Operasyon Bildirimleri"
           className="fixed bottom-5 right-5 z-[165] flex flex-col gap-3 w-80 sm:w-96 pointer-events-none"
         >
-          {/* 1. Live Supervisor Crisis / Negative Sentiment Alerts */}
-          {activeCrisisPopups.map((cr) => (
+          {/* 1. Live Supervisor Crisis / Acoustic Customer Shout Alerts */}
+          {activeCrisisPopups.map((cr) => {
+            const isAcoustic = cr.alert_type === "acoustic_shout";
+            return (
             <div
               key={cr.id}
               role="alert"
@@ -573,14 +637,14 @@ export default function NotificationCenterBell({
               <div className="flex items-start justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <span className="p-2 rounded-xl bg-rose-500/15 text-rose-600 dark:text-rose-400 animate-pulse">
-                    <AlertTriangle size={16} />
+                    {isAcoustic ? <Volume2 size={16} /> : <AlertTriangle size={16} />}
                   </span>
                   <div>
                     <span className="text-[9px] font-black uppercase tracking-wider text-rose-600 dark:text-rose-400 block">
-                      Canlı Kriz / Negatif Duygu Alarmı
+                      {isAcoustic ? "Müşteri Bağırma Alarmı (Akustik)" : "Canlı Kriz / Negatif Duygu Alarmı"}
                     </span>
                     <h4 className="text-xs font-extrabold text-slate-900 dark:text-white">
-                      {cr.title.replace("Canlı Kriz Alarmı: ", "")}
+                      {cr.title.replace("Canlı Kriz Alarmı: ", "").replace("Müşteri Bağırma Alarmı: ", "")}
                     </h4>
                   </div>
                 </div>
@@ -592,10 +656,31 @@ export default function NotificationCenterBell({
                   }}
                   className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg cursor-pointer"
                   title="Kapat"
+                  aria-label="Bildirimi Kapat"
                 >
                   <X size={14} />
                 </button>
               </div>
+
+              {isAcoustic && (
+                <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-bold">
+                  {cr.agent_name && (
+                    <span className="px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200">
+                      Temsilci: {cr.agent_name}
+                    </span>
+                  )}
+                  {cr.queue_name && (
+                    <span className="px-2 py-0.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300">
+                      Kuyruk: {cr.queue_name}
+                    </span>
+                  )}
+                  {Number(cr.max_delta_db) > 0 && (
+                    <span className="px-2 py-0.5 rounded-lg bg-rose-500/15 text-rose-600 dark:text-rose-400">
+                      +{cr.max_delta_db} dB · {cr.shout_seconds || 0} sn
+                    </span>
+                  )}
+                </div>
+              )}
 
               <p className="text-[11px] text-slate-600 dark:text-slate-300 bg-rose-50/70 dark:bg-rose-950/30 border border-rose-200/60 dark:border-rose-900/40 rounded-xl px-3 py-2 italic">
                 &ldquo;{cr.body}&rdquo;
@@ -651,7 +736,8 @@ export default function NotificationCenterBell({
                 )}
               </div>
             </div>
-          ))}
+            );
+          })}
 
           {/* 2. Due Callback Reminders */}
           {activeDuePopups.map((cb) => (

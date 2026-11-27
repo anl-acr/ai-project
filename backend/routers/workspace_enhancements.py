@@ -793,9 +793,29 @@ async def delete_scheduled_callback(
 # 3. CANLI KRİZ / NEGATİF DUYGU ALARMI (Live Crisis & Negative Sentiment Radar)
 # ---------------------------------------------------------------------------
 
-async def _compute_crisis_alerts_internal(db: AsyncSession, tenant_id: str) -> List[Dict[str, Any]]:
+async def _compute_crisis_alerts_internal(
+    db: AsyncSession,
+    tenant_id: str,
+    user_id: str = "",
+    user_ext: str = "",
+    user_role: str = "",
+) -> List[Dict[str, Any]]:
     now_utc = datetime.datetime.utcnow()
     cutoff_utc = now_utc - datetime.timedelta(minutes=90)
+
+    # Pull live customer acoustic shout alerts already scoped strictly to this user's managed queues (PBXQueue.supervisors)
+    acoustic_by_call: Dict[str, Dict[str, Any]] = {}
+    try:
+        from backend.services.acoustic_shout_service import get_live_acoustic_alerts
+        for ac in get_live_acoustic_alerts(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            user_ext=user_ext,
+            user_role=user_role,
+        ):
+            acoustic_by_call[str(ac.get("call_id") or "")] = ac
+    except Exception:
+        pass
 
     stmt_active = _apply_tenant_filter(select(Call), Call, tenant_id).where(
         Call.status == "in_progress",
@@ -803,22 +823,23 @@ async def _compute_crisis_alerts_internal(db: AsyncSession, tenant_id: str) -> L
     )
     res_active = await db.execute(stmt_active)
     active_calls = res_active.scalars().all()
-    if not active_calls:
+    if not active_calls and not acoustic_by_call:
         return []
 
     call_ids = [c.id for c in active_calls]
-    stmt_tr = (
-        select(Transcript)
-        .where(Transcript.call_id.in_(call_ids))
-        .order_by(desc(Transcript.timestamp))
-        .limit(120)
-    )
-    res_tr = await db.execute(stmt_tr)
     by_call: Dict[str, List[Transcript]] = {}
-    for tr in res_tr.scalars().all():
-        bucket = by_call.setdefault(tr.call_id, [])
-        if len(bucket) < 10:
-            bucket.append(tr)
+    if call_ids:
+        stmt_tr = (
+            select(Transcript)
+            .where(Transcript.call_id.in_(call_ids))
+            .order_by(desc(Transcript.timestamp))
+            .limit(120)
+        )
+        res_tr = await db.execute(stmt_tr)
+        for tr in res_tr.scalars().all():
+            bucket = by_call.setdefault(tr.call_id, [])
+            if len(bucket) < 10:
+                bucket.append(tr)
 
     # Resolve contact names in bulk
     stmt_contacts = _apply_tenant_filter(select(Contact), Contact, tenant_id).limit(500)
@@ -829,53 +850,76 @@ async def _compute_crisis_alerts_internal(db: AsyncSession, tenant_id: str) -> L
         if c.phone_number
     }
 
+    role_l = str(user_role or "").strip().lower()
+    uid_s = str(user_id or "").strip()
+    is_privileged_role = role_l in ("admin", "supervisor", "superadmin", "manager", "sef") or uid_s.lower() == "admin"
+
     alerts: List[Dict[str, Any]] = []
+    handled_call_ids: set = set()
     for call in active_calls:
+        cid_s = str(call.id)
+        ac_info = acoustic_by_call.get(cid_s)
         utts = by_call.get(call.id, [])
         matched_crit: List[str] = []
         matched_warn: List[str] = []
         latest_customer_text = ""
 
-        for t in utts:
-            spk = str(t.speaker or "").lower()
-            txt_raw = (t.text or "").strip()
-            txt_low = txt_raw.lower()
-            is_cust = spk not in ("ai", "agent", "supervisor_whisper", "system")
-            if is_cust and not latest_customer_text and txt_raw:
-                latest_customer_text = txt_raw
-            if is_cust:
-                for kw in CRISIS_CRITICAL_KEYWORDS:
-                    if kw in txt_low and kw not in matched_crit:
-                        matched_crit.append(kw)
-                for kw in CRISIS_WARNING_KEYWORDS:
-                    if kw in txt_low and kw not in matched_warn:
-                        matched_warn.append(kw)
+        if is_privileged_role:
+            for t in utts:
+                spk = str(t.speaker or "").lower()
+                txt_raw = (t.text or "").strip()
+                txt_low = txt_raw.lower()
+                is_cust = spk not in ("ai", "agent", "supervisor_whisper", "system")
+                if is_cust and not latest_customer_text and txt_raw:
+                    latest_customer_text = txt_raw
+                if is_cust:
+                    for kw in CRISIS_CRITICAL_KEYWORDS:
+                        if kw in txt_low and kw not in matched_crit:
+                            matched_crit.append(kw)
+                    for kw in CRISIS_WARNING_KEYWORDS:
+                        if kw in txt_low and kw not in matched_warn:
+                            matched_warn.append(kw)
 
         sent_low = str(call.sentiment or "").lower()
-        explicit_neg = any(w in sent_low for w in ("negatif", "negative", "kızgın", "angry", "kriz", "gergin"))
+        explicit_neg = is_privileged_role and any(w in sent_low for w in ("negatif", "negative", "kızgın", "öfkeli", "angry", "kriz", "gergin"))
 
-        score = len(matched_crit) * 3 + len(matched_warn) * 1 + (2 if explicit_neg else 0)
+        text_score = len(matched_crit) * 3 + len(matched_warn) * 1 + (2 if explicit_neg else 0)
+        acoustic_score = 4 if (ac_info and ac_info.get("severity") == "critical") else (3 if ac_info else 0)
+        score = text_score + acoustic_score
         if score <= 0:
             continue
 
-        severity = "critical" if (matched_crit or score >= 3) else "warning"
+        handled_call_ids.add(cid_s)
+        severity = "critical" if (matched_crit or score >= 3 or (ac_info and ac_info.get("severity") == "critical")) else "warning"
         dur_sec = max(0, int((now_utc - call.start_time.replace(tzinfo=None)).total_seconds())) if call.start_time else 0
         norm_caller = _normalize_phone_10(call.caller_number)
         caller_name = contact_map.get(norm_caller, "")
 
-        alerts.append({
+        alert_entry: Dict[str, Any] = {
             "call_id": call.id,
+            "alert_type": "acoustic_shout" if ac_info else "text_crisis",
             "caller_number": call.caller_number,
             "caller_name": caller_name,
             "callee_number": call.callee_number,
-            "agent_name": call.agent_name or "Yapay Zeka / Kuyruk",
+            "agent_name": (ac_info.get("agent_name") if ac_info else None) or call.agent_name or "Yapay Zeka / Kuyruk",
+            "queue_name": (ac_info.get("queue_name") if ac_info else "") or "",
             "severity": severity,
             "score": score,
             "matched_keywords": (matched_crit + matched_warn)[:5],
             "latest_customer_text": latest_customer_text[:200],
             "duration_sec": dur_sec,
             "started_at": call.start_time.isoformat() if call.start_time else now_utc.isoformat(),
-        })
+        }
+        if ac_info:
+            alert_entry.update({
+                "shout_count": ac_info.get("shout_count", 1),
+                "shout_seconds": ac_info.get("shout_seconds", 0),
+                "peak_dbfs": ac_info.get("peak_dbfs", 0),
+                "max_delta_db": ac_info.get("max_delta_db", 0),
+                "stress_score": ac_info.get("stress_score", 70),
+                "alert_sound": bool(ac_info.get("alert_sound", True)),
+            })
+        alerts.append(alert_entry)
 
     alerts.sort(key=lambda a: (0 if a["severity"] == "critical" else 1, -a["score"]))
     return alerts
@@ -887,7 +931,13 @@ async def get_live_crisis_alerts(
     db: AsyncSession = Depends(get_db),
 ):
     ctx = _extract_ctx(request)
-    alerts = await _compute_crisis_alerts_internal(db, ctx["tenant_id"])
+    alerts = await _compute_crisis_alerts_internal(
+        db,
+        ctx["tenant_id"],
+        user_id=str(ctx.get("user_id") or ""),
+        user_ext=str(ctx.get("extension") or ""),
+        user_role=str(ctx.get("role") or ""),
+    )
     return {"alerts": alerts, "count": len(alerts)}
 
 
@@ -919,26 +969,55 @@ async def get_in_app_notifications(
 
     notifications: List[Dict[str, Any]] = []
 
-    # A) Live Crisis Alerts (for privileged / supervisor roles)
-    if is_privileged:
-        crisis_list = await _compute_crisis_alerts_internal(db, tenant_id)
-        for cr in crisis_list:
-            nid = f"crisis::{cr['call_id']}"
-            if nid in user_read_ids:
-                continue
+    # A) Live Crisis & Acoustic Customer Shout Alerts (scoped strictly to queue supervisors / admins)
+    crisis_list = await _compute_crisis_alerts_internal(
+        db,
+        tenant_id,
+        user_id=uid,
+        user_ext=ext,
+        user_role=role,
+    )
+    for cr in crisis_list:
+        is_acoustic = cr.get("alert_type") == "acoustic_shout"
+        if not is_privileged and not is_acoustic:
+            continue
+        nid = f"crisis::{cr['call_id']}"
+        if nid in user_read_ids:
+            continue
+        if is_acoustic:
+            q_part = f" ({cr['queue_name']})" if cr.get("queue_name") else ""
+            delta_s = f"+{cr.get('max_delta_db', 0)} dB"
+            title_txt = f"Müşteri Bağırma Alarmı: {cr['caller_name'] or cr['caller_number']}"
+            body_txt = (
+                f"Müşteri, {cr.get('agent_name') or 'Temsilci'}{q_part} ile görüşmede sesini yükseltti "
+                f"({delta_s} · {cr.get('shout_seconds', 0)} sn · {cr.get('shout_count', 1)} kez)."
+            )
+            if cr.get("latest_customer_text"):
+                body_txt += f" \"{cr['latest_customer_text'][:100]}\""
+        else:
             kw_str = ", ".join(cr["matched_keywords"][:3]) if cr["matched_keywords"] else "Negatif ses/duygu"
-            notifications.append({
-                "id": nid,
-                "category": "crisis",
-                "severity": "critical" if cr["severity"] == "critical" else "warning",
-                "title": f"Canlı Kriz Alarmı: {cr['caller_name'] or cr['caller_number']}",
-                "body": cr["latest_customer_text"] or f"Tespit edilen: {kw_str}",
-                "timestamp": cr["started_at"],
-                "unread": True,
-                "target_tab": "dashboard",
-                "phone": cr["caller_number"],
-                "call_id": cr["call_id"],
-            })
+            title_txt = f"Canlı Kriz Alarmı: {cr['caller_name'] or cr['caller_number']}"
+            body_txt = cr["latest_customer_text"] or f"Tespit edilen: {kw_str}"
+        notifications.append({
+            "id": nid,
+            "category": "crisis",
+            "alert_type": cr.get("alert_type") or "text_crisis",
+            "severity": "critical" if cr["severity"] == "critical" else "warning",
+            "title": title_txt,
+            "body": body_txt,
+            "timestamp": cr["started_at"],
+            "unread": True,
+            "target_tab": "dashboard",
+            "phone": cr["caller_number"],
+            "call_id": cr["call_id"],
+            "agent_name": cr.get("agent_name") or "",
+            "queue_name": cr.get("queue_name") or "",
+            "shout_count": cr.get("shout_count", 0),
+            "shout_seconds": cr.get("shout_seconds", 0),
+            "max_delta_db": cr.get("max_delta_db", 0),
+            "stress_score": cr.get("stress_score", 0),
+            "alert_sound": bool(cr.get("alert_sound", False)),
+        })
 
     # B) Scheduled Callbacks (Due now or within 30 mins)
     cb_key = f"callback_tasks::{tenant_key}"
