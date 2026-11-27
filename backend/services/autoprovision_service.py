@@ -293,75 +293,65 @@ def build_system_default_templates() -> List[Dict[str, Any]]:
 """
         elif b_low == "fanvil":
             fmt = "cfg"
-            content = f"""<<VOIP CONFIG FILE>>Version:2.0000
+            content = f"""<<VOIP CONFIG FILE>>Version:2.0002
 # Nornia Sistem Şablonu: Fanvil {m} ({item['dss_per_page']}×{item['dss_pages']} = {item['max_dss']} DSS{exp_note})
 
 <GLOBAL CONFIG MODULE>
-Enable SNTP          :1
-SNTP Server          :{{NTP_SERVER}}
-Second SNTP Server   :pool.ntp.org
-SNTP Timeout         :60
-Time Zone            :{{FANVIL_TZ_INDEX}}
-Time Zone Name       :{{FANVIL_TZ_NAME}}
-Enable DST           :0
-
-<AUTOUPDATE CONFIG MODULE>
-Auto Server URL      :{{PROVISION_URL}}
-Update Mode          :1
-SIP Notify Update    :1
+Enable SNTP        :1
+SNTP Server        :{{NTP_SERVER}}
+Second SNTP Server :pool.ntp.org
+SNTP Timeout       :60
+Time Zone          :{{FANVIL_TZ_INDEX}}
+Time Zone Name     :{{FANVIL_TZ_NAME}}
+Enable DST         :0
+Language           :{{FANVIL_LANG_CODE}}
+Enable Call History:1
+{{FANVIL_PHONE_SYNC_BLOCK}}
 
 <SIP CONFIG MODULE>
+Notify Reboot      :0
 --SIP Line List--  :
-SIP1 Enable          :1
-SIP1 Enable Reg      :1
-SIP1 Phone Number    :{{SIP_USERNAME}}
-SIP1 Display Name    :{{LABEL}}
-SIP1 Sip Name        :{{DISPLAY_NAME}}
-SIP1 Register Addr   :{{SIP_SERVER}}
-SIP1 Register Port   :{{SIP_PORT}}
-SIP1 Register User   :{{SIP_USERNAME}}
-SIP1 Register Pswd   :{{SIP_PASSWORD}}
-SIP1 Register TTL    :300
-SIP1 Transport       :{{TRANSPORT_CODE}}
-SIP1 Rport           :1
-SIP1 Keep Alive Type :1
-SIP1 Keep Alive Intvl:30
-SIP1 Subscribe Expire:1800
-SIP1 MWI Num         :{{VOICEMAIL_CODE}}
-SIP1 Ring Type       :{{RINGTONE}}
+SIP1 Phone Number  :{{SIP_USERNAME}}
+SIP1 Display Name  :{{LABEL}}
+SIP1 Sip Name      :{{DISPLAY_NAME}}
+SIP1 Register Addr :{{SIP_SERVER}}
+SIP1 Register Port :{{SIP_PORT}}
+SIP1 Register User :{{SIP_USERNAME}}
+SIP1 Register Pswd :{{SIP_PASSWORD}}
+SIP1 Register TTL  :300
+SIP1 Enable Reg    :1
+SIP1 Proxy Addr    :{{SIP_SERVER}}
+SIP1 Proxy Port    :{{SIP_PORT}}
+SIP1 Proxy User    :{{SIP_USERNAME}}
+SIP1 Proxy Pswd    :{{SIP_PASSWORD}}
+SIP1 Transport     :{{TRANSPORT_CODE}}
+SIP1 Enable Rport  :1
+SIP1 NAT UDPUpdate :2
+SIP1 UDPUpdate TTL :30
+SIP1 Sub Expire    :1800
+SIP1 MWI Num       :{{VOICEMAIL_CODE}}
+SIP1 Ring Type     :{{RINGTONE}}
 {{FANVIL_SIP_SYNC_BLOCK}}
 
 <PHONE CONFIG MODULE>
-Time Display 24H     :{{TIME_FORMAT_24_BIT}}
-Backlight Level      :{{BACKLIGHT_ACTIVE}}
-Language             :{{LANGUAGE}}
-{{FANVIL_PHONE_SYNC_BLOCK}}
+Time Display Style :{{TIME_FORMAT_24_BIT}}
+--Xml PhoneBook--  :
+XML-PBook1 Name    :Rehber
+XML-PBook1 Addr    :{{PHONEBOOK_URL}}
+XML-PBook1 Auth    :
+XML-PBook1 Policy  :0
+XML-PBook1 Sipline :0
+XML-PBook1 BindLine:0
+--Function Key--   :
+Fkey1 Type         :2
+Fkey1 Value        :SIP1
+Fkey1 Title        :{{LABEL}}
 
 {{SOFTKEYS_BLOCK}}
 
 <DSSKEY CONFIG MODULE>
 {{DSS_KEYS_BLOCK}}
 {{EXPANSION_MODULES_BLOCK}}
-
-<PHONEBOOK CONFIG MODULE>
---Xml PhoneBook--  :
-XML-PBook1 Name    :Nornia Telefon Rehberi
-XML-PBook1 Addr    :{{PHONEBOOK_URL}}
-XML-PBook1 Auth    :
-XML-PBook1 Policy  :0
-XML-PBook1 Sipline :0
-XML-PBook1 BindLine:0
-
-<TELEPHONE BOOK MODULE>
---Xml PhoneBook--  :
-XML-PBook1 Name    :Nornia Telefon Rehberi
-XML-PBook1 Addr    :{{PHONEBOOK_URL}}
-XML-PBook1 Auth    :
-XML-PBook1 Policy  :0
-XML-PBook1 Sipline :0
-XML-PBook1 BindLine:0
-Phonebook Cloud1 Name :Nornia Telefon Rehberi
-Phonebook Cloud1 URL  :{{PHONEBOOK_URL}}
 
 <<END OF FILE>>
 """
@@ -1981,11 +1971,29 @@ def _resolve_grandstream_lang_code(eff_language: str) -> str:
     return "tr"
 
 
+def _resolve_fanvil_lang_code(eff_language: Any) -> str:
+    """Maps Nornia language preference to Fanvil X/V-Series numeric Language index (9 = Turkish, 0 = English)."""
+    low = str(eff_language or "Turkish").strip().lower()
+    if low in ("tr", "turkish", "türkçe", "turkce"):
+        return "9"
+    if low in ("en", "english", "ingilizce"):
+        return "0"
+    if low in ("de", "german", "almanca"):
+        return "4"
+    if low in ("fr", "french", "fransızca", "fransizca"):
+        return "5"
+    if low in ("ru", "russian", "rusça", "rusca"):
+        return "6"
+    if low in ("es", "spanish", "ispanyolca"):
+        return "8"
+    return "9"
+
+
 def _build_fanvil_softkey_lines(soft_list: List[Dict[str, Any]]) -> List[str]:
     """
-    Generates Fanvil X/V-Series `<PHONE CONFIG MODULE>` Desktop Softkey layout matching the
+    Generates Fanvil X/V-Series `<SCREEN KEY CONFIG MODULE>` Desktop Softkey layout matching the
     4-button idle screen bar configured in the Nornia Visual Deskphone Editor
-    (default: `history;contact;cfwd;menu;` -> Geçmiş | Rehber | Yönlendir | Menü).
+    (default: `history;xml;cfwd;menu;` -> Geçmiş | Bulut Rehber (R-XML) | Yönlendir | Menü).
     """
     effective_softs = soft_list if soft_list else [
         {"key_index": 1, "type": "history", "label": "Geçmiş", "value": ""},
@@ -1996,15 +2004,15 @@ def _build_fanvil_softkey_lines(soft_list: List[Dict[str, Any]]) -> List[str]:
     ordered = sorted(effective_softs, key=lambda s: int(s.get("key_index") or 99))[:4]
     token_map = {
         "history": "history",
-        "directory": "contact",
+        "directory": "xml",
         "forward": "cfwd",
         "dnd": "dnd",
         "menu": "menu",
         "redial": "redial",
-        "voicemail": "sms",
+        "voicemail": "mwi",
         "pickup": "pickup",
         "transfer": "xfer",
-        "speed_dial": "contact",
+        "speed_dial": "xml",
     }
     tokens: List[str] = []
     for sk in ordered:
@@ -2013,12 +2021,13 @@ def _build_fanvil_softkey_lines(soft_list: List[Dict[str, Any]]) -> List[str]:
         if tok:
             tokens.append(tok)
     if not tokens:
-        tokens = ["history", "contact", "cfwd", "menu"]
+        tokens = ["history", "xml", "cfwd", "menu"]
     desktop_val = ";".join(tokens) + ";"
     return [
         "<SCREEN KEY CONFIG MODULE>",
         f"Desktop Softkey    :{desktop_val}",
-        "Softkey Mode       :0",
+        "Softkey Mode       :1",
+        "Softkey Exit Style :1",
     ]
 
 
@@ -2519,6 +2528,7 @@ def generate_provisioning_config(
             "{BACKLIGHT_ACTIVE}": str(prefs["backlight_active"]),
             "{BACKLIGHT_ACTIVE_PCT}": str(max(10, min(100, prefs["backlight_active"] * 10))),
             "{LANGUAGE}": eff_language,
+            "{FANVIL_LANG_CODE}": _resolve_fanvil_lang_code(eff_language),
             "{GS_LANGUAGE_CODE}": _resolve_grandstream_lang_code(eff_language),
             "{TIMEZONE}": str(timezone or "+3").strip() or "+3",
             "{TIMEZONE_NAME}": "Turkey(Ankara)" if str(timezone or "+3").strip() in ("+3", "Europe/Istanbul") else str(timezone or "+3"),
@@ -2738,70 +2748,138 @@ def generate_provisioning_config(
         fv_tr = "2" if tr_up == "TLS" else ("1" if tr_up == "TCP" else "0")
         fv_tz_idx, fv_tz_name = _resolve_fanvil_timezone(timezone)
         fv_ntp = str(ntp_server or "pool.ntp.org").strip() or "pool.ntp.org"
+        fv_lang_code = _resolve_fanvil_lang_code(eff_language)
+
+        # Build XML Cloud PhoneBook entries (Fanvil 2.10+ reads --Xml PhoneBook-- inside <PHONE CONFIG MODULE>)
+        fv_pb_xml_lines: List[str] = ["--Xml PhoneBook--  :"]
+        if pb_list:
+            for pb_idx, pb_item in enumerate(pb_list[:8], start=1):
+                pb_id = str(pb_item.get("id"))
+                pb_nm = str(pb_item.get("name") or f"Rehber {pb_idx}")
+                pb_url = f"{pb_base}/{pb_id}/fanvil.xml"
+                fv_pb_xml_lines.extend([
+                    f"XML-PBook{pb_idx} Name    :{pb_nm}",
+                    f"XML-PBook{pb_idx} Addr    :{pb_url}",
+                    f"XML-PBook{pb_idx} Auth    :",
+                    f"XML-PBook{pb_idx} Policy  :0",
+                    f"XML-PBook{pb_idx} Sipline :0",
+                    f"XML-PBook{pb_idx} BindLine:0",
+                ])
+        else:
+            pb_url_def = f"{pb_base}/{ext_s or 'all'}/fanvil.xml"
+            fv_pb_xml_lines.extend([
+                "XML-PBook1 Name    :Rehber",
+                f"XML-PBook1 Addr    :{pb_url_def}",
+                "XML-PBook1 Auth    :",
+                "XML-PBook1 Policy  :0",
+                "XML-PBook1 Sipline :0",
+                "XML-PBook1 BindLine:0",
+            ])
+
+        # Build X3S/X3SP Function Keys (--Function Key-- inside <PHONE CONFIG MODULE>)
+        fv_fkey_lines: List[str] = ["--Function Key--   :"]
+        for k in dss_list[:11]:
+            idx = int(k.get("key_index") or 1)
+            ktype = str(k.get("type") or "none")
+            klbl = str(k.get("label") or "")
+            kval = str(k.get("value") or "")
+            pickup = str(k.get("pickup_code") or pickup_directed)
+            if ktype == "line":
+                fv_fkey_lines.extend([
+                    f"Fkey{idx} Type         :2",
+                    f"Fkey{idx} Value        :SIP1",
+                    f"Fkey{idx} Title        :{klbl or line_label}",
+                ])
+            elif ktype == "blf" and kval:
+                fv_fkey_lines.extend([
+                    f"Fkey{idx} Type         :1",
+                    f"Fkey{idx} Value        :{kval}@1/ba{pickup}{kval}",
+                    f"Fkey{idx} Title        :{klbl}",
+                ])
+            elif ktype in ("speed_dial", "voicemail", "park", "forward", "dtmf") and (kval or ktype == "voicemail"):
+                eff_v = kval or "*97"
+                fv_fkey_lines.extend([
+                    f"Fkey{idx} Type         :1",
+                    f"Fkey{idx} Value        :{eff_v}@1/f",
+                    f"Fkey{idx} Title        :{klbl}",
+                ])
+            elif ktype == "intercom" and kval:
+                fv_fkey_lines.extend([
+                    f"Fkey{idx} Type         :1",
+                    f"Fkey{idx} Value        :{kval}@1/i",
+                    f"Fkey{idx} Title        :{klbl}",
+                ])
+            elif ktype in ("dnd", "hold", "transfer", "conference", "pickup"):
+                fv_ev_map = {"dnd": "F_DND", "hold": "F_HOLD", "transfer": "F_TRANSFER", "conference": "F_CONF", "pickup": "F_PICKUP"}
+                fv_fkey_lines.extend([
+                    f"Fkey{idx} Type         :3",
+                    f"Fkey{idx} Value        :{fv_ev_map.get(ktype, 'F_DND')}",
+                    f"Fkey{idx} Title        :{klbl}",
+                ])
+
         fv_lines = [
-            "<<VOIP CONFIG FILE>>Version:2.0000",
+            "<<VOIP CONFIG FILE>>Version:2.0002",
             f"# AIDA PBX Fanvil Auto-Provisioning ({model}) | Ext: {ext_s} | SIP Endpoint: {sip_u}",
             "",
             "<GLOBAL CONFIG MODULE>",
-            "Enable SNTP          :1",
-            f"SNTP Server          :{fv_ntp}",
-            "Second SNTP Server   :pool.ntp.org",
-            "SNTP Timeout         :60",
-            f"Time Zone            :{fv_tz_idx}",
-            f"Time Zone Name       :{fv_tz_name}",
-            "Enable DST           :0",
-            "",
-            "<AUTOUPDATE CONFIG MODULE>",
-            f"Auto Server URL      :{provision_server_url}" if provision_server_url else "Auto Server URL      :",
-            "Update Mode          :1",
-            "SIP Notify Update    :1",
-            *fw_fanvil_lines,
+            "Enable SNTP        :1",
+            f"SNTP Server        :{fv_ntp}",
+            "Second SNTP Server :pool.ntp.org",
+            "SNTP Timeout       :60",
+            f"Time Zone          :{fv_tz_idx}",
+            f"Time Zone Name     :{fv_tz_name}",
+            "Enable DST         :0",
+            f"Language           :{fv_lang_code}",
+            "Enable Call History:1",
+            *fanvil_phone_sync_lines,
             "",
             "<SIP CONFIG MODULE>",
+            "Notify Reboot      :0",
             "--SIP Line List--  :",
-            "SIP1 Enable          :1",
-            "SIP1 Enable Reg      :1",
-            f"SIP1 Phone Number    :{sip_u}",
-            f"SIP1 Display Name    :{line_label}",
-            f"SIP1 Sip Name        :{disp_name}",
-            f"SIP1 Register Addr   :{pbx_host}",
-            f"SIP1 Register Port   :{sip_port}",
-            f"SIP1 Register User   :{sip_u}",
-            f"SIP1 Register Pswd   :{sip_password}",
-            "SIP1 Register TTL    :300",
-            f"SIP1 Transport       :{fv_tr}",
-            "SIP1 Rport           :1",
-            "SIP1 Keep Alive Type :1",
-            "SIP1 Keep Alive Intvl:30",
-            "SIP1 Subscribe Expire:1800",
-            "SIP1 MWI Num         :*97",
-            f"SIP1 Auto Answer     :{1 if eff_auto_answer else 0}",
-            f"SIP1 Ring Type       :{prefs['ringtone']}",
+            f"SIP1 Phone Number  :{sip_u}",
+            f"SIP1 Display Name  :{line_label}",
+            f"SIP1 Sip Name      :{disp_name}",
+            f"SIP1 Register Addr :{pbx_host}",
+            f"SIP1 Register Port :{sip_port}",
+            f"SIP1 Register User :{sip_u}",
+            f"SIP1 Register Pswd :{sip_password}",
+            "SIP1 Register TTL  :300",
+            "SIP1 Enable Reg    :1",
+            f"SIP1 Proxy Addr    :{pbx_host}",
+            f"SIP1 Proxy Port    :{sip_port}",
+            f"SIP1 Proxy User    :{sip_u}",
+            f"SIP1 Proxy Pswd    :{sip_password}",
+            f"SIP1 Transport     :{fv_tr}",
+            "SIP1 Enable Rport  :1",
+            "SIP1 NAT UDPUpdate :2",
+            "SIP1 UDPUpdate TTL :30",
+            "SIP1 Sub Expire    :1800",
+            "SIP1 MWI Num       :*97",
+            f"SIP1 Auto Answer   :{1 if eff_auto_answer else 0}",
+            f"SIP1 Ring Type     :{prefs['ringtone']}",
             *fanvil_sip_sync_lines,
             "",
             "<PHONE CONFIG MODULE>",
-            f"Call Waiting         :{1 if prefs['call_waiting'] else 0}",
-            f"Call Waiting Tone    :{1 if prefs['call_waiting_tone'] else 0}",
-            f"Intercom Mute        :{1 if prefs['intercom_mute'] else 0}",
-            f"Time Display 24H     :{1 if prefs['time_format'] == '24' else 0}",
-            f"Backlight Level      :{prefs['backlight_active']}",
-            f"Backlight Idle       :{prefs['backlight_inactive']}",
-            f"Backlight Timeout    :{prefs['backlight_timeout']}",
-            f"Screensaver Timeout  :{prefs['screensaver_wait']}",
-            f"Ring Volume          :{prefs['ring_volume']}",
-            f"Handset Volume       :{prefs['handset_volume']}",
-            f"Speaker Volume       :{prefs['speaker_volume']}",
-            f"Headset Volume       :{prefs['headset_volume']}",
-            f"Missed Call LED      :{1 if prefs['missed_call_led'] else 0}",
-            f"MWI LED              :{1 if prefs['mwi_led'] else 0}",
-            f"Language             :{eff_language}",
-            *fanvil_phone_sync_lines,
+            f"Time Display Style :{0 if prefs['time_format'] == '24' else 1}",
+            f"Backlight Off Time :{prefs['backlight_timeout']}",
+            f"ScrnSaver Wait Time:{prefs['screensaver_wait']}",
+            f"Miss Call Power Led:{1 if prefs['missed_call_led'] else 0}",
+            f"SMS MWI Power Led  :{1 if prefs['mwi_led'] else 0}",
+            *fv_pb_xml_lines,
+            *fv_fkey_lines,
             "",
             *_build_fanvil_softkey_lines(soft_list),
             "",
+            "<AUTOUPDATE CONFIG MODULE>",
+            "Save Provision Info:1",
+            "Download CommonConf:0",
+            "Download DeviceConf:1",
+            "Download Mode      :1",
+            *fw_fanvil_lines,
+            "",
             "<DSSKEY CONFIG MODULE>",
         ]
-        # Fanvil DSS Type: 1=MemoryKey(BLF/SpeedDial/Intercom/Park), 2=Line, 3=KeyEvent(DND/Hold/Transfer/Conf/Pickup)
+        # Fanvil DSS Type (X4U/X5U/X6U/X7/V6x): 1=MemoryKey(BLF/SpeedDial/Intercom/Park), 2=Line, 3=KeyEvent
         for k in dss_list:
             idx = int(k.get("key_index") or 1)
             ktype = str(k.get("type") or "none")
@@ -2853,46 +2931,6 @@ def generate_provisioning_config(
                     fv_lines.append(f"Ext{m_idx}Key{ek_idx} Value      :{ek_val}@1/f")
                     fv_lines.append(f"Ext{m_idx}Key{ek_idx} Title      :{ek_lbl}")
 
-        fv_pb_xml_lines: List[str] = ["--Xml PhoneBook--  :"]
-        fv_pb_cloud_lines: List[str] = []
-        if pb_list:
-            for pb_idx, pb_item in enumerate(pb_list[:8], start=1):
-                pb_id = str(pb_item.get("id"))
-                pb_nm = str(pb_item.get("name") or f"Rehber {pb_idx}")
-                pb_url = f"{pb_base}/{pb_id}/fanvil.xml"
-                fv_pb_xml_lines.extend([
-                    f"XML-PBook{pb_idx} Name    :{pb_nm}",
-                    f"XML-PBook{pb_idx} Addr    :{pb_url}",
-                    f"XML-PBook{pb_idx} Auth    :",
-                    f"XML-PBook{pb_idx} Policy  :0",
-                    f"XML-PBook{pb_idx} Sipline :0",
-                    f"XML-PBook{pb_idx} BindLine:0",
-                ])
-                if pb_idx <= 5:
-                    fv_pb_cloud_lines.append(f"Phonebook Cloud{pb_idx} Name :{pb_nm}")
-                    fv_pb_cloud_lines.append(f"Phonebook Cloud{pb_idx} URL  :{pb_url}")
-        else:
-            pb_url_def = f"{pb_base}/{ext_s or 'all'}/fanvil.xml"
-            fv_pb_xml_lines.extend([
-                "XML-PBook1 Name    :Nornia Telefon Rehberi",
-                f"XML-PBook1 Addr    :{pb_url_def}",
-                "XML-PBook1 Auth    :",
-                "XML-PBook1 Policy  :0",
-                "XML-PBook1 Sipline :0",
-                "XML-PBook1 BindLine:0",
-            ])
-            fv_pb_cloud_lines.extend([
-                "Phonebook Cloud1 Name :Nornia Telefon Rehberi",
-                f"Phonebook Cloud1 URL  :{pb_url_def}",
-            ])
-
-        fv_lines.append("")
-        fv_lines.append("<PHONEBOOK CONFIG MODULE>")
-        fv_lines.extend(fv_pb_xml_lines)
-        fv_lines.append("")
-        fv_lines.append("<TELEPHONE BOOK MODULE>")
-        fv_lines.extend(fv_pb_xml_lines)
-        fv_lines.extend(fv_pb_cloud_lines)
         fv_lines.append("")
         fv_lines.append("<<END OF FILE>>")
         fname = f"{mac_hex}.cfg" if mac_hex else f"fanvil_{ext_s}.cfg"

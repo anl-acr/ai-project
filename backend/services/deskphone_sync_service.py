@@ -460,27 +460,23 @@ def build_fanvil_sync_sip_lines(
 
     return [
         "# --- Nornia Cift Yonlu DND & Cagri Yonlendirme (Fanvil SIP1 <-> Santral) ---",
-        "SIP1 Feature Sync    :1",
-        "SIP1 Enable Feature Sync:1",
-        f"SIP1 Enable DND      :{dnd_bit}",
-        "SIP1 DND On Code     :*78",
-        "SIP1 DND Off Code    :*79",
-        "SIP1 Fwd Service     :1",
-        f"SIP1 Fwd Always      :{alw_bit}",
-        f"SIP1 Fwd Always Num  :{alw_target}",
-        f"SIP1 Fwd Always On   :{p_always}",
-        f"SIP1 Fwd Always Off  :{p_always_off}",
-        f"SIP1 Fwd Busy        :{bsy_bit}",
-        f"SIP1 Fwd Busy Num    :{bsy_target}",
-        f"SIP1 Fwd Busy On     :{p_busy}",
-        f"SIP1 Fwd Busy Off    :{p_busy_off}",
-        f"SIP1 Fwd No Answer   :{noa_bit}",
-        f"SIP1 Fwd No Ans Num  :{noa_target}",
-        f"SIP1 Fwd Timer       :{noa_timeout}",
-        f"SIP1 Fwd No Ans On   :{p_noans}",
-        f"SIP1 Fwd No Ans Off  :{p_noans_off}",
-        f"SIP1 FWD Type        :{legacy_fwd_type}",
-        f"SIP1 FWD Number      :{legacy_fwd_num}",
+        "SIP1 Feature Sync  :1",
+        f"SIP1 Enable DND    :{dnd_bit}",
+        "SIP1 DNDOn SvcCode :*78",
+        "SIP1 DNDOff SvcCode:*79",
+        f"SIP1 Always FWD    :{alw_bit}",
+        f"SIP1 Always FWD Num:{alw_target}",
+        f"SIP1 Busy FWD      :{bsy_bit}",
+        f"SIP1 Busy FWD Num  :{bsy_target}",
+        f"SIP1 No Answer FWD :{noa_bit}",
+        f"SIP1 NoAnswer FWD N:{noa_target}",
+        f"SIP1 FWD Timer     :{noa_timeout}",
+        f"SIP1 CFUOn SvcCode :{p_always}",
+        f"SIP1 CFUOff SvcCode:{p_always_off}",
+        f"SIP1 CFBOn SvcCode :{p_busy}",
+        f"SIP1 CFBOff SvcCode:{p_busy_off}",
+        f"SIP1 CFNOn SvcCode :{p_noans}",
+        f"SIP1 CFNOff SvcCode:{p_noans_off}",
     ]
 
 
@@ -491,17 +487,10 @@ def build_fanvil_sync_phone_lines(
     sync_base_url: str = "",
 ) -> List[str]:
     """
-    Builds Fanvil X/V-Series `<PHONE CONFIG MODULE>` DND mode + authenticated Action URL
-    hooks for instant Fanvil -> Nornia PBX telemetry.
+    Builds Fanvil X/V-Series `<GLOBAL CONFIG MODULE>` authenticated Action URL
+    hooks for instant Fanvil -> Nornia PBX telemetry (exact 2.10+ key names).
     """
-    st = live_state if isinstance(live_state, dict) else extract_user_live_phone_sync_state(None)
-    dnd_bit = 1 if st.get("dnd_enabled") else 0
-
-    lines = [
-        "DND Mode             :0",
-        f"Default DND          :{dnd_bit}",
-    ]
-
+    lines: List[str] = []
     clean_base = str(sync_base_url or "").strip().rstrip("/")
     if clean_base and ext and sip_username:
         sig_tok = compute_phone_sync_token(ext, sip_username)
@@ -509,14 +498,14 @@ def build_fanvil_sync_phone_lines(
         base_ep = f"{clean_base}?{qs_common}"
         lines.extend([
             "# --- Anlik Action URL Senkronizasyonu (Fanvil -> Nornia Santral) ---",
-            f"DND On Url           :{base_ep}&event=dnd_on&mac=$mac&ip=$ip",
-            f"DND Off Url          :{base_ep}&event=dnd_off&mac=$mac&ip=$ip",
-            f"Always FWD On Url    :{base_ep}&event=fwd_always_on&target=$fwd_num&mac=$mac&ip=$ip",
-            f"Always FWD Off Url   :{base_ep}&event=fwd_always_off&mac=$mac&ip=$ip",
-            f"Busy FWD On Url      :{base_ep}&event=fwd_busy_on&target=$fwd_num&mac=$mac&ip=$ip",
-            f"Busy FWD Off Url     :{base_ep}&event=fwd_busy_off&mac=$mac&ip=$ip",
-            f"No Answer FWD On Url :{base_ep}&event=fwd_no_answer_on&target=$fwd_num&mac=$mac&ip=$ip",
-            f"No Answer FWD Off Url:{base_ep}&event=fwd_no_answer_off&mac=$mac&ip=$ip",
+            f"DND On Url         :{base_ep}&event=dnd_on&mac=$mac&ip=$ip",
+            f"DND Off Url        :{base_ep}&event=dnd_off&mac=$mac&ip=$ip",
+            f"Always FWD On Url  :{base_ep}&event=fwd_always_on&target=$fwd_num&mac=$mac&ip=$ip",
+            f"Always FWD Off Url :{base_ep}&event=fwd_always_off&mac=$mac&ip=$ip",
+            f"Busy FWD On Url    :{base_ep}&event=fwd_busy_on&target=$fwd_num&mac=$mac&ip=$ip",
+            f"Busy FWD Off Url   :{base_ep}&event=fwd_busy_off&mac=$mac&ip=$ip",
+            f"No Ans FWD On Url  :{base_ep}&event=fwd_no_answer_on&target=$fwd_num&mac=$mac&ip=$ip",
+            f"No Ans FWD Off Url :{base_ep}&event=fwd_no_answer_off&mac=$mac&ip=$ip",
         ])
 
     return lines
