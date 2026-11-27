@@ -335,14 +335,31 @@ SIP1 Ring Type       :{{RINGTONE}}
 Time Display 24H     :{{TIME_FORMAT_24_BIT}}
 Backlight Level      :{{BACKLIGHT_ACTIVE}}
 Language             :{{LANGUAGE}}
-{{SOFTKEYS_BLOCK}}
 {{FANVIL_PHONE_SYNC_BLOCK}}
+
+{{SOFTKEYS_BLOCK}}
 
 <DSSKEY CONFIG MODULE>
 {{DSS_KEYS_BLOCK}}
 {{EXPANSION_MODULES_BLOCK}}
 
+<PHONEBOOK CONFIG MODULE>
+--Xml PhoneBook--  :
+XML-PBook1 Name    :Nornia Telefon Rehberi
+XML-PBook1 Addr    :{{PHONEBOOK_URL}}
+XML-PBook1 Auth    :
+XML-PBook1 Policy  :0
+XML-PBook1 Sipline :0
+XML-PBook1 BindLine:0
+
 <TELEPHONE BOOK MODULE>
+--Xml PhoneBook--  :
+XML-PBook1 Name    :Nornia Telefon Rehberi
+XML-PBook1 Addr    :{{PHONEBOOK_URL}}
+XML-PBook1 Auth    :
+XML-PBook1 Policy  :0
+XML-PBook1 Sipline :0
+XML-PBook1 BindLine:0
 Phonebook Cloud1 Name :Nornia Telefon Rehberi
 Phonebook Cloud1 URL  :{{PHONEBOOK_URL}}
 
@@ -1999,9 +2016,9 @@ def _build_fanvil_softkey_lines(soft_list: List[Dict[str, Any]]) -> List[str]:
         tokens = ["history", "contact", "cfwd", "menu"]
     desktop_val = ";".join(tokens) + ";"
     return [
-        "# --- Ekran Alti Softkey Duzeni (Fanvil Desktop Softkey) ---",
-        "Softkey Mode         :0",
-        f"Desktop Softkey      :{desktop_val}",
+        "<SCREEN KEY CONFIG MODULE>",
+        f"Desktop Softkey    :{desktop_val}",
+        "Softkey Mode       :0",
     ]
 
 
@@ -2778,8 +2795,9 @@ def generate_provisioning_config(
             f"Missed Call LED      :{1 if prefs['missed_call_led'] else 0}",
             f"MWI LED              :{1 if prefs['mwi_led'] else 0}",
             f"Language             :{eff_language}",
-            *_build_fanvil_softkey_lines(soft_list),
             *fanvil_phone_sync_lines,
+            "",
+            *_build_fanvil_softkey_lines(soft_list),
             "",
             "<DSSKEY CONFIG MODULE>",
         ]
@@ -2835,17 +2853,46 @@ def generate_provisioning_config(
                     fv_lines.append(f"Ext{m_idx}Key{ek_idx} Value      :{ek_val}@1/f")
                     fv_lines.append(f"Ext{m_idx}Key{ek_idx} Title      :{ek_lbl}")
 
-        fv_lines.append("")
-        fv_lines.append("<TELEPHONE BOOK MODULE>")
+        fv_pb_xml_lines: List[str] = ["--Xml PhoneBook--  :"]
+        fv_pb_cloud_lines: List[str] = []
         if pb_list:
-            for pb_idx, pb_item in enumerate(pb_list[:5], start=1):
+            for pb_idx, pb_item in enumerate(pb_list[:8], start=1):
                 pb_id = str(pb_item.get("id"))
                 pb_nm = str(pb_item.get("name") or f"Rehber {pb_idx}")
-                fv_lines.append(f"Phonebook Cloud{pb_idx} Name :{pb_nm}")
-                fv_lines.append(f"Phonebook Cloud{pb_idx} URL  :{pb_base}/{pb_id}/fanvil.xml")
+                pb_url = f"{pb_base}/{pb_id}/fanvil.xml"
+                fv_pb_xml_lines.extend([
+                    f"XML-PBook{pb_idx} Name    :{pb_nm}",
+                    f"XML-PBook{pb_idx} Addr    :{pb_url}",
+                    f"XML-PBook{pb_idx} Auth    :",
+                    f"XML-PBook{pb_idx} Policy  :0",
+                    f"XML-PBook{pb_idx} Sipline :0",
+                    f"XML-PBook{pb_idx} BindLine:0",
+                ])
+                if pb_idx <= 5:
+                    fv_pb_cloud_lines.append(f"Phonebook Cloud{pb_idx} Name :{pb_nm}")
+                    fv_pb_cloud_lines.append(f"Phonebook Cloud{pb_idx} URL  :{pb_url}")
         else:
-            fv_lines.append("Phonebook Cloud1 Name :AIDA Telefon Rehberi")
-            fv_lines.append(f"Phonebook Cloud1 URL  :{pb_base}/{ext_s or 'all'}/fanvil.xml")
+            pb_url_def = f"{pb_base}/{ext_s or 'all'}/fanvil.xml"
+            fv_pb_xml_lines.extend([
+                "XML-PBook1 Name    :Nornia Telefon Rehberi",
+                f"XML-PBook1 Addr    :{pb_url_def}",
+                "XML-PBook1 Auth    :",
+                "XML-PBook1 Policy  :0",
+                "XML-PBook1 Sipline :0",
+                "XML-PBook1 BindLine:0",
+            ])
+            fv_pb_cloud_lines.extend([
+                "Phonebook Cloud1 Name :Nornia Telefon Rehberi",
+                f"Phonebook Cloud1 URL  :{pb_url_def}",
+            ])
+
+        fv_lines.append("")
+        fv_lines.append("<PHONEBOOK CONFIG MODULE>")
+        fv_lines.extend(fv_pb_xml_lines)
+        fv_lines.append("")
+        fv_lines.append("<TELEPHONE BOOK MODULE>")
+        fv_lines.extend(fv_pb_xml_lines)
+        fv_lines.extend(fv_pb_cloud_lines)
         fv_lines.append("")
         fv_lines.append("<<END OF FILE>>")
         fname = f"{mac_hex}.cfg" if mac_hex else f"fanvil_{ext_s}.cfg"
