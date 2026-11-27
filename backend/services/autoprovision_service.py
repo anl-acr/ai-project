@@ -1177,11 +1177,24 @@ def extract_mac_from_provision_filename(filename: str) -> str:
     - Yealink / Fanvil: 805ec0112233.cfg, 001565aabbcc.boot, 001565aabbcc-local.cfg
     - Grandstream: cfg000b82112233.xml, cfg000b82112233
     - Snom / Cisco: snomD785-000413112233.htm, spa000e08112233.xml, SEP000E08112233.cnf.xml
+    NEVER extracts MAC from Cisco binary security/trust-list or firmware files
+    (CTLSEP*.tlv, ITLSEP*.tlv, *.sgn, *.loads, *.sbn, etc.).
     """
-    fn = str(filename or "").strip()
-    m = re.search(r"([0-9a-fA-F]{12})", fn)
+    fn = os.path.basename(str(filename or "").replace("\\", "/").strip())
+    fn_low = fn.lower()
+    if not fn_low:
+        return ""
+    if fn_low.startswith(("ctlsep", "itlsep", "ctlfile", "itlfile")) or fn_low.endswith(
+        (".tlv", ".sgn", ".loads", ".sbn", ".zz", ".bin", ".tar", ".cop", ".rom", ".z")
+    ):
+        return ""
+    fn_no_prefix = re.sub(r"^(?:sep|spa|cfg|snom[a-z0-9]+-)", "", fn, flags=re.IGNORECASE)
+    m = re.search(r"(?<![0-9a-fA-F])([0-9a-fA-F]{12})(?![0-9a-fA-F])", fn_no_prefix)
     if m:
         return m.group(1).lower()
+    m2 = re.search(r"([0-9a-fA-F]{12})", fn_no_prefix)
+    if m2:
+        return m2.group(1).lower()
     return ""
 
 

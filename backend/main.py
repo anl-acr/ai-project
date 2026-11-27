@@ -18663,7 +18663,11 @@ async def _resolve_cisco_ip_only_file(filename: str, client_ip: str = "127.0.0.1
     if re.match(r"^y0{8,10}[0-9a-z]{2}\.cfg$", fn_low):
         return generate_yealink_common_boot_cfg(settings_db).encode("utf-8"), "text/plain; charset=utf-8"
 
-    # 4. Registered device config files
+    # 4. Registered device config files ONLY — NEVER serve XML/CFG for Cisco binary trust lists (CTLSEP*.tlv, ITLSEP*.tlv, *.sgn, firmware)!
+    if fn_low.startswith(("ctlsep", "itlsep", "ctlfile", "itlfile")) or fn_low.endswith((".tlv", ".sgn", ".loads", ".sbn", ".zz", ".bin", ".tar", ".cop", ".rom", ".z")):
+        return None
+    if not fn_low.endswith((".cnf.xml", ".xml", ".cfg", ".boot", ".htm")):
+        return None
     mac_hex = extract_mac_from_provision_filename(fn_clean)
     if not mac_hex:
         return None
