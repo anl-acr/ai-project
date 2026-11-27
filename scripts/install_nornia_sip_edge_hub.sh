@@ -261,15 +261,23 @@ done
 kamcmd htable.flush nornia_routes >/dev/null 2>&1 || true
 while read -r domain target _rest; do
   [[ -z "$domain" || "$domain" == \#* || -z "$target" ]] && continue
-  kamcmd htable.sets nornia_routes "$domain" "sip:${target}" >/dev/null 2>&1 || true
+  kamcmd htable.sets nornia_routes "s:${domain}" "s:sip:${target}" >/dev/null 2>&1 || true
 done < "$MAP_FILE"
 DID_MAP_FILE="/etc/kamailio/nornia_did_routes.map"
 if [[ -f "$DID_MAP_FILE" ]]; then
   kamcmd htable.flush nornia_did_routes >/dev/null 2>&1 || true
   while read -r did_key target _rest; do
     [[ -z "$did_key" || "$did_key" == \#* || -z "$target" ]] && continue
-    kamcmd htable.sets nornia_did_routes "$did_key" "sip:${target}" >/dev/null 2>&1 || true
+    kamcmd htable.sets nornia_did_routes "s:${did_key}" "s:sip:${target}" >/dev/null 2>&1 || true
   done < "$DID_MAP_FILE"
+fi
+USER_MAP_FILE="/etc/kamailio/nornia_user_routes.map"
+if [[ -f "$USER_MAP_FILE" ]]; then
+  kamcmd htable.flush nornia_user_routes >/dev/null 2>&1 || true
+  while read -r u_key target _rest; do
+    [[ -z "$u_key" || "$u_key" == \#* || -z "$target" ]] && continue
+    kamcmd htable.sets nornia_user_routes "s:${u_key}" "s:sip:${target}" >/dev/null 2>&1 || true
+  done < "$USER_MAP_FILE"
 fi
 exit 0
 EOF
