@@ -2481,6 +2481,21 @@ def _sync_active_2fa_fields_with_methods(user_dict: dict, methods_map: Dict[str,
     return methods_map
 
 
+def resolve_secure_sip_password(ext: str, raw_pwd: str = "") -> str:
+    """
+    Hiçbir dahili için '1234' gibi tahmin edilebilir zayıf SIP şifrelerine izin vermez.
+    Eğer şifre boş veya zayıf ise dahiliye özel deterministik kriptografik 17 karakterli güçlü şifre üretir.
+    """
+    import hashlib
+    ext_clean = str(ext or "1000").strip()
+    pwd_clean = str(raw_pwd or "").strip()
+    weak_set = {"", "1234", "12345", "123456", "12345678", "0000", "1111", "admin", "password", ext_clean}
+    if pwd_clean in weak_set or len(pwd_clean) < 8:
+        digest = hashlib.sha256(f"AIDA_PBX_SIP_V2_SECRET_{ext_clean}_8842".encode("utf-8")).hexdigest()[:12]
+        return f"Aida#{digest}"
+    return pwd_clean
+
+
 def load_settings(force_reload: bool = False, persist: bool = False):
     global _settings_schema_migrated, _settings_cache_mtime
 
@@ -4251,20 +4266,6 @@ def run_dialplan_reload():
             print("[Asterisk Config] Dialplan configurations reloaded successfully in Asterisk container.")
         except Exception as e:
             print(f"[Asterisk Config] Failed to reload dialplan in Asterisk: {e}")
-
-def resolve_secure_sip_password(ext: str, raw_pwd: str = "") -> str:
-    """
-    Hiçbir dahili için '1234' gibi tahmin edilebilir zayıf SIP şifrelerine izin vermez.
-    Eğer şifre boş veya zayıf ise dahiliye özel deterministik kriptografik 17 karakterli güçlü şifre üretir.
-    """
-    import hashlib
-    ext_clean = str(ext or "1000").strip()
-    pwd_clean = str(raw_pwd or "").strip()
-    weak_set = {"", "1234", "12345", "123456", "12345678", "0000", "1111", "admin", "password", ext_clean}
-    if pwd_clean in weak_set or len(pwd_clean) < 8:
-        digest = hashlib.sha256(f"AIDA_PBX_SIP_V2_SECRET_{ext_clean}_8842".encode("utf-8")).hexdigest()[:12]
-        return f"Aida#{digest}"
-    return pwd_clean
 
 
 def is_suspicious_or_fraud_outbound_number(callee: str, allow_international: bool = False) -> tuple:
@@ -39150,6 +39151,7 @@ def cleanup_expired_blocked_ips(force_days: Optional[int] = None, clear_all_auto
     keep_days = max(1, int(force_days if force_days is not None else (ret_cfg.get("blocked_ip_keep_days") or 7)))
 
     # Normalize any legacy English reasons in existing blocked_ips list
+    existing = settings_db.get("security_blocked_ips", []) or []
     reasons_translated = False
     for item in existing:
         if isinstance(item, dict) and item.get("reason"):
@@ -39162,9 +39164,8 @@ def cleanup_expired_blocked_ips(force_days: Optional[int] = None, clear_all_auto
     if not clear_all_auto and force_days is None and not auto_enabled:
         if reasons_translated:
             save_settings(settings_db)
-        return {"removed_count": 0, "remaining_count": len(settings_db.get("security_blocked_ips", []))}
+        return {"removed_count": 0, "remaining_count": len(existing)}
 
-    existing = settings_db.get("security_blocked_ips", [])
     if not existing:
         return {"removed_count": 0, "remaining_count": 0}
 
@@ -56041,7 +56042,7 @@ async def ext_api_v1_sdk_session(
     sip_pass = str(matched.get("sip_password") or "").strip()
     if not sip_pass:
         try:
-            sip_pass = resolve_secure_sip_password(matched)
+            sip_pass = resolve_secure_sip_password(ext_req, "")
         except Exception:
             sip_pass = ""
     if not sip_pass:

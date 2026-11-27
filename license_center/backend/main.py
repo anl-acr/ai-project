@@ -487,7 +487,7 @@ async def run_central_db_maintenance():
     try:
         cutoff = datetime.datetime.utcnow() - datetime.timedelta(days=30)
         async with AsyncSessionLocal() as db:
-            res = await db.execute(delete(TelemetryLog).where(TelemetryLog.recorded_at < cutoff))
+            res = await db.execute(delete(TelemetryLog).where(TelemetryLog.created_at < cutoff))
             deleted_cnt = res.rowcount or 0
             await db.commit()
             if deleted_cnt > 0:
