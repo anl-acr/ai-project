@@ -335,6 +335,7 @@ SIP1 Ring Type       :{{RINGTONE}}
 Time Display 24H     :{{TIME_FORMAT_24_BIT}}
 Backlight Level      :{{BACKLIGHT_ACTIVE}}
 Language             :{{LANGUAGE}}
+{{SOFTKEYS_BLOCK}}
 {{FANVIL_PHONE_SYNC_BLOCK}}
 
 <DSSKEY CONFIG MODULE>
@@ -1963,6 +1964,47 @@ def _resolve_grandstream_lang_code(eff_language: str) -> str:
     return "tr"
 
 
+def _build_fanvil_softkey_lines(soft_list: List[Dict[str, Any]]) -> List[str]:
+    """
+    Generates Fanvil X/V-Series `<PHONE CONFIG MODULE>` Desktop Softkey layout matching the
+    4-button idle screen bar configured in the Nornia Visual Deskphone Editor
+    (default: `history;contact;cfwd;menu;` -> Geçmiş | Rehber | Yönlendir | Menü).
+    """
+    effective_softs = soft_list if soft_list else [
+        {"key_index": 1, "type": "history", "label": "Geçmiş", "value": ""},
+        {"key_index": 2, "type": "directory", "label": "Rehber", "value": ""},
+        {"key_index": 3, "type": "forward", "label": "Yönlendir", "value": ""},
+        {"key_index": 4, "type": "menu", "label": "Menü", "value": ""},
+    ]
+    ordered = sorted(effective_softs, key=lambda s: int(s.get("key_index") or 99))[:4]
+    token_map = {
+        "history": "history",
+        "directory": "contact",
+        "forward": "cfwd",
+        "dnd": "dnd",
+        "menu": "menu",
+        "redial": "redial",
+        "voicemail": "sms",
+        "pickup": "pickup",
+        "transfer": "xfer",
+        "speed_dial": "contact",
+    }
+    tokens: List[str] = []
+    for sk in ordered:
+        st = str(sk.get("type") or "").strip().lower()
+        tok = token_map.get(st)
+        if tok:
+            tokens.append(tok)
+    if not tokens:
+        tokens = ["history", "contact", "cfwd", "menu"]
+    desktop_val = ";".join(tokens) + ";"
+    return [
+        "# --- Ekran Alti Softkey Duzeni (Fanvil Desktop Softkey) ---",
+        "Softkey Mode         :0",
+        f"Desktop Softkey      :{desktop_val}",
+    ]
+
+
 def _build_grandstream_softkeys_xml_lines(
     soft_list: List[Dict[str, Any]],
     model_name: str = "",
@@ -2368,6 +2410,7 @@ def generate_provisioning_config(
                     ep = str(ek.get("pickup_code") or pickup_directed)
                     if et == "blf" and ev:
                         exp_block_lines.extend([f"Ext{mi}Key{ei} Type       :1", f"Ext{mi}Key{ei} Value      :{ev}@1/ba{ep}{ev}", f"Ext{mi}Key{ei} Title      :{el}"])
+            soft_block_lines.extend(_build_fanvil_softkey_lines(soft_list))
         elif "cisco" in tpl_b_low:
             for k in dss_list[:10]:
                 idx = max(1, int(k.get("key_index") or 1))
@@ -2514,6 +2557,9 @@ def generate_provisioning_config(
             if "{FANVIL_SIP_SYNC_BLOCK}" not in raw_tpl and "<SIP CONFIG MODULE>" in rendered:
                 if "<PHONE CONFIG MODULE>" in rendered:
                     rendered = rendered.replace("<PHONE CONFIG MODULE>", fanvil_sip_sync_block + "\n\n<PHONE CONFIG MODULE>", 1)
+            if "{SOFTKEYS_BLOCK}" not in raw_tpl and soft_block_lines and "<PHONE CONFIG MODULE>" in rendered:
+                if "<DSSKEY CONFIG MODULE>" in rendered:
+                    rendered = rendered.replace("<DSSKEY CONFIG MODULE>", "\n".join(soft_block_lines) + "\n\n<DSSKEY CONFIG MODULE>", 1)
             if "{FANVIL_PHONE_SYNC_BLOCK}" not in raw_tpl and "<PHONE CONFIG MODULE>" in rendered:
                 if "<DSSKEY CONFIG MODULE>" in rendered:
                     rendered = rendered.replace("<DSSKEY CONFIG MODULE>", fanvil_phone_sync_block + "\n\n<DSSKEY CONFIG MODULE>", 1)
@@ -2732,6 +2778,7 @@ def generate_provisioning_config(
             f"Missed Call LED      :{1 if prefs['missed_call_led'] else 0}",
             f"MWI LED              :{1 if prefs['mwi_led'] else 0}",
             f"Language             :{eff_language}",
+            *_build_fanvil_softkey_lines(soft_list),
             *fanvil_phone_sync_lines,
             "",
             "<DSSKEY CONFIG MODULE>",
