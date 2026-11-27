@@ -943,6 +943,14 @@ def normalize_user_sip_devices(
         raw_brand = str(dev.get("brand") or (matched_ap.get("brand") if matched_ap else "") or "").strip()
         dev_brand = detect_brand_from_mac(mac_colon, "") if (mac_colon and not raw_brand) else raw_brand
         dev_model = str(dev.get("model") or (matched_ap.get("model") if matched_ap else "") or "").strip()
+        if (
+            dev_type not in ("web_phone", "virtual_subscriber")
+            and "cisco" in dev_brand.lower()
+            and not any(tok in dev_model.lower() for tok in ("mpp", "3pcc", "spa"))
+        ):
+            dev_driver = "chan_sip"
+            if dev_tr not in ("TCP", "UDP"):
+                dev_tr = "TCP"
         dev_manual_model = bool(dev.get("manual_model_selected", False))
         # Strip legacy auto-injected "Yealink T46U" default on unpaired devices (no MAC, no AutoProv match, no BLF keys)
         if (

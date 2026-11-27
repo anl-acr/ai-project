@@ -353,6 +353,9 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
 
     setSaving(true);
     try {
+      const _bLow = String(brand || "").toLowerCase();
+      const _mLow = String(model || "").toLowerCase();
+      const _isCiscoEnt = _bLow.includes("cisco") && !_mLow.includes("mpp") && !_mLow.includes("3pcc") && !_mLow.includes("spa");
       const payload = {
         mac: macAddress.trim().toLowerCase(),
         ip: ipAddress.trim(),
@@ -361,6 +364,7 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
         assigned_user: assignedUserId,
         sip_device_id: selectedSipDeviceId || "",
         new_device_name: selectedSipDeviceId === "__CREATE_NEW__" ? newSipDeviceName.trim() : "",
+        sip_driver: _isCiscoEnt ? "chan_sip" : "",
         template_id: templateId,
         connection_mode: connectionMode || "lan",
         provision_date: new Date().toISOString(),
@@ -1680,6 +1684,30 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
                         </span>
                       </p>
                     )}
+
+                    {(() => {
+                      const bLow = String(brand || "").toLowerCase();
+                      const mLow = String(model || "").toLowerCase();
+                      const isCiscoEnt = bLow.includes("cisco") && !mLow.includes("mpp") && !mLow.includes("3pcc") && !mLow.includes("spa");
+                      if (!isCiscoEnt) return null;
+                      return (
+                        <div className="pt-2 mt-1 border-t border-slate-200/70 dark:border-slate-700/60">
+                          <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">
+                            SIP Motoru (Cisco Enterprise Otomatik Kilitli)
+                          </label>
+                          <select
+                            disabled
+                            value="chan_sip"
+                            className="w-full px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-100/80 dark:bg-slate-900/70 text-slate-400 dark:text-slate-500 cursor-not-allowed opacity-70"
+                          >
+                            <option value="chan_sip">SIP (chan_sip — Port 5160 • Cisco UseCallManager / BLF)</option>
+                          </select>
+                          <p className="mt-1 text-[10px] text-slate-400 dark:text-slate-500">
+                            Cisco telefonlarda BLF, Softkey ve Konferans uyumluluğu için SIP (5160) motoru otomatik kilitlenir.
+                          </p>
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })()}

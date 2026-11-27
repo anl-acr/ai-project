@@ -15463,6 +15463,14 @@ async def save_autoprovision(payload: dict, user_info: dict = Depends(get_user_i
                 if ip_val:
                     target_sd["ip"] = ip_val
                 target_sd["connection_mode"] = conn_mode
+                _is_cisco_ent_bind = (
+                    "cisco" in str(brand_val or "").lower()
+                    and not any(tok in str(model_val or "").lower() for tok in ("mpp", "3pcc", "spa"))
+                )
+                if _is_cisco_ent_bind:
+                    target_sd["sip_driver"] = "chan_sip"
+                    if conn_mode == "wan" or str(target_sd.get("transport") or "").upper() not in ("TCP", "UDP"):
+                        target_sd["transport"] = "TCP"
                 target_sd["remote_access"] = (conn_mode == "wan")
                 if conn_mode == "wan" and str(target_sd.get("transport") or "").upper() != "TLS":
                     target_sd["transport"] = "TCP"

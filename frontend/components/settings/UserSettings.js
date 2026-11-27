@@ -111,6 +111,12 @@ const SIP_PHONE_MODELS = {
   Gigaset: ["N510 IP PRO", "Maxwell 3"]
 };
 
+function isCiscoEnterprisePhone(brand, model) {
+  const b = String(brand || "").toLowerCase();
+  const m = String(model || "").toLowerCase();
+  return b.includes("cisco") && !m.includes("mpp") && !m.includes("3pcc") && !m.includes("spa");
+}
+
 const AVAILABLE_SIP_CODECS = [
   { id: "g722", label: "G.722", desc: "HD Genişbant Ses (16 kHz)" },
   { id: "alaw", label: "G.711 A-Law (PCMA)", desc: "Türkiye / Avrupa Standart Kodek" },
@@ -1724,6 +1730,8 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
         return;
       }
 
+      const isCiscoLockedDraft = !isWeb && isCiscoEnterprisePhone(sipDeviceDraft.brand, sipDeviceDraft.model);
+      const effDraftDriver = isWeb ? "pjsip" : (isCiscoLockedDraft || sipDeviceDraft.sip_driver === "chan_sip" ? "chan_sip" : "pjsip");
       normalizedItem = {
         ...sipDeviceDraft,
         name: (sipDeviceDraft.name || "").trim() || (isWeb ? "Web Telefonu" : "SIP Cihazı"),
@@ -1731,13 +1739,13 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
         sip_username: cleanSu,
         sip_password: (sipDeviceDraft.sip_password || "").trim() || generateSipPasswordStr(),
         max_activations: Math.max(1, Math.min(isWeb ? 10 : 5, Number(sipDeviceDraft.max_activations) || (isWeb ? 5 : 1))),
-        sip_driver: isWeb ? "pjsip" : (sipDeviceDraft.sip_driver === "chan_sip" ? "chan_sip" : "pjsip"),
+        sip_driver: effDraftDriver,
         remote_access: isWeb ? false : Boolean(sipDeviceDraft.remote_access),
         transport: isWeb
           ? "WSS"
           : sipDeviceDraft.remote_access
           ? "TCP"
-          : sipDeviceDraft.sip_driver === "chan_sip"
+          : effDraftDriver === "chan_sip"
           ? (sipDeviceDraft.transport === "UDP" ? "UDP" : "TCP")
           : (sipDeviceDraft.transport || "UDP"),
         is_virtual: false,
@@ -1819,8 +1827,10 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     setInspectSaving(true);
     setInspectActionMsg(null);
     try {
+      const isCiscoLockedSave = isCiscoEnterprisePhone(inspectDraft.brand, inspectDraft.model);
       const cleanedDraft = {
         ...inspectDraft,
+        sip_driver: isCiscoLockedSave ? "chan_sip" : (inspectDraft.sip_driver === "chan_sip" ? "chan_sip" : "pjsip"),
         mac: formatMacAddress(inspectDraft.mac || ""),
         ip: String(inspectDraft.ip || "").trim(),
         codecs: Array.isArray(inspectDraft.codecs) && inspectDraft.codecs.length > 0 ? inspectDraft.codecs : ["g722", "alaw", "ulaw"]
@@ -10002,16 +10012,21 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                     </div>
                   </div>
 
-                  {!isWebPhoneDraft && (
+                  {!isWebPhoneDraft && (() => {
+                    const isCiscoLocked = isCiscoEnterprisePhone(sipDeviceDraft.brand, sipDeviceDraft.model);
+                    const effDrv = isCiscoLocked ? "chan_sip" : (sipDeviceDraft.sip_driver === "chan_sip" ? "chan_sip" : "pjsip");
+                    return (
                     <div>
-                      <label htmlFor="sip-dev-driver" className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
-                        SIP Motoru (Sürücü)
+                      <label htmlFor="sip-dev-driver" className={`block text-[10px] font-bold uppercase tracking-wider mb-1.5 ${isCiscoLocked ? "text-slate-400 dark:text-slate-500" : "text-slate-500 dark:text-slate-400"}`}>
+                        SIP Motoru (Sürücü){isCiscoLocked ? " — Cisco Otomatik Kilitli" : ""}
                       </label>
                       <select
                         id="sip-dev-driver"
                         name="sip_driver"
-                        value={sipDeviceDraft.sip_driver === "chan_sip" ? "chan_sip" : "pjsip"}
+                        disabled={isCiscoLocked}
+                        value={effDrv}
                         onChange={(e) => {
+                          if (isCiscoLocked) return;
                           const nextDrv = e.target.value === "chan_sip" ? "chan_sip" : "pjsip";
                           setSipDeviceDraft((prev) => ({
                             ...prev,
@@ -10019,18 +10034,25 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                             transport: prev.remote_access ? "TCP" : (nextDrv === "chan_sip" ? "TCP" : (prev.transport || "UDP"))
                           }));
                         }}
-                        className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                        className={`w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 focus:outline-none ${
+                          isCiscoLocked
+                            ? "bg-slate-100/80 dark:bg-slate-900/70 text-slate-400 dark:text-slate-500 cursor-not-allowed opacity-65"
+                            : "bg-slate-50/60 dark:bg-slate-950 text-slate-800 dark:text-slate-100"
+                        }`}
                       >
                         <option value="pjsip">PJSIP</option>
-                        <option value="chan_sip">SIP</option>
+                        <option value="chan_sip">SIP (5160 — Cisco UseCallManager)</option>
                       </select>
-                      {sipDeviceDraft.sip_driver === "chan_sip" && (
-                        <p className="mt-1 text-[10px] font-medium text-indigo-600 dark:text-indigo-400">
-                          Cisco Enterprise (78xx/79xx/88xx/89xx) BLF &amp; UseCallManager aktif — Yerel: &lt;santral-ip&gt;:5160 (TCP) • Uzak: &lt;alt-alan&gt;.nornia.com.tr:5160 (TCP).
+                      {effDrv === "chan_sip" && (
+                        <p className={`mt-1 text-[10px] font-medium ${isCiscoLocked ? "text-slate-400 dark:text-slate-500" : "text-indigo-600 dark:text-indigo-400"}`}>
+                          {isCiscoLocked
+                            ? "Cisco Enterprise cihazlarda BLF, Softkey ve Konferans uyumluluğu için SIP (5160) motoru kilitlidir."
+                            : "Cisco Enterprise (78xx/79xx/88xx/89xx) BLF & UseCallManager aktif — Yerel: <santral-ip>:5160 (TCP) • Uzak: <alt-alan>.nornia.com.tr:5160 (TCP)."}
                         </p>
                       )}
                     </div>
-                  )}
+                    );
+                  })()}
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
@@ -10486,7 +10508,14 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                     const nextBrand = autoBrand || prev.brand || "";
                                     const modelsForBrand = nextBrand ? (SIP_PHONE_MODELS[nextBrand] || []) : [];
                                     const nextModel = autoBrand && !modelsForBrand.includes(prev.model) ? (modelsForBrand[0] || prev.model) : prev.model;
-                                    return { ...prev, mac: formatted, brand: nextBrand, model: nextModel };
+                                    const ciscoAuto = isCiscoEnterprisePhone(nextBrand, nextModel);
+                                    return {
+                                      ...prev,
+                                      mac: formatted,
+                                      brand: nextBrand,
+                                      model: nextModel,
+                                      ...(ciscoAuto ? { sip_driver: "chan_sip", transport: prev.transport === "UDP" ? "UDP" : "TCP" } : {}),
+                                    };
                                   });
                                 }}
                                 className="w-full text-xs font-mono font-bold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
@@ -10503,11 +10532,13 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                 onChange={(e) => {
                                   const newBrand = e.target.value;
                                   const firstModel = newBrand ? ((SIP_PHONE_MODELS[newBrand] || [])[0] || "") : "";
+                                  const ciscoAuto = isCiscoEnterprisePhone(newBrand, firstModel);
                                   setInspectDraft((prev) => ({
                                     ...prev,
                                     brand: newBrand,
                                     model: firstModel,
                                     manual_model_selected: Boolean(newBrand),
+                                    ...(ciscoAuto ? { sip_driver: "chan_sip", transport: prev.transport === "UDP" ? "UDP" : "TCP" } : {}),
                                   }));
                                 }}
                                 className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
@@ -10570,43 +10601,62 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                               </select>
                             </div>
 
-                            <div>
-                              <label htmlFor="inspect-sip-driver-select" className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
-                                SIP Motoru (Port)
-                              </label>
-                              <select
-                                id="inspect-sip-driver-select"
-                                value={inspectDraft.sip_driver === "chan_sip" ? "chan_sip" : "pjsip"}
-                                onChange={(e) => {
-                                  const nextDrv = e.target.value === "chan_sip" ? "chan_sip" : "pjsip";
-                                  setInspectDraft((prev) => ({
-                                    ...prev,
-                                    sip_driver: nextDrv,
-                                    transport: nextDrv === "chan_sip" ? "TCP" : (prev.transport || "UDP")
-                                  }));
-                                }}
-                                className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
-                              >
-                                <option value="pjsip">PJSIP (5060 — Standart)</option>
-                                <option value="chan_sip">SIP (5160 — Cisco BLF/UseCallManager)</option>
-                              </select>
-                            </div>
+                            {(() => {
+                              const isCiscoLockedInspect = isCiscoEnterprisePhone(inspectDraft.brand, inspectDraft.model);
+                              const effInspectDrv = isCiscoLockedInspect ? "chan_sip" : (inspectDraft.sip_driver === "chan_sip" ? "chan_sip" : "pjsip");
+                              return (
+                                <>
+                                  <div>
+                                    <label htmlFor="inspect-sip-driver-select" className={`block text-[10px] font-bold uppercase tracking-wider mb-1.5 ${isCiscoLockedInspect ? "text-slate-400 dark:text-slate-500" : "text-slate-500"}`}>
+                                      SIP Motoru (Port){isCiscoLockedInspect ? " • Kilitli" : ""}
+                                    </label>
+                                    <select
+                                      id="inspect-sip-driver-select"
+                                      disabled={isCiscoLockedInspect}
+                                      value={effInspectDrv}
+                                      onChange={(e) => {
+                                        if (isCiscoLockedInspect) return;
+                                        const nextDrv = e.target.value === "chan_sip" ? "chan_sip" : "pjsip";
+                                        setInspectDraft((prev) => ({
+                                          ...prev,
+                                          sip_driver: nextDrv,
+                                          transport: nextDrv === "chan_sip" ? "TCP" : (prev.transport || "UDP")
+                                        }));
+                                      }}
+                                      className={`w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 focus:outline-none ${
+                                        isCiscoLockedInspect
+                                          ? "bg-slate-100/80 dark:bg-slate-900/70 text-slate-400 dark:text-slate-500 cursor-not-allowed opacity-65"
+                                          : "bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100"
+                                      }`}
+                                    >
+                                      <option value="pjsip">PJSIP (5060 — Standart)</option>
+                                      <option value="chan_sip">SIP (5160 — Cisco BLF/UseCallManager)</option>
+                                    </select>
+                                    {isCiscoLockedInspect && (
+                                      <p className="mt-1 text-[10px] text-slate-400 dark:text-slate-500">
+                                        Cisco cihazlarda SIP (5160) zorunludur.
+                                      </p>
+                                    )}
+                                  </div>
 
-                            <div>
-                              <label htmlFor="inspect-transport-select" className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
-                                Taşıma (Transport)
-                              </label>
-                              <select
-                                id="inspect-transport-select"
-                                value={inspectDraft.transport || (inspectDraft.sip_driver === "chan_sip" ? "TCP" : "UDP")}
-                                onChange={(e) => setInspectDraft((prev) => ({ ...prev, transport: e.target.value }))}
-                                className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
-                              >
-                                <option value="TCP">TCP (Cisco / Tünel Önerilen)</option>
-                                <option value="UDP">UDP (Standart)</option>
-                                {inspectDraft.sip_driver !== "chan_sip" && <option value="TLS">TLS (5061 Şifreli)</option>}
-                              </select>
-                            </div>
+                                  <div>
+                                    <label htmlFor="inspect-transport-select" className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                                      Taşıma (Transport)
+                                    </label>
+                                    <select
+                                      id="inspect-transport-select"
+                                      value={inspectDraft.transport || (effInspectDrv === "chan_sip" ? "TCP" : "UDP")}
+                                      onChange={(e) => setInspectDraft((prev) => ({ ...prev, transport: e.target.value }))}
+                                      className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                    >
+                                      <option value="TCP">TCP (Cisco / Tünel Önerilen)</option>
+                                      <option value="UDP">UDP (Standart)</option>
+                                      {effInspectDrv !== "chan_sip" && <option value="TLS">TLS (5061 Şifreli)</option>}
+                                    </select>
+                                  </div>
+                                </>
+                              );
+                            })()}
                           </div>
                         </div>
 
