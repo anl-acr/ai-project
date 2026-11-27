@@ -92,11 +92,17 @@ for old_expr2 in (
         txt = txt.replace(old_expr2, '"sip:" + $(var(target_pbx){uri.host}) + ":5068"')
         changed = True
 
-# 5) TCP NAT keepalive + tcp_accept_aliases + fast timeouts + force_tcp_alias($sp)
-if "tcp_keepalive=yes" not in txt and "tcp_reuse_port=yes" in txt:
+# 5) TCP NAT keepalive + tcp_reuse_port=no + tcp_connection_match=0 + tcp_accept_aliases + fast timeouts
+if "tcp_reuse_port=yes" in txt:
+    txt = txt.replace("tcp_reuse_port=yes", "tcp_reuse_port=no", 1)
+    changed = True
+if "tcp_connection_match=" not in txt and "tcp_reuse_port=no" in txt:
+    txt = txt.replace("tcp_reuse_port=no", "tcp_reuse_port=no\ntcp_connection_match=0", 1)
+    changed = True
+if "tcp_keepalive=yes" not in txt and "tcp_reuse_port=no" in txt:
     txt = txt.replace(
-        "tcp_reuse_port=yes",
-        "tcp_reuse_port=yes\ntcp_accept_aliases=yes\ntcp_connect_timeout=3\ntcp_send_timeout=3\ntcp_keepalive=yes\ntcp_keepidle=30\ntcp_keepintvl=10\ntcp_keepcnt=3",
+        "tcp_connection_match=0",
+        "tcp_connection_match=0\ntcp_accept_aliases=yes\ntcp_connect_timeout=3\ntcp_send_timeout=3\ntcp_keepalive=yes\ntcp_keepidle=30\ntcp_keepintvl=10\ntcp_keepcnt=3",
         1,
     )
     changed = True
@@ -107,6 +113,18 @@ elif "tcp_accept_aliases=yes" not in txt and "tcp_keepalive=yes" in txt:
         1,
     )
     changed = True
+
+# 5a) nornia_tcp_nat htable (tracks live NAT ip:port;transport per SIP user for RFC1918 NOTIFY/BYE/INVITE fallback)
+nat_ht_line = 'modparam("htable", "htable", "nornia_tcp_nat=>size=10;autoexpire=3600;")'
+if "nornia_tcp_nat" not in txt:
+    for anchor_nat in (
+        'modparam("htable", "htable", "nornia_line_routes=>size=10;autoexpire=86400;")',
+        'modparam("htable", "htable", "nornia_user_routes=>size=12;autoexpire=0;")',
+    ):
+        if anchor_nat in txt:
+            txt = txt.replace(anchor_nat, anchor_nat + "\n" + nat_ht_line, 1)
+            changed = True
+            break
 
 if "        force_tcp_alias($sp);\n" in txt:
     txt = txt.replace("        force_tcp_alias($sp);\n", "")
@@ -122,27 +140,104 @@ if "force_tcp_alias();" not in txt:
         )
         changed = True
 
-# 5b) Match exact listening TCP socket (5160 vs 5060) in route[FROM_PBX] so mhomed does NOT pick :5060 when phone is connected on :5160!
-m_bind = re.search(r'listen=tcp:([0-9.]+):5160', txt)
+# Record live NAT endpoint in nornia_tcp_nat on REGISTER
+reg_nat_snippet = (
+    '    if (is_method("REGISTER")) {\n'
+    '        if ($fU != $null && $fU != "") {\n'
+    '            $sht(nornia_tcp_nat=>$fU) = "sip:" + $si + ":" + $sp + ";transport=" + $proto;\n'
+    '        }\n'
+    '        if ($ct != $null && $(ct{nameaddr.uri}{uri.user}) != "") {\n'
+    '            $sht(nornia_tcp_nat=>$(ct{nameaddr.uri}{uri.user})) = "sip:" + $si + ":" + $sp + ";transport=" + $proto;\n'
+    '        }'
+)
+if '$sht(nornia_tcp_nat=>$fU)' not in txt:
+    anchor_reg = '    if (is_method("REGISTER")) {\n        if (!($hdr(Supported) =~ "path")) {'
+    if anchor_reg in txt:
+        txt = txt.replace(
+            anchor_reg,
+            reg_nat_snippet + '\n        if (!($hdr(Supported) =~ "path")) {',
+            1,
+        )
+        changed = True
+
+# Extract external bind IP and WireGuard hub IP
+m_bind = re.search(r'listen=tcp:([0-9.]+):5160(?:\s+advertise|\s*$)', txt, re.MULTILINE)
 hub_bind_ip = m_bind.group(1) if m_bind else ""
+m_wg = re.search(r'listen=tcp:(10\.200\.[0-9.]+):5160', txt)
+wg_hub_ip = m_wg.group(1) if m_wg else "10.200.0.1"
+
+# 5b) Preserve port 5160 on in-dialog external -> PBX requests so Kamailio never opens a stray :5060->:5160 socket
+if f'$fs = "tcp:{wg_hub_ip}:5160";' in txt and 'if ($Rp == 5160) {\n                if ($proto == "tcp") {\n                    $fs = "tcp:' + wg_hub_ip + ':5160";' not in txt:
+    ext_indlg_pat = re.compile(
+        r'(    # 3e\. In-dialog requests[^\n]*\n'
+        r'    if \(has_totag\(\)\) \{\n'
+        r'        if \(loose_route\(\)\) \{\n'
+        r'            force_rport\(\);\n'
+        r'            if \(nat_uac_test\("19"\)\) \{\n'
+        r'                fix_nated_contact\(\);\n'
+        r'            \}\n)',
+    )
+    ext_indlg_repl = (
+        r'\1'
+        '            if ($proto == "tcp" || $proto == "tls") {\n'
+        '                force_tcp_alias();\n'
+        '            }\n'
+        '            if ($Rp == 5160) {\n'
+        '                if ($proto == "tcp") {\n'
+        f'                    $fs = "tcp:{wg_hub_ip}:5160";\n'
+        '                } else {\n'
+        f'                    $fs = "udp:{wg_hub_ip}:5160";\n'
+        '                }\n'
+        '            }\n'
+    )
+    if ext_indlg_pat.search(txt):
+        txt = ext_indlg_pat.sub(ext_indlg_repl, txt, count=1)
+        changed = True
+
+# 5c) Match exact listening TCP socket (5160 vs 5060) + RFC1918 fallback + xlog in route[FROM_PBX]
 if hub_bind_ip:
+    # Upgrade in-dialog route[FROM_PBX] has_totag()
+    if 'NORNIA_FROM_PBX_INDLG' not in txt:
+        pbx_indlg_pat = re.compile(
+            r'(route\[FROM_PBX\] \{.*?    if \(has_totag\(\)\) \{\n'
+            r'        if \(loose_route\(\)\) \{\n)'
+            r'(            if \(is_method\("BYE"\)\) \{.*?            t_on_reply\("REPLY_FROM_EXT"\);\n)',
+            re.DOTALL,
+        )
+        pbx_indlg_inject = (
+            '            if ($du == $null && $rd =~ "^(10\\.|172\\.(1[6-9]|2[0-9]|3[0-1])\\.|192\\.168\\.)" && $rU != $null && $sht(nornia_tcp_nat=>$rU) != $null) {\n'
+            '                $du = $sht(nornia_tcp_nat=>$rU);\n'
+            '            }\n'
+            '            if ($Rp == 5160 || $sp == 5160) {\n'
+            '                if (($du != $null && $du =~ "transport=(tcp|TCP)") || $ru =~ "transport=(tcp|TCP)" || $proto == "tcp") {\n'
+            f'                    $fs = "tcp:{hub_bind_ip}:5160";\n'
+            '                } else {\n'
+            f'                    $fs = "udp:{hub_bind_ip}:5160";\n'
+            '                }\n'
+            '            }\n'
+        )
+        m_ind = pbx_indlg_pat.search(txt)
+        if m_ind:
+            repl_body = m_ind.group(2).replace(
+                '            t_on_reply("REPLY_FROM_EXT");\n',
+                '            xlog("L_INFO", "NORNIA_FROM_PBX_INDLG method=$rm src=$si:$sp Rp=$Rp ru=$ru du=$du fs=$fs\\n");\n            t_on_reply("REPLY_FROM_EXT");\n',
+                1,
+            )
+            txt = txt[:m_ind.start()] + m_ind.group(1) + pbx_indlg_inject + repl_body + txt[m_ind.end():]
+            changed = True
+
+    # Upgrade initial request loose_route() in route[FROM_PBX] (matches both original and previous patch)
     old_lr_pat = re.compile(
-        r'    if \(loose_route\(\)\) \{\n'
-        r'        # For UDP force external UDP socket;[^\n]*\n'
-        r'        if \(\$du == \$null \|\| !\(\$du =~ "transport=\(tcp\|TCP\|tls\|TLS\)"\)\) \{\n'
-        r'            if \(\$Rp == 5160\) \{\n'
-        r'                \$fs = "udp:' + re.escape(hub_bind_ip) + r':5160";\n'
-        r'            \} else \{\n'
-        r'                \$fs = "udp:' + re.escape(hub_bind_ip) + r':5060";\n'
-        r'            \}\n'
-        r'        \}\n'
-        r'    \}',
+        r'^    if \(loose_route\(\)\) \{\n'
+        r'        # (?:For UDP force external UDP socket;|Match (?:the )?exact listening socket)[^\n]*\n'
+        r'.*?\n    \}$',
+        re.DOTALL | re.MULTILINE,
     )
     new_lr_block = (
         '    if (loose_route()) {\n'
         '        # Match exact listening socket (5160 vs 5060, TCP vs UDP) to reuse inbound NAT TCP connection\n'
-        '        if ($Rp == 5160) {\n'
-        '            if ($du != $null && $du =~ "transport=(tcp|TCP)") {\n'
+        '        if ($Rp == 5160 || $sp == 5160) {\n'
+        '            if (($du != $null && $du =~ "transport=(tcp|TCP)") || $ru =~ "transport=(tcp|TCP)" || $proto == "tcp") {\n'
         f'                $fs = "tcp:{hub_bind_ip}:5160";\n'
         '            } else {\n'
         f'                $fs = "udp:{hub_bind_ip}:5160";\n'
@@ -152,11 +247,46 @@ if hub_bind_ip:
         '        } else if ($du == $null || !($du =~ "transport=(tls|TLS)")) {\n'
         f'            $fs = "udp:{hub_bind_ip}:5060";\n'
         '        }\n'
+        '    }\n\n'
+        '    # Private RFC1918 R-URI fallback (e.g. Asterisk chan_sip NOTIFY/INVITE without Path Route header)\n'
+        '    if ($du == $null && $rd =~ "^(10\\.|172\\.(1[6-9]|2[0-9]|3[0-1])\\.|192\\.168\\.)" && $rU != $null && $sht(nornia_tcp_nat=>$rU) != $null) {\n'
+        '        $du = $sht(nornia_tcp_nat=>$rU);\n'
+        '        if ($Rp == 5160 || $sp == 5160) {\n'
+        '            if ($du =~ "transport=(tcp|TCP)") {\n'
+        f'                $fs = "tcp:{hub_bind_ip}:5160";\n'
+        '            } else {\n'
+        f'                $fs = "udp:{hub_bind_ip}:5160";\n'
+        '            }\n'
+        '        } else if ($du =~ "transport=(tcp|TCP)") {\n'
+        f'            $fs = "tcp:{hub_bind_ip}:5060";\n'
+        '        } else {\n'
+        f'            $fs = "udp:{hub_bind_ip}:5060";\n'
+        '        }\n'
         '    }'
     )
-    if old_lr_pat.search(txt):
+    if '# Private RFC1918 R-URI fallback' not in txt and old_lr_pat.search(txt):
         txt = old_lr_pat.sub(lambda _m: new_lr_block, txt, count=1)
         changed = True
+
+    if 'NORNIA_FROM_PBX method=' not in txt:
+        rr_anchor = '    if (!is_method("OPTIONS")) {\n        record_route();\n    }'
+        if rr_anchor in txt:
+            txt = txt.replace(
+                rr_anchor,
+                '    if (!is_method("OPTIONS")) {\n        xlog("L_INFO", "NORNIA_FROM_PBX method=$rm src=$si:$sp Rp=$Rp ru=$ru du=$du fs=$fs\\n");\n        record_route();\n    }',
+                1,
+            )
+            changed = True
+
+    if 'NORNIA_EXT_ERR' not in txt:
+        ext_rep_anchor = 'onreply_route[REPLY_FROM_EXT] {\n    if (nat_uac_test("19")) {'
+        if ext_rep_anchor in txt:
+            txt = txt.replace(
+                ext_rep_anchor,
+                'onreply_route[REPLY_FROM_EXT] {\n    if ($rs >= 400) {\n        xlog("L_WARN", "NORNIA_EXT_ERR method=$rm status=$rs reason=$rr src=$si:$sp\\n");\n    }\n    if (nat_uac_test("19")) {',
+                1,
+            )
+            changed = True
 
 # 6) Reply 200 OK to bare Asterisk chan_sip OPTIONS without Path Route header so peers don't go UNREACHABLE
 opt_guard = '    if ($du == $null && is_method("OPTIONS")) {\n        sl_send_reply("200", "OK");\n        exit;\n    }\n'

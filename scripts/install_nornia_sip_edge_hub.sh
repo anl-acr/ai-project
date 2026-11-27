@@ -328,7 +328,8 @@ listen=udp:${WG_HUB_IP}:5160
 
 tcp_connection_lifetime=3605
 tcp_max_connections=4096
-tcp_reuse_port=yes
+tcp_reuse_port=no
+tcp_connection_match=0
 tcp_accept_aliases=yes
 tcp_connect_timeout=3
 tcp_send_timeout=3
@@ -376,6 +377,7 @@ modparam("htable", "htable", "nornia_routes=>size=10;autoexpire=0;")
 modparam("htable", "htable", "nornia_did_routes=>size=10;autoexpire=0;")
 modparam("htable", "htable", "nornia_user_routes=>size=12;autoexpire=0;")
 modparam("htable", "htable", "nornia_line_routes=>size=10;autoexpire=86400;")
+modparam("htable", "htable", "nornia_tcp_nat=>size=10;autoexpire=3600;")
 modparam("htable", "htable", "ipban=>size=10;autoexpire=1800;")
 
 modparam("pike", "sampling_time_unit", 2)
@@ -434,8 +436,18 @@ request_route {
     if (has_totag()) {
         if (loose_route()) {
             force_rport();
+            if (\$proto == "tcp" || \$proto == "tls") {
+                force_tcp_alias();
+            }
             if (nat_uac_test("19")) {
                 fix_nated_contact();
+            }
+            if (\$Rp == 5160) {
+                if (\$proto == "tcp") {
+                    \$fs = "tcp:${WG_HUB_IP}:5160";
+                } else {
+                    \$fs = "udp:${WG_HUB_IP}:5160";
+                }
             }
             if (is_method("BYE")) {
                 rtpengine_delete();
@@ -526,6 +538,12 @@ request_route {
     append_hf("X-Real-IP: \$si\r\n");
 
     if (is_method("REGISTER")) {
+        if (\$fU != \$null && \$fU != "") {
+            \$sht(nornia_tcp_nat=>\$fU) = "sip:" + \$si + ":" + \$sp + ";transport=" + \$proto;
+        }
+        if (\$ct != \$null && \$(ct{nameaddr.uri}{uri.user}) != "") {
+            \$sht(nornia_tcp_nat=>\$(ct{nameaddr.uri}{uri.user})) = "sip:" + \$si + ":" + \$sp + ";transport=" + \$proto;
+        }
         if (!(\$hdr(Supported) =~ "path")) {
             append_hf("Supported: path\r\n");
         }
@@ -584,11 +602,22 @@ route[FROM_PBX] {
 
     if (has_totag()) {
         if (loose_route()) {
+            if (\$du == \$null && \$rd =~ "^(10\\.|172\\.(1[6-9]|2[0-9]|3[0-1])\\.|192\\.168\\.)" && \$rU != \$null && \$sht(nornia_tcp_nat=>\$rU) != \$null) {
+                \$du = \$sht(nornia_tcp_nat=>\$rU);
+            }
+            if (\$Rp == 5160 || \$sp == 5160) {
+                if ((\$du != \$null && \$du =~ "transport=(tcp|TCP)") || \$ru =~ "transport=(tcp|TCP)" || \$proto == "tcp") {
+                    \$fs = "tcp:${HUB_BIND_IP}:5160";
+                } else {
+                    \$fs = "udp:${HUB_BIND_IP}:5160";
+                }
+            }
             if (is_method("BYE")) {
                 rtpengine_delete();
             } else if (has_body("application/sdp")) {
                 rtpengine_manage("trust-address replace-origin replace-session-connection ICE=remove RTP/AVP direction=int direction=ext");
             }
+            xlog("L_INFO", "NORNIA_FROM_PBX_INDLG method=\$rm src=\$si:\$sp Rp=\$Rp ru=\$ru du=\$du fs=\$fs\n");
             t_on_reply("REPLY_FROM_EXT");
             t_relay();
             exit;
@@ -627,8 +656,8 @@ route[FROM_PBX] {
     # Initial request from PBX -> Deskphone (uses Path Route header populated on REGISTER)
     if (loose_route()) {
         # Match the exact listening socket (5160 vs 5060, TCP vs UDP) so Kamailio reuses the phone's existing inbound TCP connection behind NAT!
-        if (\$Rp == 5160) {
-            if (\$du != \$null && \$du =~ "transport=(tcp|TCP)") {
+        if (\$Rp == 5160 || \$sp == 5160) {
+            if ((\$du != \$null && \$du =~ "transport=(tcp|TCP)") || \$ru =~ "transport=(tcp|TCP)" || \$proto == "tcp") {
                 \$fs = "tcp:${HUB_BIND_IP}:5160";
             } else {
                 \$fs = "udp:${HUB_BIND_IP}:5160";
@@ -636,6 +665,22 @@ route[FROM_PBX] {
         } else if (\$du != \$null && \$du =~ "transport=(tcp|TCP)") {
             \$fs = "tcp:${HUB_BIND_IP}:5060";
         } else if (\$du == \$null || !(\$du =~ "transport=(tls|TLS)")) {
+            \$fs = "udp:${HUB_BIND_IP}:5060";
+        }
+    }
+
+    # Private RFC1918 R-URI fallback (e.g. Asterisk chan_sip NOTIFY/INVITE without Path Route header)
+    if (\$du == \$null && \$rd =~ "^(10\\.|172\\.(1[6-9]|2[0-9]|3[0-1])\\.|192\\.168\\.)" && \$rU != \$null && \$sht(nornia_tcp_nat=>\$rU) != \$null) {
+        \$du = \$sht(nornia_tcp_nat=>\$rU);
+        if (\$Rp == 5160 || \$sp == 5160) {
+            if (\$du =~ "transport=(tcp|TCP)") {
+                \$fs = "tcp:${HUB_BIND_IP}:5160";
+            } else {
+                \$fs = "udp:${HUB_BIND_IP}:5160";
+            }
+        } else if (\$du =~ "transport=(tcp|TCP)") {
+            \$fs = "tcp:${HUB_BIND_IP}:5060";
+        } else {
             \$fs = "udp:${HUB_BIND_IP}:5060";
         }
     }
@@ -652,6 +697,7 @@ route[FROM_PBX] {
     }
 
     if (!is_method("OPTIONS")) {
+        xlog("L_INFO", "NORNIA_FROM_PBX method=\$rm src=\$si:\$sp Rp=\$Rp ru=\$ru du=\$du fs=\$fs\n");
         record_route();
     }
 
@@ -674,6 +720,9 @@ onreply_route[REPLY_FROM_PBX] {
 }
 
 onreply_route[REPLY_FROM_EXT] {
+    if (\$rs >= 400) {
+        xlog("L_WARN", "NORNIA_EXT_ERR method=\$rm status=\$rs reason=\$rr src=\$si:\$sp\n");
+    }
     if (nat_uac_test("19")) {
         fix_nated_contact();
     }
