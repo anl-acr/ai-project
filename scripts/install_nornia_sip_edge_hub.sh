@@ -480,7 +480,7 @@ request_route {
 
     # Port 5160 = Legacy chan_sip / Cisco UseCallManager BLF bridge (preserves TCP to PBX:5160)
     if (\$Rp == 5160) {
-        \$var(target_pbx) = \$(var(target_pbx){s.replace,:5060,:5160});
+        \$var(target_pbx) = \$(var(target_pbx){s.replace,5060,5160});
         if (\$proto == "tcp") {
             \$var(target_pbx) = \$var(target_pbx) + ";transport=tcp";
         }
@@ -488,7 +488,7 @@ request_route {
 
     # BroadWorks DFKS (as-feature-event) -> Customer PBX Nornia DFKS Engine (UDP 5068)
     if (is_method("SUBSCRIBE") && \$hdr(Event) =~ "as-feature-event") {
-        \$var(target_pbx) = \$(var(target_pbx){s.replace,:5060,:5068});
+        \$var(target_pbx) = \$(var(target_pbx){s.replace,5060,5068});
     }
 
     # 4. Forward Valid External Request to Customer PBX over WireGuard

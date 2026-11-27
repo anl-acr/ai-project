@@ -50,6 +50,13 @@ if "$sht(nornia_user_routes=>" not in txt:
         print("UYARI: nornia_routes=>$rd satırı bulunamadı, kamailio.cfg değiştirilmedi.", file=sys.stderr)
         sys.exit(2)
 
+if "{s.replace,:5060,:5160}" in txt:
+    txt = txt.replace("{s.replace,:5060,:5160}", "{s.replace,5060,5160}")
+    changed = True
+if "{s.replace,:5060,:5068}" in txt:
+    txt = txt.replace("{s.replace,:5060,:5068}", "{s.replace,5060,5068}")
+    changed = True
+
 if changed:
     with open(cfg_path, "w", encoding="utf-8") as f:
         f.write(txt)
