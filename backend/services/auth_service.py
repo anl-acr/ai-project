@@ -560,6 +560,8 @@ _PUBLIC_PREFIXES = (
     "/api/downloads/mobile/",
     "/api/prov/",
     "/api/phonebook/",
+    "/tftp-root/",
+    "/api/tftp-root/",
     "/uploads/",
     "/api/uploads/",
     "/static/",
