@@ -50,12 +50,20 @@ if "$sht(nornia_user_routes=>" not in txt:
         print("UYARI: nornia_routes=>$rd satırı bulunamadı, kamailio.cfg değiştirilmedi.", file=sys.stderr)
         sys.exit(2)
 
-if "{s.replace,:5060,:5160}" in txt:
-    txt = txt.replace("{s.replace,:5060,:5160}", "{s.replace,5060,5160}")
-    changed = True
-if "{s.replace,:5060,:5068}" in txt:
-    txt = txt.replace("{s.replace,:5060,:5068}", "{s.replace,5060,5068}")
-    changed = True
+for old_expr in (
+    '$(var(target_pbx){s.replace,:5060,:5160})',
+    '$(var(target_pbx){s.replace,5060,5160})',
+):
+    if old_expr in txt:
+        txt = txt.replace(old_expr, '"sip:" + $(var(target_pbx){uri.host}) + ":5160"')
+        changed = True
+for old_expr2 in (
+    '$(var(target_pbx){s.replace,:5060,:5068})',
+    '$(var(target_pbx){s.replace,5060,5068})',
+):
+    if old_expr2 in txt:
+        txt = txt.replace(old_expr2, '"sip:" + $(var(target_pbx){uri.host}) + ":5068"')
+        changed = True
 
 if changed:
     with open(cfg_path, "w", encoding="utf-8") as f:
