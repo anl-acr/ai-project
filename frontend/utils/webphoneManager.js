@@ -59,6 +59,9 @@ class WebphoneManager {
       remoteNumber: "",
       remoteDisplayName: "",
       queueName: "",
+      isQueueCall: false,
+      rawQueueName: "",
+      queueAcwTime: null,
       callDuration: 0,
       isMuted: false,
       isOnHold: false,
@@ -746,6 +749,9 @@ class WebphoneManager {
       remoteNumber: l.remoteNumber,
       remoteDisplayName: l.remoteDisplayName,
       queueName: l.queueName || "",
+      isQueueCall: Boolean(l.isQueueCall || l.queueName),
+      rawQueueName: l.rawQueueName || l.queueName || "",
+      queueAcwTime: l.queueAcwTime ?? null,
       callStatus: l.callStatus,
       callDuration: l.callDuration,
       isMuted: l.isMuted,
@@ -787,6 +793,9 @@ class WebphoneManager {
       remoteNumber: activeLine ? activeLine.remoteNumber : "",
       remoteDisplayName: activeLine ? activeLine.remoteDisplayName : "",
       queueName: activeLine ? activeLine.queueName || "" : "",
+      isQueueCall: activeLine ? Boolean(activeLine.isQueueCall || activeLine.queueName) : false,
+      rawQueueName: activeLine ? activeLine.rawQueueName || activeLine.queueName || "" : "",
+      queueAcwTime: activeLine ? (activeLine.queueAcwTime ?? null) : null,
       callDuration: activeLine ? activeLine.callDuration : 0,
       isMuted: activeLine ? activeLine.isMuted : false,
       isOnHold: activeLine ? activeLine.isOnHold : false,
@@ -2548,6 +2557,9 @@ class WebphoneManager {
       remoteNumber: callerNum,
       remoteDisplayName: cleanedDisplayName && cleanedDisplayName !== callerNum ? cleanedDisplayName : "",
       queueName: parsedQueueName,
+      isQueueCall: Boolean(parsedQueueName),
+      rawQueueName: parsedQueueName,
+      queueAcwTime: null,
       callStatus: "Ringing",
       callDuration: 0,
       establishedAt: null,
@@ -2584,8 +2596,21 @@ class WebphoneManager {
           if (!activeLineObj || !qData) return;
           if (qData.is_queue_call) {
             const resolvedQ = qData.show_queue_name ? String(qData.queue_name || "").trim() : "";
-            if (activeLineObj.queueName !== resolvedQ) {
+            const resolvedRawQ = String(qData.raw_queue_name || qData.queue_name || qData.queue_extension || parsedQueueName || "").trim();
+            const resolvedAcw =
+              qData.acw_time !== undefined && qData.acw_time !== null && Number.isFinite(Number(qData.acw_time))
+                ? Number(qData.acw_time)
+                : null;
+            const changed =
+              activeLineObj.queueName !== resolvedQ ||
+              activeLineObj.isQueueCall !== true ||
+              activeLineObj.rawQueueName !== resolvedRawQ ||
+              activeLineObj.queueAcwTime !== resolvedAcw;
+            if (changed) {
               activeLineObj.queueName = resolvedQ;
+              activeLineObj.isQueueCall = true;
+              activeLineObj.rawQueueName = resolvedRawQ;
+              activeLineObj.queueAcwTime = resolvedAcw;
               this.syncLinesToState();
             }
           }
@@ -3251,6 +3276,10 @@ class WebphoneManager {
       myExtension: myExt,
       endLogged: false,
       remoteDisplayName: String(options.displayName || "").trim(),
+      queueName: "",
+      isQueueCall: false,
+      rawQueueName: "",
+      queueAcwTime: null,
       callStatus: "Calling",
       callDuration: 0,
       establishedAt: null,

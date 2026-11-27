@@ -43,6 +43,7 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
   const [dispositionSaved, setDispositionSaved] = useState(false);
   const [lastEndedCallId, setLastEndedCallId] = useState(null);
   const prevCallStatusRef = useRef("Idle");
+  const lastInCallQueueRef = useRef({ isQueueCall: false, queueName: "", queueAcwTime: null });
   const acwActiveRef = useRef(false);
   const preAcwStateRef = useRef(null);
 
@@ -152,47 +153,83 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
     };
   };
 
-  // Detect WebPhone call end (InCall -> Idle) to automatically enter ACW
+  // Detect WebPhone call end (InCall -> Idle) to automatically enter ACW ONLY for Queue calls
   useEffect(() => {
     const unsub = webphoneManager.subscribe((wpState) => {
       const currStatus = wpState?.callStatus || "Idle";
-      if (prevCallStatusRef.current === "InCall" && currStatus === "Idle") {
-        const { acwTime } = getAgentQueueConfig();
-        const effectiveAcw = acwTime > 0 ? acwTime : 20;
-        acwActiveRef.current = true;
-        preAcwStateRef.current = {
-          is_logged_in: Boolean(agentState?.is_logged_in),
-          status: agentState?.status || "online",
-          current_break: agentState?.current_break || null
-        };
-        setAcwRemaining(effectiveAcw);
-        setSelectedDisposition("");
-        setDispositionSaved(false);
-        setAgentState((prev) => ({
-          ...prev,
-          is_logged_in: true,
-          status: "acw",
-          current_break: null,
-          user_id: currentUser?.id || prev?.user_id,
-          extension: currentUser?.extension || prev?.extension
-        }));
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(
-            new CustomEvent("AGENT_ACW_STATE", {
-              detail: { active: true, remaining: effectiveAcw }
-            })
-          );
+      if (currStatus === "InCall" || currStatus === "Ringing") {
+        const isQ = Boolean(wpState?.isQueueCall || wpState?.queueName);
+        if (isQ || currStatus === "InCall") {
+          lastInCallQueueRef.current = {
+            isQueueCall: isQ,
+            queueName: String(wpState?.rawQueueName || wpState?.queueName || "").trim(),
+            queueAcwTime:
+              wpState?.queueAcwTime !== undefined && wpState?.queueAcwTime !== null
+                ? Number(wpState.queueAcwTime)
+                : null
+          };
         }
-        updateStateOnBackend(
-          {
-            is_logged_in: true,
-            status: "acw",
-            current_break: null,
-            user_id: currentUser?.id || agentState?.user_id,
-            extension: currentUser?.extension || agentState?.extension
-          },
-          { silent: true }
-        );
+      } else if (currStatus === "Calling") {
+        lastInCallQueueRef.current = { isQueueCall: false, queueName: "", queueAcwTime: null };
+      }
+
+      if (prevCallStatusRef.current === "InCall" && currStatus === "Idle") {
+        const endedQueueMeta = lastInCallQueueRef.current || { isQueueCall: false, queueName: "", queueAcwTime: null };
+        lastInCallQueueRef.current = { isQueueCall: false, queueName: "", queueAcwTime: null };
+
+        // ACW only activates when the finished call came from a Queue (never on internal extension-to-extension or direct calls)
+        if (endedQueueMeta.isQueueCall) {
+          const { acwTime } = getAgentQueueConfig();
+          const hasSpecificAcw =
+            endedQueueMeta.queueAcwTime !== null &&
+            endedQueueMeta.queueAcwTime !== undefined &&
+            Number.isFinite(Number(endedQueueMeta.queueAcwTime));
+          let effectiveAcw = hasSpecificAcw ? Number(endedQueueMeta.queueAcwTime) : acwTime;
+          if (effectiveAcw > 0 && effectiveAcw <= 5) {
+            effectiveAcw = 20;
+          }
+          if (effectiveAcw > 0) {
+            acwActiveRef.current = true;
+            preAcwStateRef.current = {
+              is_logged_in: Boolean(agentState?.is_logged_in),
+              status: agentState?.status || "online",
+              current_break: agentState?.current_break || null
+            };
+            setAcwRemaining(effectiveAcw);
+            setSelectedDisposition("");
+            setDispositionSaved(false);
+            setAgentState((prev) => ({
+              ...prev,
+              is_logged_in: true,
+              status: "acw",
+              current_break: null,
+              user_id: currentUser?.id || prev?.user_id,
+              extension: currentUser?.extension || prev?.extension
+            }));
+            if (typeof window !== "undefined") {
+              window.dispatchEvent(
+                new CustomEvent("AGENT_ACW_STATE", {
+                  detail: {
+                    active: true,
+                    remaining: effectiveAcw,
+                    isQueueCall: true,
+                    queueName: endedQueueMeta.queueName || ""
+                  }
+                })
+              );
+            }
+            updateStateOnBackend(
+              {
+                is_logged_in: true,
+                status: "acw",
+                current_break: null,
+                user_id: currentUser?.id || agentState?.user_id,
+                extension: currentUser?.extension || agentState?.extension
+              },
+              { silent: true }
+            );
+          }
+        }
       }
       prevCallStatusRef.current = currStatus;
     });

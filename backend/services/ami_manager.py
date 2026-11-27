@@ -148,6 +148,122 @@ def _resolve_sip_peer_to_ext(peer_name: str) -> str:
     return ""
 
 
+def _resolve_chan_sip_peer_keys(peer_name: str) -> list:
+    """
+    Resolves collision-free `registered_endpoints` keys for a `chan_sip` peer (e.g. Cisco 3905).
+    Because the 1st `chan_sip` peer for an extension is named `[<ext>]` (e.g. `[1000]`) so the
+    Cisco LCD displays `1000`, storing bare `"1000"` would collide with Web Phone presence.
+    Instead, returns:
+      - `f"SIP/{peer_name}"` (always, dedicated chan_sip namespace)
+      - the matching device's `sip_username` (e.g. `"XT6AoiKP"`), resolved from
+        `/etc/asterisk/sip_custom.conf` comment `contact=<sip_username>` or `settings_db`,
+      - `peer_name` itself ONLY when `peer_name` is NOT a short numeric extension (e.g. 2nd Cisco peer `[Abc12345]`).
+    """
+    import re
+    p = str(peer_name or "").strip()
+    if not p:
+        return []
+    keys = [f"SIP/{p}"]
+    if not (p.isdigit() and len(p) <= 6):
+        if p not in keys:
+            keys.append(p)
+
+    # 1. Exact lookup from /etc/asterisk/sip_custom.conf comment header:
+    #    ; --- CISCO / chan_sip DEVICE: Cisco 3905 (1000 | contact=XT6AoiKP) ---
+    #    [1000]
+    try:
+        for cfg_path in ("/etc/asterisk/sip_custom.conf", os.path.join(os.path.dirname(os.path.dirname(__file__)), "asterisk_config", "sip_custom.conf")):
+            if not os.path.isfile(cfg_path):
+                continue
+            with open(cfg_path, "r", encoding="utf-8", errors="ignore") as _f_cs:
+                lines_cs = _f_cs.readlines()
+            last_contact = ""
+            for ln in lines_cs:
+                s_ln = ln.strip()
+                if s_ln.startswith(";"):
+                    m_c = re.search(r"contact=([A-Za-z0-9_.-]+)", s_ln)
+                    if m_c:
+                        last_contact = m_c.group(1).strip()
+                elif s_ln.startswith("[") and s_ln.endswith("]"):
+                    sec_nm = s_ln[1:-1].strip()
+                    if sec_nm.lower() == p.lower():
+                        if last_contact and last_contact not in keys and not (last_contact.isdigit() and len(last_contact) <= 6):
+                            keys.append(last_contact)
+                        break
+                    last_contact = ""
+            if len(keys) > 1:
+                return keys
+    except Exception:
+        pass
+
+    # 2. Fallback lookup from settings_db users -> sip_devices with chan_sip driver
+    try:
+        from backend.main import settings_db
+        from backend.services.autoprovision_service import normalize_user_sip_devices
+        p_low = p.lower()
+        for u in (settings_db.get("users", []) or []):
+            if not isinstance(u, dict):
+                continue
+            u_ext = str(u.get("extension") or "").strip()
+            devs = normalize_user_sip_devices(
+                u,
+                settings_db.get("autoprovision", []),
+                settings_db.get("user_deskphone_configs", {}),
+            )
+            seen_first_csip = False
+            for sd in devs:
+                if not isinstance(sd, dict) or sd.get("is_active") is False:
+                    continue
+                drv = str(sd.get("sip_driver") or "pjsip").strip().lower()
+                if drv not in ("chan_sip", "sip", "cisco_sip"):
+                    continue
+                d_su = str(sd.get("sip_username") or "").strip()
+                csip_id = u_ext if (u_ext and not seen_first_csip) else d_su
+                seen_first_csip = True
+                if csip_id.lower() == p_low or (d_su and d_su.lower() == p_low):
+                    if d_su and d_su not in keys and not (d_su.isdigit() and len(d_su) <= 6):
+                        keys.append(d_su)
+                    return keys
+    except Exception:
+        pass
+
+    return keys
+
+
+def _extract_chan_sip_peer_live_info(ast_bin: str, peer_name: str, fallback_ip: str = "") -> tuple:
+    """
+    Runs `asterisk -rx 'sip show peer <peer_name>'` and extracts:
+      (best_ip, user_agent)
+    Prioritizes Kamailio `Path` (`received=sip:<REAL_IP>`) and `Reg. Contact` over WireGuard relay IP `10.200.0.1`.
+    """
+    import re
+    import subprocess
+    best_ip = str(fallback_ip or "").strip()
+    ua_val = ""
+    try:
+        r_p = subprocess.run([ast_bin, "-rx", f"sip show peer {peer_name}"], capture_output=True, text=True, timeout=1.5)
+        out = r_p.stdout or ""
+        if r_p.returncode == 0 and out:
+            m_ua = re.search(r"(?mi)^\s*Useragent\s*:\s*(.+)$", out)
+            if m_ua and m_ua.group(1).strip():
+                ua_val = m_ua.group(1).strip()
+            m_path = re.search(r"(?mi)^\s*(?:SIP\s+)?Path\s*:\s*(.+)$", out)
+            m_rc = re.search(r"(?mi)^\s*Reg\.\s*Contact\s*:\s*(.+)$", out)
+            m_addr = re.search(r"(?mi)^\s*Addr->IP\s*:\s*(.+)$", out)
+            cand_ip = _extract_real_sip_ip(
+                uri=m_rc.group(1).strip() if m_rc else "",
+                path=m_path.group(1).strip() if m_path else "",
+                via_addr=m_addr.group(1).strip() if m_addr else best_ip,
+            )
+            if cand_ip and cand_ip not in ("127.0.0.1", "0.0.0.0"):
+                # Prefer non-relay IP over 10.200.0.1
+                if cand_ip != "10.200.0.1" or not best_ip:
+                    best_ip = cand_ip
+    except Exception:
+        pass
+    return best_ip, ua_val
+
+
 def _extract_ext_from_channel(chan_name: str) -> str:
     import re
     ch = str(chan_name or "").strip()
@@ -869,12 +985,15 @@ def register_event_handlers(manager: Manager):
         extracted_ip = ip_m.group(0) if ip_m else ""
         if peer_name:
             mapped_ext = _resolve_sip_peer_to_ext(peer_name)
+            csip_keys = _resolve_chan_sip_peer_keys(peer_name)
             if p_status in ("Registered", "Reachable"):
-                registered_endpoints.add(peer_name, extracted_ip, user_agent="Cisco/chan_sip")
-                print(f"[AMI] chan_sip Peer Kaydedildi: {peer_name} (Dahili: {mapped_ext or peer_name}, IP: {extracted_ip})")
+                for ck in csip_keys:
+                    registered_endpoints.add(ck, extracted_ip, user_agent="Cisco/chan_sip")
+                print(f"[AMI] chan_sip Peer Kaydedildi: {peer_name} -> keys={csip_keys} (Dahili: {mapped_ext or peer_name}, IP: {extracted_ip})")
             elif p_status in ("Unregistered", "Unreachable", "Lagged"):
-                registered_endpoints.discard(peer_name)
-                print(f"[AMI] chan_sip Peer Koptu: {peer_name} ({p_status})")
+                for ck in csip_keys:
+                    registered_endpoints.discard(ck)
+                print(f"[AMI] chan_sip Peer Koptu: {peer_name} -> keys={csip_keys} ({p_status})")
 
     @manager.register_event('Registry')
     def handle_registry_event(m, event):
@@ -1273,7 +1392,11 @@ async def get_ami_manager() -> Manager:
                         if p_ip in ("-none-", "0.0.0.0"):
                             p_ip = ""
                         if p_obj and (p_st.upper().startswith("OK") or (p_ip and p_st.upper() not in ("UNREACHABLE", "UNKNOWN", "UNMONITORED"))):
-                            registered_endpoints.add(p_obj, p_ip, user_agent="Cisco/chan_sip")
+                            for ck in _resolve_chan_sip_peer_keys(p_obj):
+                                registered_endpoints.add(ck, p_ip, user_agent="Cisco/chan_sip")
+                        elif p_obj and p_st.upper() in ("UNREACHABLE", "UNKNOWN"):
+                            for ck in _resolve_chan_sip_peer_keys(p_obj):
+                                registered_endpoints.discard(ck)
             except Exception:
                 pass
         except Exception as e:
@@ -1363,16 +1486,27 @@ def _sync_asterisk_cli_contacts_sync():
                 if m_sp:
                     p_name = m_sp.group(1).strip()
                     p_ip = m_sp.group(2).strip()
-                    cur_ua = str((registered_endpoints._meta.get(p_name) or {}).get("user_agent") or "").strip()
-                    if not cur_ua or cur_ua.lower() == "cisco/chan_sip":
-                        try:
-                            r_p = subprocess.run([ast_bin, "-rx", f"sip show peer {p_name}"], capture_output=True, text=True, timeout=1.2)
-                            m_pua = re.search(r"(?mi)^\s*Useragent\s*:\s*(.+)$", r_p.stdout or "")
-                            if m_pua and m_pua.group(1).strip():
-                                cur_ua = m_pua.group(1).strip()
-                        except Exception:
-                            pass
-                    registered_endpoints.add(p_name, p_ip, user_agent=cur_ua or "Cisco/chan_sip")
+                    csip_keys = _resolve_chan_sip_peer_keys(p_name)
+                    sip_key = f"SIP/{p_name}"
+                    cur_meta = registered_endpoints._meta.get(sip_key) or {}
+                    cur_ua = str(cur_meta.get("user_agent") or "").strip()
+                    cur_ip = registered_endpoints.get_ip(sip_key)
+                    needs_peer_det = (not cur_ua or cur_ua.lower() == "cisco/chan_sip") or (p_ip in ("", "10.200.0.1") and cur_ip in ("", "10.200.0.1"))
+                    if needs_peer_det:
+                        det_ip, det_ua = _extract_chan_sip_peer_live_info(ast_bin, p_name, fallback_ip=p_ip)
+                        if det_ip:
+                            p_ip = det_ip
+                        if det_ua:
+                            cur_ua = det_ua
+                    for ck in csip_keys:
+                        registered_endpoints.add(ck, p_ip, user_agent=cur_ua or "Cisco/chan_sip")
+                    continue
+                m_off = re.match(r"^\s*([A-Za-z0-9_.-]+)(?:/[^\s]+)?\s+(?:\(Unspecified\)|(?:\d{1,3}\.){3}\d{1,3})\s+.*\b(UNKNOWN|UNREACHABLE)\b", ln)
+                if m_off:
+                    p_off = m_off.group(1).strip()
+                    if p_off and p_off.lower() != "name":
+                        for ck in _resolve_chan_sip_peer_keys(p_off):
+                            registered_endpoints.discard(ck)
     except Exception:
         pass
 
@@ -1417,7 +1551,11 @@ async def sync_pjsip_contacts_live(max_age_sec: float = 4.0):
                     if p_ip in ("-none-", "0.0.0.0"):
                         p_ip = ""
                     if p_obj and (p_st.upper().startswith("OK") or (p_ip and p_st.upper() not in ("UNREACHABLE", "UNKNOWN", "UNMONITORED"))):
-                        registered_endpoints.add(p_obj, p_ip, user_agent="Cisco/chan_sip")
+                        for ck in _resolve_chan_sip_peer_keys(p_obj):
+                            registered_endpoints.add(ck, p_ip, user_agent="Cisco/chan_sip")
+                    elif p_obj and p_st.upper() in ("UNREACHABLE", "UNKNOWN"):
+                        for ck in _resolve_chan_sip_peer_keys(p_obj):
+                            registered_endpoints.discard(ck)
         except Exception:
             pass
     # Run lightweight CLI enrichment for real Kamailio Path IP & live phone User-Agent (brand/model)

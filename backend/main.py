@@ -16559,17 +16559,62 @@ def _resolve_agent_physical_deskphones(ext_clean: str, uid_clean: Optional[str] 
     return matched_user, physical_devs
 
 
+def _resolve_chan_sip_peer_id_for_device(dev: dict, ext: str = "", all_user_devs: Optional[list] = None) -> str:
+    """
+    Returns the Asterisk `chan_sip` peer section name (`[1000]` for the 1st chan_sip device of an extension,
+    otherwise `[<sip_username>]`) matching `regenerate_pjsip_custom_conf`.
+    """
+    su = str((dev or {}).get("sip_username") or "").strip()
+    ext_s = str(ext or (dev or {}).get("extension") or "").strip()
+    if not ext_s:
+        return su
+    if isinstance(all_user_devs, list) and all_user_devs:
+        first_csip_su = ""
+        for d in all_user_devs:
+            if not isinstance(d, dict) or d.get("is_active") is False:
+                continue
+            drv = str(d.get("sip_driver") or "pjsip").strip().lower()
+            if drv in ("chan_sip", "sip", "cisco_sip"):
+                first_csip_su = str(d.get("sip_username") or "").strip()
+                break
+        if not first_csip_su or (su and first_csip_su.lower() == su.lower()):
+            return ext_s
+        return su
+    return ext_s
+
+
 def _inspect_deskphone_live_status(dev: dict) -> dict:
-    from backend.services.autoprovision_service import inspect_asterisk_pjsip_endpoint
+    from backend.services.autoprovision_service import (
+        inspect_asterisk_pjsip_endpoint,
+        inspect_asterisk_chan_sip_peer,
+    )
     from backend.services.ami_manager import registered_endpoints
 
     su = str(dev.get("sip_username") or "").strip()
-    insp = inspect_asterisk_pjsip_endpoint(su) if su else {"online": False, "parsed": {}}
+    drv = str(dev.get("sip_driver") or "pjsip").strip().lower()
+    is_csip = drv in ("chan_sip", "sip", "cisco_sip")
+    ext_s = str(dev.get("extension") or "").strip()
+    csip_peer_id = _resolve_chan_sip_peer_id_for_device(dev, ext_s) if is_csip else ""
+    if is_csip:
+        insp = inspect_asterisk_chan_sip_peer(csip_peer_id or su) if (csip_peer_id or su) else {"online": False, "parsed": {}}
+        csip_key = f"SIP/{csip_peer_id}" if csip_peer_id else ""
+        ami_ip = (
+            (registered_endpoints.get_ip(su) if su else "")
+            or (registered_endpoints.get_ip(csip_key) if csip_key else "")
+        )
+        ami_online = bool((su and su in registered_endpoints) or (csip_key and csip_key in registered_endpoints))
+    else:
+        insp = inspect_asterisk_pjsip_endpoint(su) if su else {"online": False, "parsed": {}}
+        ami_ip = registered_endpoints.get_ip(su) if su else ""
+        ami_online = bool(su and su in registered_endpoints)
     parsed = insp.get("parsed") or {}
-    ami_ip = registered_endpoints.get_ip(su) if su else ""
-    ami_online = bool(su and su in registered_endpoints)
     online = bool(insp.get("online") or ami_online)
-    ip_val = str(parsed.get("ip_address") or ami_ip or dev.get("ip") or "").strip()
+    parsed_ip = str(parsed.get("ip_address") or "").strip()
+    if parsed_ip == "10.200.0.1" and str(dev.get("ip") or "").strip() not in ("", "10.200.0.1"):
+        parsed_ip = ""
+    if ami_ip == "10.200.0.1" and str(dev.get("ip") or "").strip() not in ("", "10.200.0.1"):
+        ami_ip = ""
+    ip_val = str(parsed_ip or ami_ip or dev.get("ip") or "").strip()
     dev_state = str(parsed.get("device_state") or "").strip()
     ds_low = dev_state.lower()
     on_active_call = (
@@ -17136,6 +17181,7 @@ async def inspect_user_sip_device_endpoint(
 ):
     from backend.services.autoprovision_service import (
         inspect_asterisk_pjsip_endpoint,
+        inspect_asterisk_chan_sip_peer,
         get_or_create_provisioning_token,
         resolve_pbx_sip_server_host,
         normalize_mac_address,
@@ -17146,9 +17192,15 @@ async def inspect_user_sip_device_endpoint(
     ext_s = str(extension or "").strip()
     su_s = re.sub(r"[^a-zA-Z0-9_.-]", "", str(sip_username or "").strip())
     matched_u, matched_dev = _find_user_and_sip_device(ext_s, su_s)
-    ast_info = await asyncio.to_thread(inspect_asterisk_pjsip_endpoint, su_s)
+    dev_drv_s = str((matched_dev or {}).get("sip_driver") or "pjsip").strip().lower()
+    is_csip_dev = dev_drv_s in ("chan_sip", "sip", "cisco_sip")
+    csip_peer_id = _resolve_chan_sip_peer_id_for_device(matched_dev or {}, ext_s, (matched_u or {}).get("sip_devices") or []) if is_csip_dev else ""
+    if is_csip_dev:
+        ast_info = await asyncio.to_thread(inspect_asterisk_chan_sip_peer, csip_peer_id or su_s)
+    else:
+        ast_info = await asyncio.to_thread(inspect_asterisk_pjsip_endpoint, su_s)
 
-    # Self-heal: if this active SIP device belongs to the user but is not yet loaded in Asterisk, regenerate & reload PJSIP automatically
+    # Self-heal: if this active SIP device belongs to the user but is not yet loaded in Asterisk, regenerate & reload PJSIP/chan_sip automatically
     if (
         ast_info.get("cli_available")
         and not ast_info.get("exists")
@@ -17158,18 +17210,37 @@ async def inspect_user_sip_device_endpoint(
     ):
         try:
             await asyncio.to_thread(regenerate_pjsip_custom_conf)
-            ast_info = await asyncio.to_thread(inspect_asterisk_pjsip_endpoint, su_s)
+            if is_csip_dev:
+                ast_info = await asyncio.to_thread(inspect_asterisk_chan_sip_peer, csip_peer_id or su_s)
+            else:
+                ast_info = await asyncio.to_thread(inspect_asterisk_pjsip_endpoint, su_s)
         except Exception as e_heal_pjsip:
             print(f"[PJSIP Inspect Self-Heal Warning]: {e_heal_pjsip}")
 
     is_web_dev = str((matched_dev or {}).get("device_type") or "").strip().lower() == "web_phone"
-    ami_ip = registered_endpoints.get_ip(su_s) or (registered_endpoints.get_ip(ext_s) if is_web_dev and ext_s else "") or ""
-    ami_online = bool((su_s and su_s in registered_endpoints) or (is_web_dev and ext_s and ext_s in registered_endpoints))
+    csip_reg_key = f"SIP/{csip_peer_id}" if (is_csip_dev and csip_peer_id) else ""
+    ami_ip = (
+        registered_endpoints.get_ip(su_s)
+        or (registered_endpoints.get_ip(csip_reg_key) if csip_reg_key else "")
+        or (registered_endpoints.get_ip(ext_s) if is_web_dev and ext_s else "")
+        or ""
+    )
+    ami_online = bool(
+        (su_s and su_s in registered_endpoints)
+        or (csip_reg_key and csip_reg_key in registered_endpoints)
+        or (is_web_dev and ext_s and ext_s in registered_endpoints)
+    )
 
     parsed = ast_info.get("parsed") or {}
     live_online = bool(ast_info.get("online") or ami_online)
-    live_ip = parsed.get("ip_address") or ami_ip or (matched_dev.get("ip") if matched_dev else "") or ""
-    live_port = parsed.get("port") or (("8089" if is_web_dev else "5060") if live_ip else "")
+    parsed_ip_val = str(parsed.get("ip_address") or "").strip()
+    dev_saved_ip = str((matched_dev or {}).get("ip") or "").strip()
+    if parsed_ip_val == "10.200.0.1" and dev_saved_ip not in ("", "10.200.0.1"):
+        parsed_ip_val = ""
+    if ami_ip == "10.200.0.1" and dev_saved_ip not in ("", "10.200.0.1"):
+        ami_ip = ""
+    live_ip = parsed_ip_val or ami_ip or dev_saved_ip or ""
+    live_port = parsed.get("port") or (("8089" if is_web_dev else ("5160" if is_csip_dev else "5060")) if live_ip else "")
 
     pickup_groups_all = settings_db.get("call_pickup_groups", [])
     user_pickup_labels = []
@@ -25753,24 +25824,36 @@ def _resolve_call_device_info_from_channel(channel_str: str = "", ext_hint: str 
     from backend.services.autoprovision_service import normalize_user_sip_devices
 
     ep_low = ep_name.lower()
+    is_legacy_sip_chan = ch_s.upper().startswith("SIP/")
     matched_dev = None
     matched_ext = str(ext_hint or "").strip()
     for u in (settings_db.get("users", []) or []):
         if not isinstance(u, dict):
             continue
+        u_ext_str = str(u.get("extension") or "").strip()
         u_devs = normalize_user_sip_devices(u, settings_db.get("autoprovision", []), settings_db.get("user_deskphone_configs", {}))
         for d in u_devs:
             if not isinstance(d, dict):
                 continue
             d_su = str(d.get("sip_username") or "").strip().lower()
-            if d_su and d_su == ep_low:
+            d_drv = str(d.get("sip_driver") or "pjsip").strip().lower()
+            if (d_su and d_su == ep_low) or (
+                is_legacy_sip_chan
+                and d_drv in ("chan_sip", "sip", "cisco_sip")
+                and u_ext_str
+                and u_ext_str.lower() == ep_low
+            ):
                 matched_dev = d
-                matched_ext = str(u.get("extension") or matched_ext).strip()
+                matched_ext = u_ext_str or matched_ext
                 break
         if matched_dev:
             break
 
-    meta = (registered_endpoints.get_meta(ep_name) if ep_name else None) or {}
+    meta = (
+        (registered_endpoints.get_meta(f"SIP/{ep_name}") if is_legacy_sip_chan and ep_name else None)
+        or (registered_endpoints.get_meta(ep_name) if ep_name else None)
+        or {}
+    )
     ua_s = str(meta.get("user_agent") or "").strip()
     br_s = str(meta.get("browser") or "").strip()
     os_s = str(meta.get("os") or "").strip()
@@ -43246,6 +43329,7 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
         online_dev_ip = ""
         any_dev_reg = False
         online_devices = []
+        seen_user_csip_ext = False
         for idx_dev, d_item in enumerate(norm_devs):
             d_type_g = str(d_item.get("device_type") or "desk_phone").strip().lower()
             d_act = d_item.get("is_active") is not False
@@ -43361,9 +43445,35 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
             else:
                 from backend.services.ami_manager import format_sip_device_brand_model
                 d_su = str(d_item.get("sip_username") or "").strip()
-                d_on = bool(d_act and d_su and d_su in registered_endpoints)
-                d_live_ip = (registered_endpoints.get_ip(d_su) if d_su else "") or d_item.get("ip") or ""
-                d_meta = (registered_endpoints.get_meta(d_su, ip=d_live_ip) if d_su else None) or {}
+                d_drv = str(d_item.get("sip_driver") or "pjsip").strip().lower()
+                is_csip = d_drv in ("chan_sip", "sip", "cisco_sip")
+                csip_key = ""
+                if is_csip:
+                    csip_peer_id = ext if (ext and not seen_user_csip_ext) else d_su
+                    seen_user_csip_ext = True
+                    if csip_peer_id:
+                        csip_key = f"SIP/{csip_peer_id}"
+                d_on = bool(
+                    d_act
+                    and (
+                        (d_su and d_su in registered_endpoints)
+                        or (csip_key and csip_key in registered_endpoints)
+                    )
+                )
+                ami_ip_raw = (
+                    (registered_endpoints.get_ip(d_su) if d_su else "")
+                    or (registered_endpoints.get_ip(csip_key) if csip_key else "")
+                )
+                cfg_ip_raw = str(d_item.get("ip") or "").strip()
+                if ami_ip_raw in ("", "10.200.0.1") and cfg_ip_raw not in ("", "10.200.0.1"):
+                    d_live_ip = cfg_ip_raw
+                else:
+                    d_live_ip = ami_ip_raw or cfg_ip_raw or ""
+                d_meta = (
+                    (registered_endpoints.get_meta(d_su, ip=d_live_ip) if d_su else None)
+                    or (registered_endpoints.get_meta(csip_key, ip=d_live_ip) if csip_key else None)
+                    or {}
+                )
                 d_ua = str(d_meta.get("user_agent") or "").strip()
                 d_brand_model = format_sip_device_brand_model(
                     user_agent=d_ua,
@@ -45787,7 +45897,12 @@ async def get_active_call_queue_info(
         caller_last10 = caller_digits[-10:] if len(caller_digits) >= 10 else caller_digits
         try:
             cutoff = datetime.datetime.utcnow() - datetime.timedelta(minutes=5)
-            stmt = select(Call).where(Call.start_time >= cutoff).order_by(Call.start_time.desc()).limit(25)
+            stmt = (
+                select(Call)
+                .where(Call.start_time >= cutoff, Call.end_time.is_(None))
+                .order_by(Call.start_time.desc())
+                .limit(25)
+            )
             res_calls = await db.execute(stmt)
             recent_calls = res_calls.scalars().all()
             for c in recent_calls:
@@ -45797,12 +45912,12 @@ async def get_active_call_queue_info(
                     h_src = str(c.hangup_source or "").strip()
                     callee_str = str(c.callee_number or "").strip().lower()
                     if h_src.startswith("queue:"):
-                        q_k = h_src.split(":", 1)[1].strip().lower()
+                        q_k = h_src.split(":")[1].strip().lower()
                         if q_k in queue_lookup:
                             matched_q = queue_lookup[q_k]
                             break
                     if h_src.startswith("transfer:"):
-                        q_k = h_src.split(":", 1)[1].strip().lower()
+                        q_k = h_src.split(":")[1].strip().lower()
                         if q_k in queue_lookup:
                             matched_q = queue_lookup[q_k]
                             break
@@ -45813,7 +45928,7 @@ async def get_active_call_queue_info(
             pass
 
     if not matched_q:
-        return {"is_queue_call": False, "show_queue_name": False, "queue_name": "", "queue_extension": ""}
+        return {"is_queue_call": False, "show_queue_name": False, "queue_name": "", "raw_queue_name": "", "queue_extension": "", "acw_time": None}
 
     show_flag = bool(matched_q.get("show_queue_name", False))
     q_name_val = str(matched_q.get("name") or matched_q.get("extension") or "").strip()
@@ -45822,7 +45937,9 @@ async def get_active_call_queue_info(
         "is_queue_call": True,
         "show_queue_name": show_flag,
         "queue_name": q_name_val if show_flag else "",
-        "queue_extension": q_ext_val
+        "raw_queue_name": q_name_val,
+        "queue_extension": q_ext_val,
+        "acw_time": matched_q.get("acw_time"),
     }
 
 

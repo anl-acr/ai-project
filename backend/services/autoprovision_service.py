@@ -1728,6 +1728,147 @@ def inspect_asterisk_pjsip_endpoint(sip_username: str) -> Dict[str, Any]:
         return {"exists": False, "endpoint": ep, "online": False, "contacts": [], "parsed": parsed, "cli_available": False, "contact_raw": "", "raw": str(e)}
 
 
+def inspect_asterisk_chan_sip_peer(peer_name: str) -> Dict[str, Any]:
+    """Runs `asterisk -rx 'sip show peer <peer_name>'` for Cisco UseCallManager / chan_sip devices."""
+    ep = re.sub(r"[^a-zA-Z0-9_.-]", "", str(peer_name or "").strip())
+    if not ep:
+        return {"exists": False, "endpoint": "", "online": False, "contacts": [], "parsed": {}, "cli_available": False, "contact_raw": "", "raw": "SIP peer adı boş."}
+
+    parsed: Dict[str, Any] = {
+        "ip_address": "",
+        "port": "",
+        "rtt_ms": "",
+        "user_agent": "",
+        "device_state": "",
+        "context": "",
+        "transport": "",
+        "allow": "",
+        "dtmf_mode": "",
+        "callerid": "",
+        "named_call_group": "",
+        "named_pickup_group": "",
+        "max_contacts": "1",
+    }
+
+    def _run_ast_cli(cmd_str: str, timeout_s: float = 2.5) -> Tuple[bool, str]:
+        try:
+            proc = subprocess.run(
+                ["asterisk", "-rx", cmd_str],
+                capture_output=True,
+                text=True,
+                timeout=timeout_s,
+                check=False,
+            )
+            return True, (proc.stdout or proc.stderr or "").strip()
+        except FileNotFoundError:
+            try:
+                proc_d = subprocess.run(
+                    ["docker", "exec", "ai_pbx_asterisk", "asterisk", "-rx", cmd_str],
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout_s,
+                    check=False,
+                )
+                if proc_d.returncode == 0 or (proc_d.stdout or "").strip():
+                    return True, (proc_d.stdout or proc_d.stderr or "").strip()
+            except Exception:
+                pass
+            return False, ""
+
+    try:
+        cli_ok, raw = _run_ast_cli(f"sip show peer {ep}", 2.5)
+        if not cli_ok:
+            return {
+                "exists": False,
+                "endpoint": ep,
+                "online": False,
+                "contacts": [],
+                "parsed": parsed,
+                "cli_available": False,
+                "contact_raw": "",
+                "raw": "Asterisk CLI bu makinede kurulu değil (`asterisk -rx \"sip show peer " + ep + "\"`).",
+            }
+        exists = bool(raw) and ("Peer " + ep + " not found" not in raw) and ("not found" not in raw.lower()) and ("no such command" not in raw.lower())
+        online = False
+        contacts: List[str] = []
+        reg_contact_line = ""
+        path_line = ""
+        addr_ip_line = ""
+
+        for line in raw.splitlines():
+            ls = line.strip()
+            if ":" not in ls:
+                continue
+            k_raw, _, v_raw = ls.partition(":")
+            k_low = k_raw.strip().lower()
+            v_clean = v_raw.strip()
+            if not v_clean:
+                continue
+            if k_low == "status":
+                if v_clean.upper().startswith("OK"):
+                    online = True
+                    parsed["device_state"] = "Not in use"
+                    m_rtt = re.search(r"OK\s*\(\s*([0-9]+(?:\.[0-9]+)?)\s*ms\s*\)", v_clean, re.IGNORECASE)
+                    if m_rtt:
+                        parsed["rtt_ms"] = m_rtt.group(1)
+                else:
+                    parsed["device_state"] = v_clean
+            elif k_low == "useragent":
+                parsed["user_agent"] = v_clean
+            elif k_low == "context":
+                parsed["context"] = v_clean
+            elif k_low == "dtmfmode":
+                parsed["dtmf_mode"] = v_clean
+            elif k_low == "callerid":
+                parsed["callerid"] = v_clean
+            elif k_low == "codecs":
+                parsed["allow"] = v_clean
+            elif k_low in ("def. transport", "allowed. trnsp"):
+                if not parsed["transport"]:
+                    parsed["transport"] = v_clean
+            elif k_low == "named callgroup":
+                parsed["named_call_group"] = v_clean
+            elif k_low == "named pickupgroup":
+                parsed["named_pickup_group"] = v_clean
+            elif k_low == "reg. contact":
+                reg_contact_line = v_clean
+                contacts.append(f"Contact: {ep}/{v_clean}")
+            elif k_low in ("path", "sip path"):
+                path_line = v_clean
+            elif k_low == "addr->ip":
+                addr_ip_line = v_clean
+
+        # Prioritize real client IP from Path (received=sip:...) or Reg. Contact over WireGuard relay IP (10.200.0.1)
+        m_rcv = re.search(r"received=sips?:(?:\[)?((?:\d{1,3}\.){3}\d{1,3})(?::(\d+))?", path_line, re.IGNORECASE)
+        if m_rcv and m_rcv.group(1) not in ("127.0.0.1", "0.0.0.0", "10.200.0.1"):
+            parsed["ip_address"] = m_rcv.group(1)
+            parsed["port"] = m_rcv.group(2) or "5160"
+        if not parsed["ip_address"] and reg_contact_line:
+            m_rc = re.search(r"sips?:[^@\s]+@((?:\d{1,3}\.){3}\d{1,3})(?::(\d+))?", reg_contact_line, re.IGNORECASE)
+            if m_rc and m_rc.group(1) not in ("127.0.0.1", "0.0.0.0", "10.200.0.1"):
+                parsed["ip_address"] = m_rc.group(1)
+                parsed["port"] = m_rc.group(2) or "5160"
+        if not parsed["ip_address"] and addr_ip_line:
+            m_ad = re.search(r"((?:\d{1,3}\.){3}\d{1,3})(?::(\d+))?", addr_ip_line)
+            if m_ad and m_ad.group(1) not in ("0.0.0.0", "127.0.0.1"):
+                parsed["ip_address"] = m_ad.group(1)
+                parsed["port"] = m_ad.group(2) or "5160"
+
+        return {
+            "exists": exists,
+            "endpoint": ep,
+            "online": online,
+            "contacts": contacts,
+            "parsed": parsed,
+            "cli_available": True,
+            "contact_raw": reg_contact_line,
+            "raw": raw,
+            "driver": "chan_sip",
+        }
+    except Exception as e:
+        return {"exists": False, "endpoint": ep, "online": False, "contacts": [], "parsed": parsed, "cli_available": False, "contact_raw": "", "raw": str(e), "driver": "chan_sip"}
+
+
 def generate_yealink_common_boot_cfg(settings_db: Optional[dict] = None) -> str:
     """Common Yealink boot/model config (y0000000000xx.cfg) requested prior to <mac>.cfg."""
     lang_v = "Turkish"

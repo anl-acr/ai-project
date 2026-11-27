@@ -253,6 +253,9 @@ export default function AgentWebphoneTab({
     remoteNumber,
     remoteDisplayName,
     queueName,
+    isQueueCall = false,
+    rawQueueName = "",
+    queueAcwTime = null,
     callStatus,
     registered: isRegistered,
     callDuration,
@@ -310,18 +313,24 @@ export default function AgentWebphoneTab({
       const isAct = Boolean(e?.detail?.active);
       const rem = Number(e?.detail?.remaining || 0);
       if (isAct && rem > 0) {
+        if (e?.detail?.isQueueCall === false) return;
         setAcwWrapUp((prev) => {
           if (prev.active) {
             return { ...prev, remaining: rem };
           }
           const snap = lastActiveCallSnapshotRef.current || {};
+          const eventQueueName = String(e?.detail?.queueName || "").trim();
+          const hasQueueContext = Boolean(
+            e?.detail?.isQueueCall || eventQueueName || snap.isQueueCall || snap.queueName || snap.rawQueueName
+          );
+          if (!hasQueueContext) return prev;
           return {
             active: true,
             remaining: rem,
             callId: prev.callId || snap.callId || activeCallId || null,
             remoteNumber: prev.remoteNumber || snap.remoteNumber || "",
             displayName: prev.displayName || snap.displayName || "",
-            queueName: prev.queueName || snap.queueName || "",
+            queueName: prev.queueName || snap.queueName || eventQueueName || "",
             duration: prev.duration || snap.duration || 0,
             isInternal: Boolean(prev.isInternal || snap.isInternal)
           };
@@ -538,7 +547,7 @@ export default function AgentWebphoneTab({
       callTranscriptTurnsRef.current = [];
     }
 
-    // Transition from InCall -> Idle: Enter Post-Call ACW Note & Disposition Wrap-Up Mode
+    // Transition from InCall -> Idle: Enter Post-Call ACW Note & Disposition Wrap-Up Mode ONLY for Queue calls
     if (prevCallStatusRef.current === "InCall" && callStatus === "Idle" && lines.length === 0) {
       setTransferOpen(false);
       setConferenceOpen(false);
@@ -549,28 +558,50 @@ export default function AgentWebphoneTab({
       fetchContactsAndDirectory();
 
       const snap = lastActiveCallSnapshotRef.current || {};
-      const wrapSecs = defaultAcwSeconds > 0 ? defaultAcwSeconds : 20;
-      const endedCallId = snap.callId || activeCallId || null;
-      setAcwWrapUp({
-        active: true,
-        remaining: wrapSecs,
-        callId: endedCallId,
-        remoteNumber: snap.remoteNumber || "",
-        displayName: snap.displayName || "",
-        queueName: snap.queueName || "",
-        duration: snap.duration || 0,
-        isInternal: Boolean(snap.isInternal)
-      });
+      const wasQueueCall = Boolean(snap.isQueueCall || snap.queueName || snap.rawQueueName);
+      const hasSpecificAcw =
+        snap.queueAcwTime !== null &&
+        snap.queueAcwTime !== undefined &&
+        Number.isFinite(Number(snap.queueAcwTime));
+      let wrapSecs = hasSpecificAcw ? Number(snap.queueAcwTime) : defaultAcwSeconds;
+      if (wrapSecs > 0 && wrapSecs <= 5) {
+        wrapSecs = 20;
+      }
 
-      if (
-        canAiNoteAssistant &&
-        endedCallId !== autoAiTriggeredForCallRef.current &&
-        ((callTranscriptTurnsRef.current && callTranscriptTurnsRef.current.length > 0) || endedCallId)
-      ) {
-        autoAiTriggeredForCallRef.current = endedCallId || `call_${Date.now()}`;
-        setTimeout(() => {
-          handleGenerateAiNote(endedCallId, { auto: true });
-        }, 350);
+      if (wasQueueCall && wrapSecs > 0) {
+        const endedCallId = snap.callId || activeCallId || null;
+        setAcwWrapUp({
+          active: true,
+          remaining: wrapSecs,
+          callId: endedCallId,
+          remoteNumber: snap.remoteNumber || "",
+          displayName: snap.displayName || "",
+          queueName: snap.queueName || snap.rawQueueName || "",
+          duration: snap.duration || 0,
+          isInternal: Boolean(snap.isInternal)
+        });
+
+        if (
+          canAiNoteAssistant &&
+          endedCallId !== autoAiTriggeredForCallRef.current &&
+          ((callTranscriptTurnsRef.current && callTranscriptTurnsRef.current.length > 0) || endedCallId)
+        ) {
+          autoAiTriggeredForCallRef.current = endedCallId || `call_${Date.now()}`;
+          setTimeout(() => {
+            handleGenerateAiNote(endedCallId, { auto: true });
+          }, 350);
+        }
+      } else {
+        setAcwWrapUp({
+          active: false,
+          remaining: 0,
+          callId: null,
+          remoteNumber: "",
+          displayName: "",
+          queueName: "",
+          duration: 0,
+          isInternal: false
+        });
       }
     } else if (callStatus === "Idle" && lines.length === 0 && !acwWrapUp.active) {
       setTransferOpen(false);
@@ -902,11 +933,14 @@ export default function AgentWebphoneTab({
         remoteNumber: activePhoneNum || "",
         displayName: resolvedDisplayName || "",
         queueName: queueName || "",
+        isQueueCall: Boolean(isQueueCall || queueName || rawQueueName),
+        rawQueueName: rawQueueName || queueName || "",
+        queueAcwTime: queueAcwTime ?? null,
         duration: callDuration || 0,
         isInternal: resolvedIsInternal
       };
     }
-  }, [callStatus, activeCallId, activePhoneNum, resolvedDisplayName, queueName, callDuration, resolvedIsInternal]);
+  }, [callStatus, activeCallId, activePhoneNum, resolvedDisplayName, queueName, isQueueCall, rawQueueName, queueAcwTime, callDuration, resolvedIsInternal]);
 
   const inCallLinesCount = lines.filter((l) => l.callStatus === "InCall").length;
   const hasMultipleLines = lines.length >= 2;
