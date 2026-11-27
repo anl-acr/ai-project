@@ -513,7 +513,6 @@ request_route {
     force_rport();
     if (\$proto == "tcp" || \$proto == "tls") {
         force_tcp_alias();
-        force_tcp_alias(\$sp);
     }
     remove_hf("X-Real-IP");
     append_hf("X-Real-IP: \$si\r\n");

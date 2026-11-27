@@ -108,22 +108,19 @@ elif "tcp_accept_aliases=yes" not in txt and "tcp_keepalive=yes" in txt:
     )
     changed = True
 
+if "        force_tcp_alias($sp);\n" in txt:
+    txt = txt.replace("        force_tcp_alias($sp);\n", "")
+    changed = True
+
 if "force_tcp_alias();" not in txt:
     anchor_rport = '    force_rport();\n    remove_hf("X-Real-IP");'
     if anchor_rport in txt:
         txt = txt.replace(
             anchor_rport,
-            '    force_rport();\n    if ($proto == "tcp" || $proto == "tls") {\n        force_tcp_alias();\n        force_tcp_alias($sp);\n    }\n    remove_hf("X-Real-IP");',
+            '    force_rport();\n    if ($proto == "tcp" || $proto == "tls") {\n        force_tcp_alias();\n    }\n    remove_hf("X-Real-IP");',
             1,
         )
         changed = True
-elif "force_tcp_alias($sp);" not in txt:
-    txt = txt.replace(
-        "        force_tcp_alias();\n",
-        "        force_tcp_alias();\n        force_tcp_alias($sp);\n",
-        1,
-    )
-    changed = True
 
 # 5b) Match exact listening TCP socket (5160 vs 5060) in route[FROM_PBX] so mhomed does NOT pick :5060 when phone is connected on :5160!
 m_bind = re.search(r'listen=tcp:([0-9.]+):5160', txt)
