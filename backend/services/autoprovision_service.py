@@ -344,8 +344,9 @@ Phonebook Cloud1 URL  :{{PHONEBOOK_URL}}
   <sshPassword>nornia7800</sshPassword>
   <devicePool>
     <dateTimeSetting>
-      <dateTemplate>D.M.Ya</dateTemplate>
-      <timeZone>Turkey Standard Time</timeZone>
+      <dateTemplate>D.M.Y</dateTemplate>
+      <timeZone>Arab Standard Time</timeZone>
+      <olsonTimeZone>Etc/GMT-3</olsonTimeZone>
       <ntps>
         <ntp>
           <name>pool.ntp.org</name>
@@ -1854,6 +1855,15 @@ def inspect_asterisk_chan_sip_peer(peer_name: str) -> Dict[str, Any]:
                 parsed["ip_address"] = m_ad.group(1)
                 parsed["port"] = m_ad.group(2) or "5160"
 
+        # With qualify=no (required over Kamailio Path for chan_sip), registered peers report Status: Unmonitored
+        if (
+            not online
+            and parsed.get("device_state", "").lower() == "unmonitored"
+            and (parsed["ip_address"] or (reg_contact_line and "(null)" not in reg_contact_line.lower()))
+        ):
+            online = True
+            parsed["device_state"] = "Not in use"
+
         return {
             "exists": exists,
             "endpoint": ep,
@@ -2837,6 +2847,26 @@ def generate_provisioning_config(
                 cisco_feature_label = ext_s or _disp_lcd or sip_u
             # Show real extension (e.g. 1001) on screen via <name> while keeping cryptographic sip_u (XT6AoiKP) in <authName> & <contact>
             cisco_line_name = ext_s if (is_chan_sip and ext_s) else sip_u
+            # Cisco CP-3905 (incl. 9.2.1) does NOT recognize 'Turkey Standard Time' (falls back to UTC+0 = 3h behind)
+            # and rejects lowercase 'a' in 'D.M.Ya' (falls back to US M/D/Y).
+            # 'Arab Standard Time' + 'Etc/GMT-3' guarantee permanent UTC+03:00 (no DST) across all Cisco firmware eras.
+            _tz_s = str(timezone or "+3").strip()
+            _cisco_tz_map = {
+                "+3": ("Arab Standard Time", "Etc/GMT-3"),
+                "3": ("Arab Standard Time", "Etc/GMT-3"),
+                "0": ("GMT Standard Time", "Etc/GMT"),
+                "+0": ("GMT Standard Time", "Etc/GMT"),
+                "+1": ("W. Europe Standard Time", "Europe/Berlin"),
+                "+2": ("GTB Standard Time", "Europe/Athens"),
+                "+4": ("Arabian Standard Time", "Etc/GMT-4"),
+                "+5": ("West Asia Standard Time", "Etc/GMT-5"),
+                "+8": ("China Standard Time", "Etc/GMT-8"),
+                "+9": ("Tokyo Standard Time", "Etc/GMT-9"),
+                "-5": ("Eastern Standard Time", "America/New_York"),
+                "-8": ("Pacific Standard Time", "America/Los_Angeles"),
+            }
+            cisco_tz_name, cisco_olson_tz = _cisco_tz_map.get(_tz_s, ("Arab Standard Time", "Etc/GMT-3"))
+            cisco_date_tpl = "D.M.YA" if str(prefs.get("time_format") or "24") == "12" else "D.M.Y"
             sep_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!-- Nornia PBX Cisco Enterprise Auto-Provisioning ({html.escape(model)}) | Ext: {html.escape(ext_s)} | Mode: {html.escape(str(connection_mode or 'lan').upper())} -->
 <device>
@@ -2845,8 +2875,9 @@ def generate_provisioning_config(
   <sshPassword>nornia7800</sshPassword>
   <devicePool>
     <dateTimeSetting>
-      <dateTemplate>D.M.Ya</dateTemplate>
-      <timeZone>Turkey Standard Time</timeZone>
+      <dateTemplate>{cisco_date_tpl}</dateTemplate>
+      <timeZone>{cisco_tz_name}</timeZone>
+      <olsonTimeZone>{cisco_olson_tz}</olsonTimeZone>
       <ntps>
         <ntp>
           <name>{html.escape(ntp_server or 'pool.ntp.org')}</name>

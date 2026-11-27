@@ -1391,10 +1391,10 @@ async def get_ami_manager() -> Manager:
                         p_ip = str(r.get('IPaddress') or "").strip()
                         if p_ip in ("-none-", "0.0.0.0"):
                             p_ip = ""
-                        if p_obj and (p_st.upper().startswith("OK") or (p_ip and p_st.upper() not in ("UNREACHABLE", "UNKNOWN", "UNMONITORED"))):
+                        if p_obj and (p_st.upper().startswith("OK") or (p_ip and p_st.upper() not in ("UNREACHABLE", "UNKNOWN"))):
                             for ck in _resolve_chan_sip_peer_keys(p_obj):
                                 registered_endpoints.add(ck, p_ip, user_agent="Cisco/chan_sip")
-                        elif p_obj and p_st.upper() in ("UNREACHABLE", "UNKNOWN"):
+                        elif p_obj and (p_st.upper() in ("UNREACHABLE", "UNKNOWN") or not p_ip):
                             for ck in _resolve_chan_sip_peer_keys(p_obj):
                                 registered_endpoints.discard(ck)
             except Exception:
@@ -1482,7 +1482,7 @@ def _sync_asterisk_cli_contacts_sync():
         r_sip = subprocess.run([ast_bin, "-rx", "sip show peers"], capture_output=True, text=True, timeout=1.5)
         if r_sip.returncode == 0 and r_sip.stdout and "No such command" not in r_sip.stdout:
             for ln in r_sip.stdout.splitlines():
-                m_sp = re.match(r"^\s*([A-Za-z0-9_.-]+)(?:/[^\s]+)?\s+((?:\d{1,3}\.){3}\d{1,3})\s+.*\bOK\s*\(", ln)
+                m_sp = re.match(r"^\s*([A-Za-z0-9_.-]+)(?:/[^\s]+)?\s+((?:\d{1,3}\.){3}\d{1,3})\s+.*\b(?:OK\s*\(|Unmonitored\b)", ln, re.IGNORECASE)
                 if m_sp:
                     p_name = m_sp.group(1).strip()
                     p_ip = m_sp.group(2).strip()
@@ -1501,7 +1501,7 @@ def _sync_asterisk_cli_contacts_sync():
                     for ck in csip_keys:
                         registered_endpoints.add(ck, p_ip, user_agent=cur_ua or "Cisco/chan_sip")
                     continue
-                m_off = re.match(r"^\s*([A-Za-z0-9_.-]+)(?:/[^\s]+)?\s+(?:\(Unspecified\)|(?:\d{1,3}\.){3}\d{1,3})\s+.*\b(UNKNOWN|UNREACHABLE)\b", ln)
+                m_off = re.match(r"^\s*([A-Za-z0-9_.-]+)(?:/[^\s]+)?\s+(?:(\(Unspecified\))|(?:\d{1,3}\.){3}\d{1,3}\s+.*\b(UNKNOWN|UNREACHABLE)\b)", ln, re.IGNORECASE)
                 if m_off:
                     p_off = m_off.group(1).strip()
                     if p_off and p_off.lower() != "name":
@@ -1550,10 +1550,10 @@ async def sync_pjsip_contacts_live(max_age_sec: float = 4.0):
                     p_ip = str(r.get('IPaddress') or "").strip()
                     if p_ip in ("-none-", "0.0.0.0"):
                         p_ip = ""
-                    if p_obj and (p_st.upper().startswith("OK") or (p_ip and p_st.upper() not in ("UNREACHABLE", "UNKNOWN", "UNMONITORED"))):
+                    if p_obj and (p_st.upper().startswith("OK") or (p_ip and p_st.upper() not in ("UNREACHABLE", "UNKNOWN"))):
                         for ck in _resolve_chan_sip_peer_keys(p_obj):
                             registered_endpoints.add(ck, p_ip, user_agent="Cisco/chan_sip")
-                    elif p_obj and p_st.upper() in ("UNREACHABLE", "UNKNOWN"):
+                    elif p_obj and (p_st.upper() in ("UNREACHABLE", "UNKNOWN") or not p_ip):
                         for ck in _resolve_chan_sip_peer_keys(p_obj):
                             registered_endpoints.discard(ck)
         except Exception:

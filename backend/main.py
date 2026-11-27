@@ -5529,6 +5529,9 @@ remove_existing=yes
                 csip_pg_lines = f"namedcallgroup={pg_names}\nnamedpickupgroup={pg_names}\n" if pg_names else ""
                 csip_peer_id = cid_ext_val if (cid_ext_val and cid_ext_val not in seen_csip_peers) else dev_su
                 seen_csip_peers.add(csip_peer_id)
+                # Asterisk 18 chan_sip does not attach Path Route header to OPTIONS qualify packets,
+                # causing peers behind Kamailio/WireGuard NAT proxy to falsely go UNREACHABLE and block Dial().
+                csip_qualify = "no" if (bool(dev.get("remote_access", False)) or os.path.isfile("/etc/wireguard/wg-nornia.conf")) else "yes"
                 chan_sip_blocks.append(
                     f"; --- CISCO / chan_sip DEVICE: {_safe_cid_label(dev.get('name') or dev_su, dev_su)} ({cid_ext_val} | contact={dev_su}) ---\n"
                     f"[{csip_peer_id}]\n"
@@ -5545,7 +5548,7 @@ remove_existing=yes
                     f"transport={csip_tr}\n"
                     f"directmedia=no\n"
                     f"nat=force_rport,comedia\n"
-                    f"qualify=yes\n"
+                    f"qualify={csip_qualify}\n"
                     f"callcounter=yes\n"
                     f"subscribecontext=webrtc_agents\n"
                     f"cisco_usecallmanager=yes\n"
@@ -5694,6 +5697,7 @@ mailboxes={cid_ext_val}@default
                 nat_ext_sip_line = ""
                 if nat_cfg.get("enabled") and str(nat_cfg.get("extern_ip") or "").strip():
                     nat_ext_sip_line = f"externaddr={str(nat_cfg.get('extern_ip')).strip()}\n"
+                sip_general_qualify = "no" if os.path.isfile("/etc/wireguard/wg-nornia.conf") else "yes"
                 clean_sip_main = f"""; ==========================================
 ; Asterisk chan_sip Main Configuration (Cisco Enterprise BLF — Port 5160)
 ; ==========================================
@@ -5718,7 +5722,7 @@ match_auth_username=yes
 alwaysauthreject=yes
 nat=force_rport,comedia
 directmedia=no
-qualify=yes
+qualify={sip_general_qualify}
 qualifyfreq=30
 {nat_ext_sip_line}localnet=10.0.0.0/8
 localnet=172.16.0.0/12

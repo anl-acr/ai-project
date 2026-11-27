@@ -92,6 +92,34 @@ for old_expr2 in (
         txt = txt.replace(old_expr2, '"sip:" + $(var(target_pbx){uri.host}) + ":5068"')
         changed = True
 
+# 5) TCP NAT keepalive + force_tcp_alias() so Asterisk->Kamailio->Cisco 3905 INVITE reuses phone's inbound TCP socket
+if "tcp_keepalive=yes" not in txt and "tcp_reuse_port=yes" in txt:
+    txt = txt.replace(
+        "tcp_reuse_port=yes",
+        "tcp_reuse_port=yes\ntcp_keepalive=yes\ntcp_keepidle=30\ntcp_keepintvl=10\ntcp_keepcnt=3",
+        1,
+    )
+    changed = True
+
+if "force_tcp_alias();" not in txt:
+    anchor_rport = '    force_rport();\n    remove_hf("X-Real-IP");'
+    if anchor_rport in txt:
+        txt = txt.replace(
+            anchor_rport,
+            '    force_rport();\n    if ($proto == "tcp" || $proto == "tls") {\n        force_tcp_alias();\n    }\n    remove_hf("X-Real-IP");',
+            1,
+        )
+        changed = True
+
+# 6) Reply 200 OK to bare Asterisk chan_sip OPTIONS without Path Route header so peers don't go UNREACHABLE
+opt_guard = '    if ($du == $null && is_method("OPTIONS")) {\n        sl_send_reply("200", "OK");\n        exit;\n    }\n'
+if 'is_method("OPTIONS")) {' not in txt:
+    m_lg = re.search(r'^    # Self-loop guard:.*$', txt, re.MULTILINE)
+    if m_lg:
+        ins_pos = m_lg.end() + 1
+        txt = txt[:ins_pos] + opt_guard + txt[ins_pos:]
+        changed = True
+
 if changed:
     with open(cfg_path, "w", encoding="utf-8") as f:
         f.write(txt)

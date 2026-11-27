@@ -321,6 +321,10 @@ listen=udp:${WG_HUB_IP}:5160
 tcp_connection_lifetime=3605
 tcp_max_connections=4096
 tcp_reuse_port=yes
+tcp_keepalive=yes
+tcp_keepidle=30
+tcp_keepintvl=10
+tcp_keepcnt=3
 
 ####### Modules ########
 loadmodule "kex.so"
@@ -504,6 +508,9 @@ request_route {
 
     # 4. Forward Valid External Request to Customer PBX over WireGuard
     force_rport();
+    if (\$proto == "tcp" || \$proto == "tls") {
+        force_tcp_alias();
+    }
     remove_hf("X-Real-IP");
     append_hf("X-Real-IP: \$si\r\n");
 
@@ -619,6 +626,10 @@ route[FROM_PBX] {
     }
 
     # Self-loop guard: never loop an INVITE/OPTIONS back to Kamailio itself
+    if (\$du == \$null && is_method("OPTIONS")) {
+        sl_send_reply("200", "OK");
+        exit;
+    }
     if (\$du == \$null && (\$rd == "${WG_HUB_IP}" || \$rd == "${HUB_PUBLIC_IP}" || \$rd == "${HUB_BIND_IP}")) {
         xlog("L_WARN", "NORNIA_LOOP_GUARD from_pbx method=\$rm ru=\$ru du=\$du\n");
         sl_send_reply("480", "Temporarily Unavailable");
