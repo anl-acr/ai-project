@@ -232,7 +232,7 @@ def _persist_wg0_and_kamailio_sync(active_peers: List[Dict[str, str]]):
                     ip = (p.get("wg_tunnel_ip") or "").strip()
                     if sub and ip:
                         _run_cmd(
-                            [kamcmd_bin, "htable.sets", "nornia_routes", f"{sub}.{SIP_BASE_DOMAIN}", f"sip:{ip}:5060"],
+                            [kamcmd_bin, "htable.sets", "nornia_routes", f"s:{sub}.{SIP_BASE_DOMAIN}", f"s:sip:{ip}:5060"],
                             timeout=3.0,
                         )
         except Exception as ex_kam:
@@ -276,7 +276,7 @@ def sync_kamailio_did_routes_for_pbx_sync(pbx_wg_ip: str, did_list: List[str]):
         if kamcmd_bin and os.path.basename(kamcmd_bin) == "kamcmd":
             _run_cmd([kamcmd_bin, "htable.flush", "nornia_did_routes"], timeout=3.0)
             for did_key, sip_uri in flat_pairs:
-                _run_cmd([kamcmd_bin, "htable.sets", "nornia_did_routes", did_key, sip_uri], timeout=3.0)
+                _run_cmd([kamcmd_bin, "htable.sets", "nornia_did_routes", f"s:{did_key}", f"s:{sip_uri}"], timeout=3.0)
     except Exception as ex_did:
         print(f"[SIP Edge] Kamailio DID routes reload warning: {ex_did}")
 
@@ -319,7 +319,7 @@ def sync_kamailio_user_routes_for_pbx_sync(pbx_wg_ip: str, sip_users: List[str])
         if kamcmd_bin and os.path.basename(kamcmd_bin) == "kamcmd":
             _run_cmd([kamcmd_bin, "htable.flush", "nornia_user_routes"], timeout=3.0)
             for u_key, sip_uri in flat_pairs:
-                _run_cmd([kamcmd_bin, "htable.sets", "nornia_user_routes", u_key, sip_uri], timeout=3.0)
+                _run_cmd([kamcmd_bin, "htable.sets", "nornia_user_routes", f"s:{u_key}", f"s:{sip_uri}"], timeout=3.0)
     except Exception as ex_usr:
         print(f"[SIP Edge] Kamailio user routes reload warning: {ex_usr}")
 
