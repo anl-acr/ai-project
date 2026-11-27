@@ -92,11 +92,18 @@ for old_expr2 in (
         txt = txt.replace(old_expr2, '"sip:" + $(var(target_pbx){uri.host}) + ":5068"')
         changed = True
 
-# 5) TCP NAT keepalive + force_tcp_alias() so Asterisk->Kamailio->Cisco 3905 INVITE reuses phone's inbound TCP socket
+# 5) TCP NAT keepalive + tcp_accept_aliases + fast timeouts + force_tcp_alias($sp)
 if "tcp_keepalive=yes" not in txt and "tcp_reuse_port=yes" in txt:
     txt = txt.replace(
         "tcp_reuse_port=yes",
-        "tcp_reuse_port=yes\ntcp_keepalive=yes\ntcp_keepidle=30\ntcp_keepintvl=10\ntcp_keepcnt=3",
+        "tcp_reuse_port=yes\ntcp_accept_aliases=yes\ntcp_connect_timeout=3\ntcp_send_timeout=3\ntcp_keepalive=yes\ntcp_keepidle=30\ntcp_keepintvl=10\ntcp_keepcnt=3",
+        1,
+    )
+    changed = True
+elif "tcp_accept_aliases=yes" not in txt and "tcp_keepalive=yes" in txt:
+    txt = txt.replace(
+        "tcp_keepalive=yes",
+        "tcp_accept_aliases=yes\ntcp_connect_timeout=3\ntcp_send_timeout=3\ntcp_keepalive=yes",
         1,
     )
     changed = True
@@ -106,14 +113,57 @@ if "force_tcp_alias();" not in txt:
     if anchor_rport in txt:
         txt = txt.replace(
             anchor_rport,
-            '    force_rport();\n    if ($proto == "tcp" || $proto == "tls") {\n        force_tcp_alias();\n    }\n    remove_hf("X-Real-IP");',
+            '    force_rport();\n    if ($proto == "tcp" || $proto == "tls") {\n        force_tcp_alias();\n        force_tcp_alias($sp);\n    }\n    remove_hf("X-Real-IP");',
             1,
         )
+        changed = True
+elif "force_tcp_alias($sp);" not in txt:
+    txt = txt.replace(
+        "        force_tcp_alias();\n",
+        "        force_tcp_alias();\n        force_tcp_alias($sp);\n",
+        1,
+    )
+    changed = True
+
+# 5b) Match exact listening TCP socket (5160 vs 5060) in route[FROM_PBX] so mhomed does NOT pick :5060 when phone is connected on :5160!
+m_bind = re.search(r'listen=tcp:([0-9.]+):5160', txt)
+hub_bind_ip = m_bind.group(1) if m_bind else ""
+if hub_bind_ip:
+    old_lr_pat = re.compile(
+        r'    if \(loose_route\(\)\) \{\n'
+        r'        # For UDP force external UDP socket;[^\n]*\n'
+        r'        if \(\$du == \$null \|\| !\(\$du =~ "transport=\(tcp\|TCP\|tls\|TLS\)"\)\) \{\n'
+        r'            if \(\$Rp == 5160\) \{\n'
+        r'                \$fs = "udp:' + re.escape(hub_bind_ip) + r':5160";\n'
+        r'            \} else \{\n'
+        r'                \$fs = "udp:' + re.escape(hub_bind_ip) + r':5060";\n'
+        r'            \}\n'
+        r'        \}\n'
+        r'    \}',
+    )
+    new_lr_block = (
+        '    if (loose_route()) {\n'
+        '        # Match exact listening socket (5160 vs 5060, TCP vs UDP) to reuse inbound NAT TCP connection\n'
+        '        if ($Rp == 5160) {\n'
+        '            if ($du != $null && $du =~ "transport=(tcp|TCP)") {\n'
+        f'                $fs = "tcp:{hub_bind_ip}:5160";\n'
+        '            } else {\n'
+        f'                $fs = "udp:{hub_bind_ip}:5160";\n'
+        '            }\n'
+        '        } else if ($du != $null && $du =~ "transport=(tcp|TCP)") {\n'
+        f'            $fs = "tcp:{hub_bind_ip}:5060";\n'
+        '        } else if ($du == $null || !($du =~ "transport=(tls|TLS)")) {\n'
+        f'            $fs = "udp:{hub_bind_ip}:5060";\n'
+        '        }\n'
+        '    }'
+    )
+    if old_lr_pat.search(txt):
+        txt = old_lr_pat.sub(lambda _m: new_lr_block, txt, count=1)
         changed = True
 
 # 6) Reply 200 OK to bare Asterisk chan_sip OPTIONS without Path Route header so peers don't go UNREACHABLE
 opt_guard = '    if ($du == $null && is_method("OPTIONS")) {\n        sl_send_reply("200", "OK");\n        exit;\n    }\n'
-if 'is_method("OPTIONS")) {' not in txt:
+if 'if ($du == $null && is_method("OPTIONS"))' not in txt:
     m_lg = re.search(r'^    # Self-loop guard:.*$', txt, re.MULTILINE)
     if m_lg:
         ins_pos = m_lg.end() + 1

@@ -321,6 +321,9 @@ listen=udp:${WG_HUB_IP}:5160
 tcp_connection_lifetime=3605
 tcp_max_connections=4096
 tcp_reuse_port=yes
+tcp_accept_aliases=yes
+tcp_connect_timeout=3
+tcp_send_timeout=3
 tcp_keepalive=yes
 tcp_keepidle=30
 tcp_keepintvl=10
@@ -510,6 +513,7 @@ request_route {
     force_rport();
     if (\$proto == "tcp" || \$proto == "tls") {
         force_tcp_alias();
+        force_tcp_alias(\$sp);
     }
     remove_hf("X-Real-IP");
     append_hf("X-Real-IP: \$si\r\n");
@@ -615,13 +619,17 @@ route[FROM_PBX] {
 
     # Initial request from PBX -> Deskphone (uses Path Route header populated on REGISTER)
     if (loose_route()) {
-        # For UDP force external UDP socket; for TCP/TLS let mhomed reuse the phone's existing inbound TCP/TLS connection
-        if (\$du == \$null || !(\$du =~ "transport=(tcp|TCP|tls|TLS)")) {
-            if (\$Rp == 5160) {
-                \$fs = "udp:${HUB_BIND_IP}:5160";
+        # Match the exact listening socket (5160 vs 5060, TCP vs UDP) so Kamailio reuses the phone's existing inbound TCP connection behind NAT!
+        if (\$Rp == 5160) {
+            if (\$du != \$null && \$du =~ "transport=(tcp|TCP)") {
+                \$fs = "tcp:${HUB_BIND_IP}:5160";
             } else {
-                \$fs = "udp:${HUB_BIND_IP}:5060";
+                \$fs = "udp:${HUB_BIND_IP}:5160";
             }
+        } else if (\$du != \$null && \$du =~ "transport=(tcp|TCP)") {
+            \$fs = "tcp:${HUB_BIND_IP}:5060";
+        } else if (\$du == \$null || !(\$du =~ "transport=(tls|TLS)")) {
+            \$fs = "udp:${HUB_BIND_IP}:5060";
         }
     }
 
