@@ -5530,6 +5530,7 @@ remove_existing=yes
                     f"; --- CISCO / chan_sip DEVICE: {_safe_cid_label(dev.get('name') or dev_su, dev_su)} ({cid_ext_val}) ---\n"
                     f"[{dev_su}]\n"
                     f"type=friend\n"
+                    f"defaultuser={dev_su}\n"
                     f"host=dynamic\n"
                     f"secret={_esc_pjsip_val(dev_pwd)}\n"
                     f"context=webrtc_agents\n"
@@ -5710,6 +5711,8 @@ notifycid=yes
 limitonpeers=yes
 cisco_usecallmanager=yes
 supportpath=yes
+match_auth_username=yes
+alwaysauthreject=yes
 nat=force_rport,comedia
 directmedia=no
 qualify=yes

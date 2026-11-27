@@ -459,7 +459,13 @@ request_route {
     if (\$sht(nornia_routes=>\$rd) != \$null) {
         \$var(target_pbx) = \$sht(nornia_routes=>\$rd);
     }
-    # 1b) Legacy Cisco 3905/79xx raw-IP fallback matched by unique SIP username (From/To user)
+    # 1b) Legacy Cisco 3905/79xx raw-IP fallback matched by unique SIP username (Contact / Auth / From / To user)
+    if (\$var(target_pbx) == "" && \$ct != \$null && \$(ct{nameaddr.uri}{uri.user}) != "" && \$sht(nornia_user_routes=>\$(ct{nameaddr.uri}{uri.user})) != \$null) {
+        \$var(target_pbx) = \$sht(nornia_user_routes=>\$(ct{nameaddr.uri}{uri.user}));
+    }
+    if (\$var(target_pbx) == "" && \$au != \$null && \$sht(nornia_user_routes=>\$au) != \$null) {
+        \$var(target_pbx) = \$sht(nornia_user_routes=>\$au);
+    }
     if (\$var(target_pbx) == "" && \$fU != \$null && \$sht(nornia_user_routes=>\$fU) != \$null) {
         \$var(target_pbx) = \$sht(nornia_user_routes=>\$fU);
     }

@@ -40,6 +40,12 @@ safe_route_block = """    $var(target_pbx) = "";
     if ($sht(nornia_routes=>$rd) != $null) {
         $var(target_pbx) = $sht(nornia_routes=>$rd);
     }
+    if ($var(target_pbx) == "" && $ct != $null && $(ct{nameaddr.uri}{uri.user}) != "" && $sht(nornia_user_routes=>$(ct{nameaddr.uri}{uri.user})) != $null) {
+        $var(target_pbx) = $sht(nornia_user_routes=>$(ct{nameaddr.uri}{uri.user}));
+    }
+    if ($var(target_pbx) == "" && $au != $null && $sht(nornia_user_routes=>$au) != $null) {
+        $var(target_pbx) = $sht(nornia_user_routes=>$au);
+    }
     if ($var(target_pbx) == "" && $fU != $null && $sht(nornia_user_routes=>$fU) != $null) {
         $var(target_pbx) = $sht(nornia_user_routes=>$fU);
     }
@@ -60,14 +66,16 @@ safe_route_block = """    $var(target_pbx) = "";
         exit;
     }"""
 
-# Replace old `$var(target_pbx) = $sht(nornia_routes=>$rd); ... if ($var(target_pbx) == $null) { ... exit; }`
+# Replace old or previous safe_route_block cleanly
 old_pattern = re.compile(
-    r'    \$var\(target_pbx\)\s*=\s*\$sht\(nornia_routes=>\$rd\);.*?if\s*\(\$var\(target_pbx\)\s*==\s*\$null\)\s*\{.*?exit;\s*\}',
+    r'    \$var\(target_pbx\)\s*=\s*(?:\$sht\(nornia_routes=>\$rd\)|"");.*?if\s*\(\$var\(target_pbx\)\s*==\s*(?:\$null|"")\)\s*\{.*?exit;\s*\}',
     re.DOTALL,
 )
 if old_pattern.search(txt):
-    txt = old_pattern.sub(lambda _m: safe_route_block, txt, count=1)
-    changed = True
+    new_txt = old_pattern.sub(lambda _m: safe_route_block, txt, count=1)
+    if new_txt != txt:
+        txt = new_txt
+        changed = True
 
 for old_expr in (
     '$(var(target_pbx){s.replace,:5060,:5160})',

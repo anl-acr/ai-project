@@ -2676,6 +2676,26 @@ def generate_provisioning_config(
 
             extra_lines_xml = "\n".join(sep_lines)
             mac_upper = mac_hex.upper() if mac_hex else f"{ext_s}"
+            def _cisco_lcd_clean(raw_txt: str) -> str:
+                s_val = str(raw_txt or "").strip()
+                if not is_cp3905:
+                    return s_val
+                tr_map = str.maketrans("ıİğĞüÜşŞöÖçÇ", "iIgGuUsSoOcC")
+                return s_val.translate(tr_map)
+
+            _disp_lcd = _cisco_lcd_clean(disp_name)
+            _custom_lcd = _cisco_lcd_clean(custom_screen_label)
+            if _custom_lcd:
+                cisco_phone_label = _custom_lcd
+                cisco_feature_label = _custom_lcd
+            elif ext_s and _disp_lcd and _disp_lcd != ext_s and not _disp_lcd.startswith(f"Dahili {ext_s}"):
+                cisco_phone_label = f"{ext_s} {_disp_lcd}"[:24]
+                cisco_feature_label = f"{ext_s} - {_disp_lcd}"[:24]
+            else:
+                cisco_phone_label = _disp_lcd or ext_s or sip_u
+                cisco_feature_label = ext_s or _disp_lcd or sip_u
+            # Show real extension (e.g. 1001) on screen via <name> while keeping cryptographic sip_u (XT6AoiKP) in <authName> & <contact>
+            cisco_line_name = ext_s if (is_chan_sip and ext_s) else sip_u
             sep_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!-- Nornia PBX Cisco Enterprise Auto-Provisioning ({html.escape(model)}) | Ext: {html.escape(ext_s)} | Mode: {html.escape(str(connection_mode or 'lan').upper())} -->
 <device>
@@ -2762,7 +2782,7 @@ def generate_provisioning_config(
     <alwaysUsePrimeLine>false</alwaysUsePrimeLine>
     <alwaysUsePrimeLineVoiceMail>false</alwaysUsePrimeLineVoiceMail>
     <kpml>3</kpml>
-    <phoneLabel>{html.escape(disp_name)}</phoneLabel>
+    <phoneLabel>{html.escape(cisco_phone_label)}</phoneLabel>
     <stutterMsgWaiting>1</stutterMsgWaiting>
     <callStats>false</callStats>
     <silentPeriodBetweenCallWaitingBursts>10</silentPeriodBetweenCallWaitingBursts>
@@ -2772,11 +2792,11 @@ def generate_provisioning_config(
     <sipLines>
       <line button="1">
         <featureID>9</featureID>
-        <featureLabel>{html.escape(line_label)}</featureLabel>
+        <featureLabel>{html.escape(cisco_feature_label)}</featureLabel>
         <proxy>{cisco_line_proxy}</proxy>
         <port>{sip_port}</port>
-        <name>{html.escape(sip_u)}</name>
-        <displayName>{html.escape(disp_name)}</displayName>
+        <name>{html.escape(cisco_line_name)}</name>
+        <displayName>{html.escape(_disp_lcd)}</displayName>
         <autoAnswer>
           <autoAnswerEnabled>{'2' if eff_auto_answer else '0'}</autoAnswerEnabled>
         </autoAnswer>
