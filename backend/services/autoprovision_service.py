@@ -337,27 +337,62 @@ Phonebook Cloud1 URL  :{{PHONEBOOK_URL}}
         elif b_low == "cisco":
             fmt = "xml"
             content = f"""<?xml version="1.0" encoding="UTF-8"?>
-<!-- Nornia Sistem Şablonu: Cisco {m} ({item['dss_per_page']}×{item['dss_pages']} = {item['max_dss']} DSS{exp_note}) -->
-<flat-profile>
-  <Resync_On_Reset ua="na">Yes</Resync_On_Reset>
-  <Resync_Periodic ua="na">3600</Resync_Periodic>
-  <Profile_Rule ua="na">{{PROVISION_URL}}</Profile_Rule>
-  <SIP_Transport_1_ ua="na">{{TRANSPORT}}</SIP_Transport_1_>
-  <Proxy_1_ ua="na">{{SIP_SERVER}}:{{SIP_PORT}}</Proxy_1_>
-  <Display_Name_1_ ua="na">{{DISPLAY_NAME}}</Display_Name_1_>
-  <Short_Name_1_ ua="na">{{LABEL}}</Short_Name_1_>
-  <User_ID_1_ ua="na">{{SIP_USERNAME}}</User_ID_1_>
-  <Auth_ID_1_ ua="na">{{SIP_USERNAME}}</Auth_ID_1_>
-  <Password_1_ ua="na">{{SIP_PASSWORD}}</Password_1_>
-  <Voice_Mail_Number ua="na">{{VOICEMAIL_CODE}}</Voice_Mail_Number>
-  <Call_Pickup_Code ua="na">{{PICKUP_DIRECTED}}</Call_Pickup_Code>
-  <Group_Call_Pickup_Code ua="na">{{PICKUP_GROUP}}</Group_Call_Pickup_Code>
-  <Default_Ring_1_ ua="na">{{RINGTONE}}</Default_Ring_1_>
-  <Primary_NTP_Server ua="na">pool.ntp.org</Primary_NTP_Server>
-  <Time_Zone ua="na">GMT+03:00</Time_Zone>
+<!-- Nornia Sistem Şablonu: Cisco Enterprise {m} ({item['dss_per_page']}×{item['dss_pages']} = {item['max_dss']} DSS{exp_note}) -->
+<device>
+  <deviceProtocol>SIP</deviceProtocol>
+  <sshUserId>admin</sshUserId>
+  <sshPassword>nornia7800</sshPassword>
+  <devicePool>
+    <dateTimeSetting>
+      <dateTemplate>D.M.Ya</dateTemplate>
+      <timeZone>Turkey Standard Time</timeZone>
+      <ntps>
+        <ntp>
+          <name>pool.ntp.org</name>
+          <ntpMode>Unicast</ntpMode>
+        </ntp>
+      </ntps>
+    </dateTimeSetting>
+    <callManagerGroup>
+      <members>
+        <member priority="0">
+          <callManager>
+            <ports>
+              <ethernetPhonePort>2000</ethernetPhonePort>
+              <sipPort>{{SIP_PORT}}</sipPort>
+              <securedSipPort>5061</securedSipPort>
+            </ports>
+            <processNodeName>{{SIP_SERVER}}</processNodeName>
+          </callManager>
+        </member>
+      </members>
+    </callManagerGroup>
+  </devicePool>
+  <sipProfile>
+    <sipProxies>
+      <registerWithProxy>true</registerWithProxy>
+    </sipProxies>
+    <phoneLabel>{{DISPLAY_NAME}}</phoneLabel>
+    <sipLines>
+      <line button="1">
+        <featureID>9</featureID>
+        <featureLabel>{{LABEL}}</featureLabel>
+        <proxy>USECALLMANAGER</proxy>
+        <port>{{SIP_PORT}}</port>
+        <name>{{SIP_USERNAME}}</name>
+        <displayName>{{DISPLAY_NAME}}</displayName>
+        <authName>{{SIP_USERNAME}}</authName>
+        <authPassword>{{SIP_PASSWORD}}</authPassword>
+        <contact>{{SIP_USERNAME}}</contact>
+        <messagesNumber>{{VOICEMAIL_CODE}}</messagesNumber>
+      </line>
 {{DSS_KEYS_BLOCK}}
-{{EXPANSION_MODULES_BLOCK}}
-</flat-profile>
+    </sipLines>
+    <voipControlPort>5060</voipControlPort>
+    <dialTemplate>dialplan.xml</dialTemplate>
+  </sipProfile>
+  <transportLayerProtocol>1</transportLayerProtocol>
+</device>
 """
         else:
             fmt = "cfg"
@@ -2015,7 +2050,30 @@ def generate_provisioning_config(
     fw_cisco_lines = list(fw_dir.get("cisco_lines") or [])
 
     # 1. If a custom/system XML/CFG template is explicitly assigned, interpolate ALL variables + live DSS/Expansion/Softkey blocks
-    if isinstance(template_obj, dict) and str(template_obj.get("xml_content") or "").strip():
+    # Guard: Cisco Enterprise phones (SEP<MAC>.cnf.xml: 3905/78xx/79xx/88xx/89xx) CANNOT parse SPA/MPP <flat-profile>
+    # templates and should use the native Enterprise <device><sipProfile> generator (unless a custom <device> template is assigned).
+    _req_fn_low_g = str(requested_filename or "").strip().lower()
+    _brand_low_g = str(brand or "").strip().lower()
+    _model_low_g = str(model or "").strip().lower()
+    _is_cisco_ent_req = (
+        (_req_fn_low_g.startswith("sep") and _req_fn_low_g.endswith(".cnf.xml"))
+        or (
+            "cisco" in _brand_low_g
+            and not any(tok in _model_low_g for tok in ("mpp", "3pcc", "spa"))
+            and (is_chan_sip or not _req_fn_low_g.startswith("spa"))
+        )
+    )
+    _tpl_raw_preview = str(template_obj.get("xml_content") or "").strip() if isinstance(template_obj, dict) else ""
+    _skip_tpl_for_cisco_ent = bool(
+        isinstance(template_obj, dict)
+        and _is_cisco_ent_req
+        and (
+            "<flat-profile" in _tpl_raw_preview.lower()
+            or bool(template_obj.get("is_system"))
+            or str(template_obj.get("id") or "").startswith("sys-")
+        )
+    )
+    if isinstance(template_obj, dict) and _tpl_raw_preview and not _skip_tpl_for_cisco_ent:
         raw_tpl = str(template_obj.get("xml_content") or "")
         tpl_b_low = str(template_obj.get("brand") or brand or "Yealink").strip().lower()
 
@@ -2767,7 +2825,8 @@ def generate_provisioning_config(
     <displayOnDuration>10:00</displayOnDuration>
     <displayIdleTimeout>00:10</displayIdleTimeout>
   </vendorConfig>
-  <networkLocale>Turkey</networkLocale>
+  <networkLocale>{"" if is_cp3905 else "Turkey"}</networkLocale>
+  <capfAuthMode>0</capfAuthMode>
   <transportLayerProtocol>{cisco_tr_code}</transportLayerProtocol>
 </device>
 """
