@@ -553,11 +553,11 @@ async def on_startup():
 
     # Start Central Multi-Tenant Cisco TFTP Provisioning Proxy (UDP 69, MAC -> Customer PBX Tunnel)
     try:
-        from backend.services.tftp_prov_server import start_tftp_provision_server
+        from backend.services.tftp_prov_server import start_tftp_provisioning_server
         from license_center.backend.connect_hub import resolve_hub_tftp_provision_file
         hub_tftp_port = int(os.getenv("NORNIA_HUB_TFTP_PORT", "69"))
         if os.getenv("NORNIA_HUB_TFTP_ENABLED", "1") != "0":
-            await start_tftp_provision_server(resolve_hub_tftp_provision_file, host="0.0.0.0", port=hub_tftp_port)
+            await start_tftp_provisioning_server(resolve_hub_tftp_provision_file, host="0.0.0.0", port=hub_tftp_port)
     except Exception as e_tftp:
         print(f"[AIDA License Master] Hub TFTP server startup warning: {e_tftp}")
 
