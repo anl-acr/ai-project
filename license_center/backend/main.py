@@ -551,6 +551,16 @@ async def on_startup():
         except Exception as e_edge:
             print(f"[AIDA License Master] Startup SIP Edge sync warning: {e_edge}")
 
+    # Start Central Multi-Tenant Cisco TFTP Provisioning Proxy (UDP 69, MAC -> Customer PBX Tunnel)
+    try:
+        from backend.services.tftp_prov_server import start_tftp_provision_server
+        from license_center.backend.connect_hub import resolve_hub_tftp_provision_file
+        hub_tftp_port = int(os.getenv("NORNIA_HUB_TFTP_PORT", "69"))
+        if os.getenv("NORNIA_HUB_TFTP_ENABLED", "1") != "0":
+            await start_tftp_provision_server(resolve_hub_tftp_provision_file, host="0.0.0.0", port=hub_tftp_port)
+    except Exception as e_tftp:
+        print(f"[AIDA License Master] Hub TFTP server startup warning: {e_tftp}")
+
 # Pydantic Schemas
 class ClientCreateSchema(BaseModel):
     company_name: str
@@ -1649,7 +1659,7 @@ async def toggle_sip_edge_firewall_ports(
         want_open = (raw_action == "open")
     else:
         want_open = bool(payload.get("enabled", True))
-    edge_ports = ["51820/udp", "5060/udp", "5060/tcp", "5061/tcp", "5160/tcp", "5160/udp", "20000:40000/udp"]
+    edge_ports = ["51820/udp", "69/udp", "5060/udp", "5060/tcp", "5061/tcp", "5160/tcp", "5160/udp", "20000:40000/udp"]
 
     def _do_edge_ports():
         chk = _run_ufw_cmd_sync(["status"])

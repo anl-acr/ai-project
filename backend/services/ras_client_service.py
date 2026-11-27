@@ -811,6 +811,54 @@ async def _ras_tunnel_loop():
                     except Exception:
                         live_pbx_ver = ""
                     pbx_wg_pubkey = await asyncio.to_thread(ensure_pbx_wg_keypair_sync)
+                    def _collect_local_prov_sync_snapshot():
+                        macs_set = set()
+                        sip_users_set = set()
+                        try:
+                            from backend.main import settings_db as _s_prov
+                            from backend.services.autoprovision_service import normalize_mac_address as _norm_m
+                            for _ap in (_s_prov.get("autoprovision") or []):
+                                if isinstance(_ap, dict):
+                                    _, _mh = _norm_m(_ap.get("mac") or "")
+                                    if len(_mh) == 12:
+                                        macs_set.add(_mh)
+                                    _asu = str(_ap.get("sip_username") or "").strip()
+                                    if _asu:
+                                        sip_users_set.add(_asu)
+                            for _u in (_s_prov.get("users") or []):
+                                if not isinstance(_u, dict) or _u.get("is_active") is False:
+                                    continue
+                                _sdevs = _u.get("sip_devices")
+                                if isinstance(_sdevs, str) and _sdevs.strip().startswith("["):
+                                    try:
+                                        _sdevs = json.loads(_sdevs)
+                                    except Exception:
+                                        _sdevs = []
+                                if isinstance(_sdevs, list):
+                                    for _sd in _sdevs:
+                                        if not isinstance(_sd, dict) or _sd.get("is_active") is False:
+                                            continue
+                                        _dt = str(_sd.get("device_type") or "").strip().lower()
+                                        if _dt in ("web_phone", "virtual_subscriber"):
+                                            continue
+                                        _, _mh2 = _norm_m(_sd.get("mac") or "")
+                                        if len(_mh2) == 12:
+                                            macs_set.add(_mh2)
+                                        _su2 = str(_sd.get("sip_username") or "").strip()
+                                        if _su2:
+                                            sip_users_set.add(_su2)
+                            for _dk, _dv in ((_s_prov.get("user_deskphone_configs") or {}).items()):
+                                if isinstance(_dv, dict):
+                                    _, _mh3 = _norm_m(_dv.get("mac") or "")
+                                    if len(_mh3) == 12:
+                                        macs_set.add(_mh3)
+                        except Exception:
+                            pass
+                        return sorted(macs_set), sorted(sip_users_set)
+
+                    reg_macs_init, reg_susers_init = _collect_local_prov_sync_snapshot()
+                    _last_prov_sig = [f"{','.join(reg_macs_init)}|{','.join(reg_susers_init)}"]
+
                     tunnel_trunk_dids: List[str] = []
                     try:
                         from backend.main import settings_db as _s_tr
@@ -846,6 +894,8 @@ async def _ras_tunnel_loop():
                         "version": live_pbx_ver,
                         "wg_public_key": pbx_wg_pubkey,
                         "tunnel_trunk_dids": tunnel_trunk_dids,
+                        "registered_macs": reg_macs_init,
+                        "registered_sip_users": reg_susers_init,
                     }
                     t0 = time.monotonic()
                     await tunnel_ws.send(json.dumps(hello_payload))
@@ -860,13 +910,18 @@ async def _ras_tunnel_loop():
                         while True:
                             await asyncio.sleep(15)
                             p_start = time.monotonic()
-                            await tunnel_ws.send(
-                                json.dumps({
-                                    "type": "PING",
-                                    "ts": p_start,
-                                    "remote_ssh_enabled": bool(get_ras_config().get("remote_ssh_enabled", True)),
-                                })
-                            )
+                            ping_msg: Dict[str, Any] = {
+                                "type": "PING",
+                                "ts": p_start,
+                                "remote_ssh_enabled": bool(get_ras_config().get("remote_ssh_enabled", True)),
+                            }
+                            cur_macs, cur_susers = _collect_local_prov_sync_snapshot()
+                            cur_sig = f"{','.join(cur_macs)}|{','.join(cur_susers)}"
+                            if cur_sig != _last_prov_sig[0]:
+                                _last_prov_sig[0] = cur_sig
+                                ping_msg["registered_macs"] = cur_macs
+                                ping_msg["registered_sip_users"] = cur_susers
+                            await tunnel_ws.send(json.dumps(ping_msg))
 
                     async def _watch_manual_reconnect():
                         await _ras_reconnect_event.wait()

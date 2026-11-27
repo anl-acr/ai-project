@@ -47,6 +47,7 @@ class ConnectedPBXSession:
         self.tcp_open_waiters: Dict[str, asyncio.Future] = {}
         self.bytes_tx = 0
         self.bytes_rx = 0
+        self.wg_tunnel_ip: str = ""
         self.send_lock = asyncio.Lock()
 
     async def send_json(self, payload: Dict[str, Any]):
@@ -59,6 +60,145 @@ class ConnectedPBXSession:
 # Active tunnels keyed by subdomain (e.g. "merkez") and hardware_id
 ACTIVE_TUNNELS_BY_SUBDOMAIN: Dict[str, ConnectedPBXSession] = {}
 ACTIVE_TUNNELS_BY_HWID: Dict[str, ConnectedPBXSession] = {}
+# Multi-tenant Cisco TFTP (UDP 69) MAC -> subdomain routing table (synced over RAS tunnel)
+PROV_MAC_TO_SUBDOMAIN: Dict[str, str] = {}
+SUBDOMAIN_TO_MACS: Dict[str, List[str]] = {}
+
+
+def update_pbx_provision_directory_sync(
+    subdomain: str,
+    wg_tunnel_ip: str,
+    macs: Optional[List[str]] = None,
+    sip_users: Optional[List[str]] = None,
+):
+    sub_clean = str(subdomain or "").strip().lower()
+    if sub_clean and isinstance(macs, list):
+        old_macs = SUBDOMAIN_TO_MACS.get(sub_clean) or []
+        for om in old_macs:
+            if PROV_MAC_TO_SUBDOMAIN.get(om) == sub_clean:
+                PROV_MAC_TO_SUBDOMAIN.pop(om, None)
+        clean_macs = []
+        for m in macs:
+            mh = re.sub(r"[^a-f0-9]", "", str(m or "").lower())
+            if len(mh) == 12:
+                PROV_MAC_TO_SUBDOMAIN[mh] = sub_clean
+                clean_macs.append(mh)
+        SUBDOMAIN_TO_MACS[sub_clean] = clean_macs
+
+    if wg_tunnel_ip and isinstance(sip_users, list):
+        try:
+            from license_center.backend.sip_edge_manager import sync_kamailio_user_routes_for_pbx_sync
+            sync_kamailio_user_routes_for_pbx_sync(wg_tunnel_ip, sip_users)
+        except Exception as ex_ur:
+            print(f"[Nornia Hub] Kamailio user routes sync warning: {ex_ur}")
+
+
+async def _fetch_file_from_pbx_session(sess: ConnectedPBXSession, filename: str, client_ip: str) -> Optional[bytes]:
+    req_id = f"tftp-{uuid.uuid4().hex[:10]}"
+    loop = asyncio.get_running_loop()
+    fut = loop.create_future()
+    sess.pending_http[req_id] = fut
+    try:
+        await sess.send_json({
+            "type": "HTTP_REQ",
+            "req_id": req_id,
+            "method": "GET",
+            "path": f"/{filename}",
+            "query": "mode=wan",
+            "headers": {
+                "accept": "application/xml, text/plain, */*",
+                "user-agent": "Cisco-Hub-TFTP-Proxy/1.0",
+                "x-real-ip": str(client_ip or ""),
+                "x-forwarded-for": str(client_ip or ""),
+            },
+            "public_host": f"{sess.subdomain}.nornia.com.tr",
+            "public_proto": "https",
+            "body_b64": "",
+        })
+        res_msg = await asyncio.wait_for(fut, timeout=4.0)
+        status_code = int(res_msg.get("status_code") or res_msg.get("status") or 0)
+        if status_code != 200:
+            return None
+        raw_bytes = base64.b64decode(res_msg.get("body_b64") or "")
+        return raw_bytes if raw_bytes else None
+    except Exception:
+        sess.pending_http.pop(req_id, None)
+        return None
+
+
+async def resolve_hub_tftp_provision_file(filename: str, client_ip: str) -> Optional[bytes]:
+    """
+    Resolves remote Cisco Enterprise / MPP / SPA provisioning files requested via Hub TFTP (UDP 69).
+    Uses the unique 12-hex device MAC address to find the exact owning customer PBX tunnel and
+    fetches `/SEP<MAC>.cnf.xml?mode=wan` over the encrypted WebSocket tunnel.
+    """
+    fn_clean = os.path.basename(str(filename or "").strip())
+    fn_low = fn_clean.lower()
+
+    if fn_low == "dialplan.xml":
+        return (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<DIALTEMPLATE>\n'
+            '  <TEMPLATE MATCH="\\*.." Timeout="0"/>\n'
+            '  <TEMPLATE MATCH="1.." Timeout="0"/>\n'
+            '  <TEMPLATE MATCH="1..." Timeout="0"/>\n'
+            '  <TEMPLATE MATCH="2..." Timeout="0"/>\n'
+            '  <TEMPLATE MATCH="05........." Timeout="0"/>\n'
+            '  <TEMPLATE MATCH="0[2-48]........." Timeout="0"/>\n'
+            '  <TEMPLATE MATCH="00.*" Timeout="4"/>\n'
+            '  <TEMPLATE MATCH="*" Timeout="4"/>\n'
+            '</DIALTEMPLATE>\n'
+        ).encode("utf-8")
+
+    if fn_low == "xmldefault.cnf.xml":
+        return (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<Default>\n'
+            '  <callManagerGroup>\n'
+            '    <members>\n'
+            '      <member priority="0">\n'
+            '        <callManager>\n'
+            '          <ports>\n'
+            '            <ethernetPhonePort>2000</ethernetPhonePort>\n'
+            '            <sipPort>5160</sipPort>\n'
+            '            <securedSipPort>5061</securedSipPort>\n'
+            '          </ports>\n'
+            '          <processNodeName>nornia.com.tr</processNodeName>\n'
+            '        </callManager>\n'
+            '      </member>\n'
+            '    </members>\n'
+            '  </callManagerGroup>\n'
+            '</Default>\n'
+        ).encode("utf-8")
+
+    m_mac = re.search(r"(?:sep|spa)([0-9a-f]{12})\.(?:cnf\.xml|xml|cfg)$", fn_low)
+    if not m_mac:
+        return None
+    mac_hex = m_mac.group(1)
+
+    target_sub = PROV_MAC_TO_SUBDOMAIN.get(mac_hex)
+    if target_sub:
+        sess = ACTIVE_TUNNELS_BY_SUBDOMAIN.get(target_sub)
+        if sess:
+            data = await _fetch_file_from_pbx_session(sess, fn_clean, client_ip)
+            if data:
+                print(f"[Hub TFTP Prov] {fn_clean} -> {target_sub}.nornia.com.tr ({len(data)}B, src={client_ip})", flush=True)
+                return data
+
+    # Fallback probe if MAC was just added and hasn't hit the 15s delta-sync yet (capped at 15 tunnels)
+    candidates = [s for sub, s in list(ACTIVE_TUNNELS_BY_SUBDOMAIN.items()) if sub != target_sub][:15]
+    if candidates:
+        results = await asyncio.gather(
+            *[_fetch_file_from_pbx_session(s, fn_clean, client_ip) for s in candidates],
+            return_exceptions=True,
+        )
+        for cand_sess, res_data in zip(candidates, results):
+            if isinstance(res_data, (bytes, bytearray)) and len(res_data) > 0:
+                PROV_MAC_TO_SUBDOMAIN[mac_hex] = cand_sess.subdomain
+                print(f"[Hub TFTP Prov] {fn_clean} (discovered) -> {cand_sess.subdomain}.nornia.com.tr ({len(res_data)}B, src={client_ip})", flush=True)
+                return bytes(res_data)
+
+    return None
 
 
 async def push_ssh_control_to_pbx(
@@ -967,17 +1107,31 @@ async def pbx_ras_tunnel_endpoint(websocket: WebSocket):
                     except Exception as ex_edge:
                         print(f"[Nornia SIP Edge Provision Warning]: {ex_edge}")
 
+                if sip_edge_cfg.get("pbx_tunnel_ip"):
+                    session.wg_tunnel_ip = str(sip_edge_cfg.get("pbx_tunnel_ip")).strip()
+
                 req_trunk_dids = msg.get("tunnel_trunk_dids") or []
-                if isinstance(req_trunk_dids, list) and sip_edge_cfg.get("pbx_tunnel_ip"):
+                if isinstance(req_trunk_dids, list) and session.wg_tunnel_ip:
                     try:
                         from license_center.backend.sip_edge_manager import sync_kamailio_did_routes_for_pbx_sync
                         await asyncio.to_thread(
                             sync_kamailio_did_routes_for_pbx_sync,
-                            str(sip_edge_cfg.get("pbx_tunnel_ip")),
+                            session.wg_tunnel_ip,
                             req_trunk_dids,
                         )
                     except Exception as ex_did_sync:
                         print(f"[Nornia SIP Edge DID Route Sync Warning]: {ex_did_sync}")
+
+                req_reg_macs = msg.get("registered_macs")
+                req_reg_susers = msg.get("registered_sip_users")
+                if isinstance(req_reg_macs, list) or isinstance(req_reg_susers, list):
+                    await asyncio.to_thread(
+                        update_pbx_provision_directory_sync,
+                        session.subdomain,
+                        session.wg_tunnel_ip,
+                        req_reg_macs if isinstance(req_reg_macs, list) else None,
+                        req_reg_susers if isinstance(req_reg_susers, list) else None,
+                    )
 
                 await session.send_json({
                     "type": "RAS_WELCOME",
@@ -991,6 +1145,16 @@ async def pbx_ras_tunnel_endpoint(websocket: WebSocket):
                 })
 
             elif mtype == "PING":
+                ping_macs = msg.get("registered_macs")
+                ping_susers = msg.get("registered_sip_users")
+                if isinstance(ping_macs, list) or isinstance(ping_susers, list):
+                    await asyncio.to_thread(
+                        update_pbx_provision_directory_sync,
+                        session.subdomain,
+                        session.wg_tunnel_ip,
+                        ping_macs if isinstance(ping_macs, list) else None,
+                        ping_susers if isinstance(ping_susers, list) else None,
+                    )
                 await session.send_json({
                     "type": "PONG",
                     "ts": msg.get("ts"),

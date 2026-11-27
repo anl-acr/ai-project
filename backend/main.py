@@ -5704,6 +5704,7 @@ notifyhold=yes
 notifycid=yes
 limitonpeers=yes
 cisco_usecallmanager=yes
+supportpath=yes
 nat=force_rport,comedia
 directmedia=no
 qualify=yes
@@ -18221,8 +18222,10 @@ async def _resolve_cisco_ip_only_file(filename: str, client_ip: str = "127.0.0.1
 
     if fn_low == "xmldefault.cnf.xml":
         net_ep = resolve_provisioning_endpoints(settings_db, "tenant-default")
-        pbx_h = net_ep.get("local_ip") or net_ep.get("wan_sip_host") or "127.0.0.1"
-        return generate_cisco_xml_default(pbx_h, 5060).encode("utf-8"), "application/xml; charset=utf-8"
+        req_mode_q = (request.query_params.get("mode") if request is not None else "") or ""
+        pbx_h = (net_ep.get("wan_sip_host") if str(req_mode_q).strip().lower() == "wan" else (net_ep.get("local_ip") or net_ep.get("wan_sip_host"))) or "127.0.0.1"
+        def_port = 5160 if os.path.isfile("/usr/lib/asterisk/modules/chan_sip.so") else 5060
+        return generate_cisco_xml_default(pbx_h, def_port).encode("utf-8"), "application/xml; charset=utf-8"
 
     mac_hex = extract_mac_from_provision_filename(fn_clean)
     if not mac_hex:
@@ -18247,8 +18250,13 @@ async def _resolve_cisco_ip_only_file(filename: str, client_ip: str = "127.0.0.1
             self.url = _DummyURL()
 
     req_obj = request if request is not None else _SyntheticRequest(client_ip)
+    req_explicit_mode = None
+    if request is not None:
+        _qm = str(request.query_params.get("mode") or "").strip().lower()
+        if _qm in ("lan", "wan"):
+            req_explicit_mode = _qm
     try:
-        resp = await _render_autoprovision_file_for_phone(tok, fn_clean, req_obj, explicit_mode=None)
+        resp = await _render_autoprovision_file_for_phone(tok, fn_clean, req_obj, explicit_mode=req_explicit_mode)
         body = getattr(resp, "body", b"")
         if isinstance(body, str):
             body = body.encode("utf-8")

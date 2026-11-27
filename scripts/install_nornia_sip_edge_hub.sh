@@ -359,6 +359,7 @@ modparam("path", "use_received", 1)
 
 modparam("htable", "htable", "nornia_routes=>size=10;autoexpire=0;")
 modparam("htable", "htable", "nornia_did_routes=>size=10;autoexpire=0;")
+modparam("htable", "htable", "nornia_user_routes=>size=12;autoexpire=0;")
 modparam("htable", "htable", "nornia_line_routes=>size=10;autoexpire=86400;")
 modparam("htable", "htable", "ipban=>size=10;autoexpire=1800;")
 
@@ -450,9 +451,16 @@ request_route {
         t_check_trans();
     }
 
-    # 3g. ZERO-IP DROP SHIELD + 2-Layer DID/Line Trunk Routing:
+    # 3g. ZERO-IP DROP SHIELD + 3-Layer Subdomain / SIP-User / DID-Line Routing:
     # 1) Registered customer subdomains (deskphones)
     \$var(target_pbx) = \$sht(nornia_routes=>\$rd);
+    # 1b) Legacy Cisco 3905/79xx raw-IP fallback matched by unique SIP username (From/To user)
+    if (\$var(target_pbx) == \$null && \$fU != \$null) {
+        \$var(target_pbx) = \$sht(nornia_user_routes=>\$fU);
+    }
+    if (\$var(target_pbx) == \$null && \$tU != \$null) {
+        \$var(target_pbx) = \$sht(nornia_user_routes=>\$tU);
+    }
     # 2) Operator trunk inbound INVITE matched by RFC 3261 ;line= param
     if (\$var(target_pbx) == \$null && \$(ru{uri.param,line}) != "") {
         \$var(target_pbx) = \$sht(nornia_line_routes=>\$(ru{uri.param,line}));
@@ -731,6 +739,7 @@ if command -v ufw >/dev/null 2>&1; then
     ufw allow 5061/tcp comment "Nornia Kamailio SIP TLS" >/dev/null || true
     ufw allow 5160/tcp comment "Nornia Kamailio Cisco chan_sip TCP" >/dev/null || true
     ufw allow 5160/udp comment "Nornia Kamailio Cisco chan_sip UDP" >/dev/null || true
+    ufw allow 69/udp comment "Nornia Hub Cisco TFTP Provisioning Proxy" >/dev/null || true
     ufw allow 3478/udp comment "Nornia Coturn WebRTC TURN UDP" >/dev/null || true
     ufw allow 3478/tcp comment "Nornia Coturn WebRTC TURN TCP" >/dev/null || true
     ufw allow "${RTP_PORT_MIN}:${TURN_PORT_MAX}/udp" comment "Nornia RTPEngine + Coturn Media" >/dev/null || true
